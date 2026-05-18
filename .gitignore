@@ -1,0 +1,17 @@
+node_modules/
+.env
+state.db
+state.db-journal
+state.db-wal
+state.db-shm
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp

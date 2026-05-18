@@ -1,0 +1,26 @@
+{
+  "name": "claudio",
+  "version": "0.1.0",
+  "description": "个人 Claude AI 电台 · 读懂听歌习惯 → 规划声音 → 像 DJ 那样播报",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.5"
+  },
+  "scripts": {
+    "dev": "node --no-warnings server/app.js",
+    "start": "node --no-warnings server/app.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "axios": "^1.7.7",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1",
+    "vitest": "^2.1.0"
+  }
+}
