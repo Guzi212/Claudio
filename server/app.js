@@ -169,6 +169,7 @@ function handleControl({ command, arg }) {
 }
 
 // 音频代理：破酷狗防盗链 + 支持 Range
+// timeout 只覆盖 connect 阶段（10s），body 流式读取不限时（长歌可能 5+ min）。
 app.get('/api/proxy', async (req, res) => {
   const url = req.query.u;
   if (!url) {
@@ -177,6 +178,10 @@ app.get('/api/proxy', async (req, res) => {
   }
 
   const range = req.headers.range;
+  const ac = new AbortController();
+  // 客户端中途断开时（用户切歌 / 关页面）立刻终止上游拉流，不浪费带宽
+  req.on('close', () => ac.abort());
+
   try {
     const upstream = await axios.get(decodeURIComponent(url), {
       responseType: 'stream',
@@ -185,35 +190,63 @@ app.get('/api/proxy', async (req, res) => {
         'User-Agent': req.headers['user-agent'] || 'Mozilla/5.0',
         ...(range ? { Range: range } : {}),
       },
-      timeout: 15_000,
+      timeout: 10_000,        // connect / 首字节超时
+      timeoutErrorMessage: 'upstream first-byte timeout',
+      signal: ac.signal,
       validateStatus: s => s >= 200 && s < 400,
     });
 
-    // 透传必要的响应头
     for (const h of ['content-type', 'content-length', 'accept-ranges', 'content-range']) {
       const v = upstream.headers[h];
       if (v) res.setHeader(h, v);
     }
     res.status(upstream.status);
+
+    // 拿到 response 后清掉 axios 的 timeout，body 读取不限时
+    if (upstream.request?.socket) {
+      upstream.request.socket.setTimeout(0);
+    }
+
     upstream.data.pipe(res);
     upstream.data.on('error', err => {
+      if (err.name === 'CanceledError' || err.code === 'ERR_CANCELED') return; // 客户端正常断开
       console.error('[proxy] upstream stream error:', err.message);
       try { res.end(); } catch { /* */ }
     });
   } catch (err) {
+    if (err.name === 'CanceledError' || err.code === 'ERR_CANCELED') return;
     console.error('[proxy] failed:', err.message);
     if (!res.headersSent) res.status(502).send('upstream failed: ' + err.message);
     else try { res.end(); } catch { /* */ }
   }
 });
 
-// PWA 通知"已经走到下一首了"（HTML5 audio 自然 ended 时调）
+// PWA 通知队列指针变化。前端是 audio 元素的真实播放方，服务端只是镜像状态。
+// 两种调用方式：
+//   POST /api/runtime/advance              → 自然往后一首
+//   POST /api/runtime/advance {index: N}   → 强制对齐到 N（推荐：前端按钮触发时使用）
 app.post('/api/runtime/advance', (req, res) => {
-  if (runtime.index < runtime.queue.length - 1) {
+  const explicit = req.body?.index;
+  if (typeof explicit === 'number' && Number.isFinite(explicit)) {
+    runtime.index = Math.max(0, Math.min(explicit, runtime.queue.length - 1));
+  } else if (runtime.index < runtime.queue.length - 1) {
     runtime.index += 1;
   }
   broadcast({ type: 'state', runtime });
   res.json({ ok: true, index: runtime.index });
+});
+
+// 全量 sync：前端把 paused 等状态也推回来（按钮触发时使用）
+app.post('/api/runtime/state', (req, res) => {
+  const { index, paused } = req.body || {};
+  if (typeof index === 'number' && Number.isFinite(index)) {
+    runtime.index = Math.max(0, Math.min(index, runtime.queue.length - 1));
+  }
+  if (typeof paused === 'boolean') {
+    runtime.paused = paused;
+  }
+  broadcast({ type: 'state', runtime });
+  res.json({ ok: true, index: runtime.index, paused: runtime.paused });
 });
 
 // ────────────────────────────────────────────────────────
