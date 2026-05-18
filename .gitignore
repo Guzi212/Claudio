@@ -6,6 +6,7 @@ state.db-wal
 state.db-shm
 logs/
 *.log
+cache/
 
 # OS
 .DS_Store
