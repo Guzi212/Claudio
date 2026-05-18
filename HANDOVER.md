@@ -1,74 +1,92 @@
 # Claudio · 交接文档
 
-## 当前状态（MVP 已跑通）
+## 当前状态（MVP + P0 + P1 都跑通了）
 
-- ✅ PWA chat → Claude 子进程 → 酷狗匹配 → MP3 直链 → 浏览器播放，整条端到端验证通过
-- ✅ 扫码登录拿到 cookie，落 `state.db.prefs.kugou_cookie`（重启免登）
-- ✅ `npm test` 全绿（16/16）
-- 🟢 服务还在跑：Claudio :8080，KuGouMusicApi :3000（重启电脑会丢，明天按下面命令重起）
+- ✅ PWA chat → Claude → 酷狗 → 浏览器播放（端到端验证通过）
+- ✅ P0 体验补：proxy 长流不再 timeout · queue 切歌同步 · autoplay 兜底 · PWA icon
+- ✅ P1 三件套已合并 + 接入：
+  - **scheduler**（节律调度）— 已挂 cron：07:00 早间规划 · 09:00 通勤 · 每小时情绪检查（PWA 在线时才触发）
+  - **tts**（Fish Audio 合成）— 配 key 后 `say` 会被合成 mp3 放队首
+  - **env-injection**（天气 + 飞书日历）— context.js 第 3 片已自动注入
+- ✅ 测试 57/57 全绿
+- ✅ git 历史干净：9 个 commit，main 一路推平
 
-## 明天怎么继续
+## 启动命令（每天就这套）
 
 ```powershell
-# 1) 起 KuGouMusicApi（cookie 已在 Claudio 的 state.db 里，不用再扫码）
+# 后端音乐源
 Set-Location "D:\Claude code\works\KuGouMusicApi"
-npm start                     # 监听 :3000，前台
+npm start                     # :3000
 
 # 另开窗口
-# 2) 起 Claudio
 Set-Location "D:\Claude code\works\Claudio"
-npm run dev                   # 监听 :8080，前台
+npm run dev                   # :8080
 
-# 3) 浏览器
+# 浏览器
 Start-Process "http://localhost:8080/"
 ```
 
-如果 cookie 过期（看启动日志没有 `[kugou-login] OK`）：用 `D:\Claude code\works\KuGouMusicApi\stdout.log` 那条 `/login/qr/key` → `/login/qr/check` 流程重扫一次，再调 `dbApi.setPref('kugou_cookie', ...)` 写回。
+## 还要做什么（你这边）
 
-## 今天踩过的 5 个坑（已修，别再踩）
+### 必填 · 让现有功能真起作用
+- [ ] **`user/taste.md`** 自己填几行（喜欢的歌手、风格、场景），现在是空模板 → Claude 推荐才有"你"味
+- [ ] **`user/routines.md`** 可选填，填了 scheduler 推荐更准
 
-1. **better-sqlite3 在 Win 上需要 VS C++ 工具链** → 切到 Node 22.5+ 内置 `node:sqlite`，用 `createRequire` 绕过 Vite 静态分析
-2. **Vitest 默认 threads 池** 会撞 sqlite 锁 → `pool: 'forks' + fileParallelism: false`
-3. **`services/kugou.js` 的 `songUrl`** 短路顺序错（数组 truthy 直接返回）→ 抽 `firstUrl` helper
-4. **酷狗 search 实际字段是 `OriSongName` + `FileName`**，不是 `SongName`
-5. **claude CLI 在新版安装是 `.exe` 不是 `.cmd`** → spawn 第一参用裸 `claude`，靠 `shell:true` 解析 PATH
+### 选填 · 打开 P1 模块开关
+- [ ] **天气**：去 https://openweathermap.org 申请免费 key，`.env` 填 `OPENWEATHER_API_KEY` + `OPENWEATHER_CITY=Shanghai`（或你的城市英文名）
+- [ ] **TTS 真开口**：去 https://fish.audio 注册（付费），`.env` 填 `FISH_API_KEY` + `FISH_VOICE_ID`（在 Fish 控制台 Voice 详情页拿）
+- [ ] **飞书日历**：本机跑过 `lark-cli auth login` 即可，无需 .env 配置
 
-## 下一步路线（按优先级）
+### 维护 · 长期使用要注意的事
+- [ ] **酷狗 cookie 过期**：如果发现搜歌全 0 匹配，cookie 死了。重扫码：
+  ```powershell
+  curl.exe --noproxy "*" -o "$env:TEMP\qrkey.json" "http://localhost:3000/login/qr/key?type=web"
+  # 然后按今天的流程：拿 key → 生成 PNG → 扫码 → poll check → 更新 cookie
+  ```
+  （可以做成 PWA Settings 里一个按钮触发，见 P3）
 
-### P0 · 完善 MVP 体验
-- [ ] **/api/proxy 偶发 super timeout**：长跑时第一首中断 → 排查 axios stream 是否需要更长 timeout / 重连
-- [ ] **runtime.queue 切歌不同步**：浏览器 audio.ended 调了 `/api/runtime/advance`，但服务端 index 跟前端不一致时会错位 → 改成前端推完整 `{queue, index}` 而不是只发 advance
-- [ ] **首次 chat autoplay 被浏览器拦**：加一个"开始聆听"按钮先消费一个用户手势，再启动队列
-- [ ] **PWA icons**：`manifest.json` 的 `icons:[]` 空着，能装但桌面图标丑
-
-### P1 · 还原施工图被砍的模块
-- [ ] **`server/scheduler.js`**：cron · 07:00 规划 / 09:00 早间 / 小时情绪检查 / 日历 hook（用 node-cron）
-- [ ] **`server/tts.js` + Fish Audio**：合成 `say` 串场 → `cache/tts/<hash>.mp3` → 队列里插语音条
-- [ ] **天气注入**：`context.js` 第 3 片接 OpenWeather，按用户所在城市
-- [ ] **飞书日历**：context 第 3 片接 lark API 读今日日程（lark-cli skills 都已装好可调）
+## 还剩的路线图
 
 ### P2 · 客厅扩展
-- [ ] **UPnP 推 Naim**：用 node-upnp 在 PWA `<audio>` 旁边并存输出 adapter
+- [ ] **UPnP 推 Naim**：用 node-upnp 在 PWA `<audio>` 旁边并存输出 adapter；切换播放目标到客厅音响
 - [ ] **多设备同步**：state.db 加 device_id，WS 区分 client
 
 ### P3 · 体验打磨
-- [ ] PWA 三视图（Player / Profile / Settings）目前只有 Player
-- [ ] Settings 视图：编辑 taste.md / 看 unmatched 表 / 重扫码
-- [ ] 歌词显示（`/lyric?hash=...` 接口已就绪，前端没接）
+- [ ] **PWA 三视图**（Player / Profile / Settings）：当前只有 Player。Settings 里能编辑 taste.md、看 unmatched、点按钮重扫码
+- [ ] **歌词显示**：`/lyric?hash=...` 后端已就绪，前端没接
 
-## 关键文件 / 路径
+## 项目地图
 
-| 位置 | 内容 |
-|---|---|
-| `D:\Claude code\works\Claudio\` | 项目主体 |
-| `D:\Claude code\works\KuGouMusicApi\` | 上游酷狗 API 服务（独立跑） |
-| `state.db` | SQLite 持久化：messages / plays / prefs / unmatched |
-| `user/taste.md` | **空模板·明天填一填，Claude 推荐才能真的个性化** |
-| `user/routines.md` | 同上 |
-| `prompts/dj-persona.md` | DJ 人格 + JSON 输出硬约束 |
-| `C:\Users\13479\.claude\plans\claudio-...goose.md` | 原始 plan 文档（完整设计） |
-| `C:\Users\13479\.claude\projects\D--Claude-code-works-Claudio\memory\` | 跨会话记忆（user_profile / project_claudio） |
+```
+D:\Claude code\works\
+├── Claudio\                    主项目
+│   ├── server\
+│   │   ├── app.js              Express + WS + proxy + 接所有模块
+│   │   ├── router.js           intent 分流
+│   │   ├── context.js          ★ async 拼 system prompt（含天气 + 日历）
+│   │   ├── claude.js           spawn claude -p
+│   │   ├── scheduler.js        ★ node-cron 节律
+│   │   ├── tts.js              ★ Fish Audio 合成 + /tts/:hash.mp3
+│   │   ├── db.js               node:sqlite 包装
+│   │   └── services\
+│   │       ├── kugou.js
+│   │       ├── kugou-login.js
+│   │       ├── weather.js      ★ OpenWeather
+│   │       └── lark-calendar.js ★ 通过 lark-cli 读日程
+│   ├── pwa\                    chat + audio player 单页
+│   ├── tests\                  8 文件 57 用例
+│   ├── prompts\dj-persona.md   Claude 的人格 + JSON schema 硬约束
+│   └── user\{taste,routines}.md ★ 你的语料（填一填）
+├── KuGouMusicApi\              社区版酷狗 API · 独立 :3000
+└── (.claude-* 之类的不管它)
 
-## 给明天的 Claude 的提示
+C:\Users\13479\.claude\
+├── plans\claudio-...goose.md   原始 plan
+└── projects\D--Claude-code-works-Claudio\memory\
+    ├── user_profile.md         你的偏好
+    └── project_claudio.md      项目本身
+```
 
-读这份 + plan 文件 + `memory/` 就有完整 context。**架构忠实施工图分层**是用户的硬约束（他想学这种写法），不要为了快把 router/context/claude 揉一坨。所有数据源是**酷狗**（不是网易云），用 KuGouMusicApi。
+## 提示给明天的 Claude
+
+读这份 + plan + memory 就有全部 context。**架构忠实施工图分层是用户的硬约束**（学习目的）。音乐源是**酷狗**，cookie 在 `state.db.prefs.kugou_cookie`。
