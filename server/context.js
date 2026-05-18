@@ -3,6 +3,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import 'dotenv/config';
 import { dbApi } from './db.js';
+import { getCurrent as getWeather } from './services/weather.js';
+import { getTodayEvents } from './services/lark-calendar.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -37,11 +39,18 @@ function bucketOfDay(hour) {
   return '夜里';
 }
 
+function hhmmOf(start) {
+  if (!start || typeof start !== 'string') return '';
+  // 兼容 "YYYY-MM-DDTHH:MM:..." 和 "YYYY-MM-DD HH:MM:..."
+  const m = start.match(/(\d{2}:\d{2})/);
+  return m ? m[1] : '';
+}
+
 /**
  * 把 6 片粘成一个 system prompt 字符串。
  * 顺序对应施工图第 3 层的 "运行时聚合 · 组装盒子"。
  */
-export function buildSystemPrompt({ now = new Date() } = {}) {
+export async function buildSystemPrompt({ now = new Date() } = {}) {
   // ① 系统提示词
   const persona = readSafe('prompts/dj-persona.md').trim();
 
@@ -49,12 +58,22 @@ export function buildSystemPrompt({ now = new Date() } = {}) {
   const taste = readSafe('user/taste.md').trim();
   const routines = readSafe('user/routines.md').trim();
 
-  // ③ 环境注入（MVP：只有时间）
-  const env = [
+  // ③ 环境：时间 + 天气 + 今日日程
+  const [weather, events] = await Promise.all([
+    getWeather(),
+    getTodayEvents(),
+  ]);
+
+  const envLines = [
     `当前时间：${formatNow(now)}（${bucketOfDay(now.getHours())}）`,
-    `天气：(MVP 未接入)`,
-    `日历：(MVP 未接入)`,
-  ].join('\n');
+    weather
+      ? `天气：${weather.city} ${weather.temp}℃ ${weather.condition}`
+      : '天气：(未接入或失败)',
+    events && events.length
+      ? `今日日程：\n${events.map(e => `  · ${hhmmOf(e.start)} ${e.title}`.trimEnd()).join('\n')}`
+      : '今日日程：(无安排或未接入)',
+  ];
+  const env = envLines.join('\n');
 
   // ④ 已检索记忆：最近播放 + 最近对话
   const recentPlays = dbApi.recentPlays(10);
