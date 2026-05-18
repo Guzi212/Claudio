@@ -43,8 +43,24 @@ function setStatus(text) {
   statusEl.textContent = text;
 }
 
+// 用户手势状态。autoplay 在浏览器策略下需要"用户已交互过页面"才生效。
+// 在首次点击 input/button/启动幕 之前，autoplay 会被静默拒绝。
+let userActivated = false;
+function markActivated() { userActivated = true; }
+document.addEventListener('click', markActivated, { capture: true, once: true });
+document.addEventListener('keydown', markActivated, { capture: true, once: true });
+
+// 把服务端的真实位置推回前端的镜像状态（避免 server / client 两边索引漂移）
+function syncToServer(index, { paused = false } = {}) {
+  fetch('/api/runtime/state', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ index, paused }),
+  }).catch(() => {});
+}
+
 // ──────────────── Player ────────────────
-function playIndex(i) {
+function playIndex(i, { autoplay = true } = {}) {
   if (i < 0 || i >= state.queue.length) {
     npBox.classList.add('hidden');
     audio.removeAttribute('src');
@@ -55,20 +71,27 @@ function playIndex(i) {
   npTitle.textContent = t.title;
   npArtist.textContent = t.artist;
   audio.src = t.audioUrl;
-  audio.play().catch(err => {
-    console.warn('autoplay blocked:', err.message);
-  });
+  if (autoplay && userActivated) {
+    audio.play().catch(err => {
+      console.warn('audio.play failed:', err.message);
+      showAlert('浏览器拦了自动播放，点一下页面上的 ▶ 按钮');
+    });
+  }
   npBox.classList.remove('hidden');
+  syncToServer(state.index);
 }
 
 audio.addEventListener('ended', () => {
-  fetch('/api/runtime/advance', { method: 'POST' }).catch(() => {});
   if (state.index < state.queue.length - 1) {
     playIndex(state.index + 1);
   } else {
     npBox.classList.add('hidden');
+    syncToServer(state.index, { paused: true });
   }
 });
+
+audio.addEventListener('play', () => syncToServer(state.index, { paused: false }));
+audio.addEventListener('pause', () => syncToServer(state.index, { paused: true }));
 
 $('#btn-prev').addEventListener('click', () => {
   if (state.index > 0) playIndex(state.index - 1);
@@ -76,9 +99,13 @@ $('#btn-prev').addEventListener('click', () => {
 $('#btn-next').addEventListener('click', () => {
   if (state.index < state.queue.length - 1) playIndex(state.index + 1);
 });
-$('#btn-pp').addEventListener('click', () => {
-  if (audio.paused) audio.play(); else audio.pause();
+const btnPp = $('#btn-pp');
+btnPp.addEventListener('click', () => {
+  if (audio.paused) audio.play().catch(err => showAlert(`播放失败：${err.message}`));
+  else audio.pause();
 });
+audio.addEventListener('play', () => { btnPp.textContent = '⏸'; btnPp.title = '暂停'; clearAlert(); });
+audio.addEventListener('pause', () => { btnPp.textContent = '▶'; btnPp.title = '播放'; });
 
 // ──────────────── Chat ────────────────
 async function send(message) {

@@ -1,6 +1,6 @@
 // 极简 service worker：只缓存壳层（HTML/CSS/JS），不缓存音频和 /api/*
-const CACHE = 'claudio-shell-v1';
-const SHELL = ['/', '/index.html', '/app.js', '/styles.css', '/manifest.json'];
+const CACHE = 'claudio-shell-v2';
+const SHELL = ['/', '/index.html', '/app.js', '/styles.css', '/manifest.json', '/icon.svg'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)));
