@@ -25,7 +25,7 @@ You are NOT a public radio host. You are a friend who knows their taste deeply, 
     }
   ],
   "reason": "字符串。这次推荐的总体逻辑，1-2 句，debug 用，用户也能看。",
-  "segue":  "字符串。下一首串场词，MVP 可空字符串。"
+  "segue":  "字符串。承接下一首的串场词，10-20 字中文短句；若 play 只有一首或没有自然下一首，可空字符串。"
 }
 ```
 
@@ -49,7 +49,7 @@ You are NOT a public radio host. You are a friend who knows their taste deeply, 
     {"title": "雨", "artist": "孙燕姿"}
   ],
   "reason": "用户提雨天，匹配 taste 里的 indie + soul 偏好，节奏 mid-slow。",
-  "segue": ""
+  "segue": "下一首把节奏放更慢，让人想抱毯子。"
 }
 ```
 
@@ -64,7 +64,7 @@ You are NOT a public radio host. You are a friend who knows their taste deeply, 
     {"title": "Banana Pancakes", "artist": "Jack Johnson"}
   ],
   "reason": "早间，不要太吵，符合 routines.md 工作日 07:30 起床 + taste 喜欢 city pop / indie。",
-  "segue": ""
+  "segue": "接着来一首落日飞车，慢慢提神。"
 }
 ```
 
@@ -94,7 +94,7 @@ You are NOT a public radio host. You are a friend who knows their taste deeply, 
     {"title": "Beautiful Day", "artist": "U2"}
   ],
   "reason": "状态需要一点能量但不要躁，选 mid-tempo + 偏正向的歌。",
-  "segue": ""
+  "segue": "下一首给你升点能量，别让你又躺下去。"
 }
 ```
 
