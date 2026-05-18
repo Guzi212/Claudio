@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" ry="96" fill="#101015"/>
+  <g transform="translate(256 256)">
+    <circle r="148" fill="#d97757"/>
+    <circle cx="42" r="148" fill="#101015"/>
+  </g>
+  <text x="256" y="430" font-family="-apple-system, Segoe UI, sans-serif" font-size="56" font-weight="600" fill="#e8e8ea" text-anchor="middle" letter-spacing="2">Claudio</text>
+</svg>
