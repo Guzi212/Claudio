@@ -1,0 +1,257 @@
+import express from 'express';
+import http from 'node:http';
+import path from 'node:path';
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { WebSocketServer } from 'ws';
+import axios from 'axios';
+import 'dotenv/config';
+
+import { dbApi } from './db.js';
+import { route } from './router.js';
+import { buildSystemPrompt } from './context.js';
+import { ask as claudeAsk } from './claude.js';
+import { ensureLogin } from './services/kugou-login.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.resolve(__dirname, '..');
+const PORT = Number(process.env.PORT) || 8080;
+
+const app = express();
+app.use(express.json({ limit: '1mb' }));
+
+// 简单运行时状态（in-memory）：当前 queue + 索引
+const runtime = {
+  queue: [],      // [{title, artist, kugouId, audioUrl, ...}]
+  index: 0,       // 当前播放索引
+  paused: false,
+  lastSay: '',
+};
+
+const wss = new WebSocketServer({ noServer: true });
+const wsClients = new Set();
+
+function broadcast(event) {
+  const payload = JSON.stringify(event);
+  for (const ws of wsClients) {
+    if (ws.readyState === 1) {
+      try { ws.send(payload); } catch { /* ignore */ }
+    }
+  }
+}
+
+// ────────────────────────────────────────────────────────
+// 静态：PWA
+// ────────────────────────────────────────────────────────
+app.use(express.static(path.join(ROOT, 'pwa'), { extensions: ['html'] }));
+
+// ────────────────────────────────────────────────────────
+// API
+// ────────────────────────────────────────────────────────
+
+app.get('/api/health', (req, res) => {
+  res.json({ ok: true, ts: Date.now() });
+});
+
+app.get('/api/now', (req, res) => {
+  res.json({
+    nowPlaying: runtime.queue[runtime.index] || null,
+    queue: runtime.queue,
+    index: runtime.index,
+    paused: runtime.paused,
+    lastSay: runtime.lastSay,
+  });
+});
+
+app.get('/api/taste', (req, res) => {
+  try {
+    const taste = fs.readFileSync(path.join(ROOT, 'user', 'taste.md'), 'utf8');
+    const routines = fs.readFileSync(path.join(ROOT, 'user', 'routines.md'), 'utf8');
+    res.json({ taste, routines });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/chat', async (req, res) => {
+  const message = String(req.body?.message || '').trim();
+  if (!message) {
+    res.status(400).json({ error: 'message required' });
+    return;
+  }
+
+  dbApi.addMessage('user', message);
+
+  const intent = route(message);
+
+  if (intent.intent === 'control') {
+    const result = handleControl(intent);
+    dbApi.addMessage('assistant', `(control: ${intent.command}) ${result.say}`);
+    broadcast({ type: 'state', runtime });
+    res.json(result);
+    return;
+  }
+
+  if (intent.intent === 'unknown-command') {
+    const say = `不认识的命令：/${intent.command}。试试 /skip /pause /play /vol N`;
+    dbApi.addMessage('assistant', say);
+    res.json({ say, queue: [], reason: '', intent: intent.intent });
+    return;
+  }
+
+  // chat: 走 Claude 子进程
+  try {
+    const systemPrompt = buildSystemPrompt();
+    const { say, queue, reason, raw } = await claudeAsk(systemPrompt, message);
+
+    if (queue.length > 0) {
+      runtime.queue = queue;
+      runtime.index = 0;
+      runtime.paused = false;
+      for (const q of queue) {
+        dbApi.addPlay({
+          kugouId: q.kugouId, title: q.title, artist: q.artist,
+          reason, source: 'claude',
+        });
+      }
+    }
+    runtime.lastSay = say;
+
+    dbApi.addMessage('assistant', say);
+    broadcast({ type: 'state', runtime });
+
+    res.json({ say, queue, reason, intent: 'chat', _raw: raw });
+  } catch (err) {
+    console.error('[chat] error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+function handleControl({ command, arg }) {
+  switch (command) {
+    case 'skip':
+    case 'next':
+      if (runtime.index < runtime.queue.length - 1) runtime.index += 1;
+      return { say: `▶ 下一首：${runtime.queue[runtime.index]?.title || '(队列结束)'}`, queue: runtime.queue };
+    case 'prev':
+    case 'back':
+      if (runtime.index > 0) runtime.index -= 1;
+      return { say: `◀ 上一首：${runtime.queue[runtime.index]?.title || '(队列开始)'}`, queue: runtime.queue };
+    case 'pause':
+      runtime.paused = true;
+      return { say: '⏸ 暂停', queue: runtime.queue };
+    case 'play':
+    case 'resume':
+      runtime.paused = false;
+      return { say: '▶ 继续', queue: runtime.queue };
+    case 'now':
+      return {
+        say: runtime.queue[runtime.index]
+          ? `🎵 ${runtime.queue[runtime.index].title} — ${runtime.queue[runtime.index].artist}`
+          : '(没有正在播放)',
+        queue: runtime.queue,
+      };
+    case 'queue':
+      return {
+        say: runtime.queue.length
+          ? '当前队列：\n' + runtime.queue.map((q, i) => `${i === runtime.index ? '▶' : '  '} ${q.title} — ${q.artist}`).join('\n')
+          : '(队列空)',
+        queue: runtime.queue,
+      };
+    case 'help':
+      return {
+        say: '命令：/skip /prev /pause /play /now /queue · 或者直接跟我聊天',
+        queue: runtime.queue,
+      };
+    default:
+      return { say: `(未实现的命令：${command})`, queue: runtime.queue };
+  }
+}
+
+// 音频代理：破酷狗防盗链 + 支持 Range
+app.get('/api/proxy', async (req, res) => {
+  const url = req.query.u;
+  if (!url) {
+    res.status(400).send('missing u');
+    return;
+  }
+
+  const range = req.headers.range;
+  try {
+    const upstream = await axios.get(decodeURIComponent(url), {
+      responseType: 'stream',
+      headers: {
+        Referer: 'https://www.kugou.com',
+        'User-Agent': req.headers['user-agent'] || 'Mozilla/5.0',
+        ...(range ? { Range: range } : {}),
+      },
+      timeout: 15_000,
+      validateStatus: s => s >= 200 && s < 400,
+    });
+
+    // 透传必要的响应头
+    for (const h of ['content-type', 'content-length', 'accept-ranges', 'content-range']) {
+      const v = upstream.headers[h];
+      if (v) res.setHeader(h, v);
+    }
+    res.status(upstream.status);
+    upstream.data.pipe(res);
+    upstream.data.on('error', err => {
+      console.error('[proxy] upstream stream error:', err.message);
+      try { res.end(); } catch { /* */ }
+    });
+  } catch (err) {
+    console.error('[proxy] failed:', err.message);
+    if (!res.headersSent) res.status(502).send('upstream failed: ' + err.message);
+    else try { res.end(); } catch { /* */ }
+  }
+});
+
+// PWA 通知"已经走到下一首了"（HTML5 audio 自然 ended 时调）
+app.post('/api/runtime/advance', (req, res) => {
+  if (runtime.index < runtime.queue.length - 1) {
+    runtime.index += 1;
+  }
+  broadcast({ type: 'state', runtime });
+  res.json({ ok: true, index: runtime.index });
+});
+
+// ────────────────────────────────────────────────────────
+// HTTP server + WS upgrade
+// ────────────────────────────────────────────────────────
+const server = http.createServer(app);
+
+server.on('upgrade', (req, socket, head) => {
+  if (req.url === '/stream') {
+    wss.handleUpgrade(req, socket, head, ws => {
+      wsClients.add(ws);
+      ws.send(JSON.stringify({ type: 'hello', runtime }));
+      ws.on('close', () => wsClients.delete(ws));
+    });
+  } else {
+    socket.destroy();
+  }
+});
+
+// ────────────────────────────────────────────────────────
+// 启动
+// ────────────────────────────────────────────────────────
+async function start() {
+  console.log('[claudio] 启动中...');
+
+  const login = await ensureLogin();
+  if (!login.ok) {
+    console.warn('[claudio] 警告：KuGou 登录未通过，搜索 / 播放可能受限。可继续启动以便先测试 Chat。');
+  }
+
+  server.listen(PORT, () => {
+    console.log(`[claudio] 8080 ready · http://localhost:${PORT}`);
+    console.log(`[claudio] PWA:    http://localhost:${PORT}/`);
+    console.log(`[claudio] health: http://localhost:${PORT}/api/health`);
+  });
+}
+
+start().catch(err => {
+  console.error('[claudio] 启动失败:', err);
+  process.exit(1);
+});

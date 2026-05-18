@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-cn">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Claudio · 私人电台</title>
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#101015">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header id="topbar">
+    <span class="brand">◐ Claudio</span>
+    <span id="status" class="status"></span>
+  </header>
+
+  <div id="alert-bar" class="alert-bar hidden"></div>
+
+  <main id="chat" class="chat" aria-live="polite"></main>
+
+  <section id="now-playing" class="now-playing hidden">
+    <div class="np-meta">
+      <div class="np-title" id="np-title">—</div>
+      <div class="np-artist" id="np-artist">—</div>
+    </div>
+    <audio id="audio" controls preload="none"></audio>
+    <div class="np-controls">
+      <button id="btn-prev" title="上一首">◀</button>
+      <button id="btn-pp"   title="暂停/继续">⏸</button>
+      <button id="btn-next" title="下一首">▶</button>
+    </div>
+  </section>
+
+  <form id="composer" class="composer" autocomplete="off">
+    <input id="input" name="message" placeholder="跟 Claudio 说点什么 · 也支持 /skip /pause /play /queue /help" />
+    <button type="submit">↑</button>
+  </form>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

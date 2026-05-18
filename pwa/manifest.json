@@ -1,0 +1,11 @@
+{
+  "name": "Claudio · 私人电台",
+  "short_name": "Claudio",
+  "description": "Personal Claude-powered AI radio",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0c0c10",
+  "theme_color": "#101015",
+  "orientation": "any",
+  "icons": []
+}
