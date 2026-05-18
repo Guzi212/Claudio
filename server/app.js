@@ -12,6 +12,8 @@ import { route } from './router.js';
 import { buildSystemPrompt } from './context.js';
 import { ask as claudeAsk } from './claude.js';
 import { ensureLogin } from './services/kugou-login.js';
+import { start as startScheduler } from './scheduler.js';
+import { synthesize as ttsSynthesize, mountTtsRoutes } from './tts.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -26,6 +28,7 @@ const runtime = {
   index: 0,       // 当前播放索引
   paused: false,
   lastSay: '',
+  active: false,  // PWA 是否连着 WS（scheduler 的 hourly-mood 凭这门禁）
 };
 
 const wss = new WebSocketServer({ noServer: true });
@@ -101,14 +104,28 @@ app.post('/api/chat', async (req, res) => {
 
   // chat: 走 Claude 子进程
   try {
-    const systemPrompt = buildSystemPrompt();
-    const { say, queue, reason, raw } = await claudeAsk(systemPrompt, message);
+    const systemPrompt = await buildSystemPrompt();
+    const { say, queue: songQueue, reason, raw } = await claudeAsk(systemPrompt, message);
 
-    if (queue.length > 0) {
-      runtime.queue = queue;
+    // 把 say 合成语音放队首（Fish Audio 未配置时 synthesize 返 null，自动降级）
+    const voice = say ? await ttsSynthesize(say) : null;
+    const ttsTrack = voice ? {
+      title: '🔊 ' + say.slice(0, 40),
+      artist: 'Claudio',
+      audioUrl: voice.url,
+      isTts: true,
+      duration: 0,
+    } : null;
+
+    const finalQueue = ttsTrack ? [ttsTrack, ...songQueue] : songQueue;
+
+    if (finalQueue.length > 0) {
+      runtime.queue = finalQueue;
       runtime.index = 0;
       runtime.paused = false;
-      for (const q of queue) {
+      // 只把真正的歌写入历史（跳过 TTS 串场条）
+      for (const q of finalQueue) {
+        if (q.isTts) continue;
         dbApi.addPlay({
           kugouId: q.kugouId, title: q.title, artist: q.artist,
           reason, source: 'claude',
@@ -120,7 +137,7 @@ app.post('/api/chat', async (req, res) => {
     dbApi.addMessage('assistant', say);
     broadcast({ type: 'state', runtime });
 
-    res.json({ say, queue, reason, intent: 'chat', _raw: raw });
+    res.json({ say, queue: finalQueue, reason, intent: 'chat', _raw: raw });
   } catch (err) {
     console.error('[chat] error:', err);
     res.status(500).json({ error: err.message });
@@ -249,6 +266,9 @@ app.post('/api/runtime/state', (req, res) => {
   res.json({ ok: true, index: runtime.index, paused: runtime.paused });
 });
 
+// TTS 路由（/tts/<sha1>.mp3 读 cache/tts/<sha1>.mp3）
+mountTtsRoutes(app);
+
 // ────────────────────────────────────────────────────────
 // HTTP server + WS upgrade
 // ────────────────────────────────────────────────────────
@@ -258,8 +278,12 @@ server.on('upgrade', (req, socket, head) => {
   if (req.url === '/stream') {
     wss.handleUpgrade(req, socket, head, ws => {
       wsClients.add(ws);
+      runtime.active = true;
       ws.send(JSON.stringify({ type: 'hello', runtime }));
-      ws.on('close', () => wsClients.delete(ws));
+      ws.on('close', () => {
+        wsClients.delete(ws);
+        runtime.active = wsClients.size > 0;
+      });
     });
   } else {
     socket.destroy();
@@ -276,6 +300,19 @@ async function start() {
   if (!login.ok) {
     console.warn('[claudio] 警告：KuGou 登录未通过，搜索 / 播放可能受限。可继续启动以便先测试 Chat。');
   }
+
+  // 节律调度（07:00 早间 / 09:00 通勤 / 每小时情绪检查）
+  const scheduler = startScheduler({
+    runtime,
+    broadcast,
+    log: (...args) => console.log('[scheduler]', ...args),
+    ask: claudeAsk,
+    buildSystemPrompt,
+  });
+  console.log('[claudio] scheduler 已挂 cron');
+
+  process.on('SIGINT', () => { scheduler.stop(); process.exit(0); });
+  process.on('SIGTERM', () => { scheduler.stop(); process.exit(0); });
 
   server.listen(PORT, () => {
     console.log(`[claudio] 8080 ready · http://localhost:${PORT}`);

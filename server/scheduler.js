@@ -64,7 +64,8 @@ export function start({
       return;
     }
     try {
-      const sys = buildSystemPrompt();
+      // buildSystemPrompt 在 main 上是 async（接入了天气/日历），await 对同步 fake 无害
+      const sys = await buildSystemPrompt();
       const { say, queue, reason } = await ask(sys, job.prompt);
       if (Array.isArray(queue) && queue.length > 0) {
         runtime.queue = queue;
