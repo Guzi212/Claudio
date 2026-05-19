@@ -11,9 +11,10 @@ const fields = {
 };
 
 let nodes = {};
-let healthList, kugouStatus, btnSave, btnRefresh;
+let healthList, kugouStatus, btnSave, btnRefresh, btnRelogin;
 let loaded = false;
 let loading = false;
+let reloginState = null;  // { key, pollId, modal } 当前活的扫码会话
 
 const HEALTH_KEYS = [
   { key: 'kugou',   label: 'KuGou'   },
@@ -104,6 +105,81 @@ async function save() {
   }
 }
 
+// ──────────── 酷狗扫码续登录 ────────────
+function closeReloginModal() {
+  if (!reloginState) return;
+  if (reloginState.pollId) clearInterval(reloginState.pollId);
+  if (reloginState.modal?.parentNode) reloginState.modal.parentNode.removeChild(reloginState.modal);
+  reloginState = null;
+}
+
+function openReloginModal({ qrImg, qrUrl, key }) {
+  closeReloginModal();
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.innerHTML = `
+    <div class="modal" role="dialog" aria-label="酷狗扫码登录">
+      <button class="modal-close" type="button" aria-label="关闭">×</button>
+      <h3>用手机酷狗 App 扫码</h3>
+      ${qrImg ? `<img class="qr" src="${qrImg}" alt="QR" />` : ''}
+      ${qrUrl ? `<p class="muted small">或浏览器打开：<a href="${qrUrl}" target="_blank" rel="noopener">${qrUrl}</a></p>` : ''}
+      <p class="modal-status" data-status>等扫码…</p>
+    </div>
+  `;
+  backdrop.addEventListener('click', e => {
+    if (e.target === backdrop) closeReloginModal();
+  });
+  backdrop.querySelector('.modal-close').addEventListener('click', closeReloginModal);
+  document.body.appendChild(backdrop);
+
+  const statusEl = backdrop.querySelector('[data-status]');
+
+  const pollId = setInterval(async () => {
+    try {
+      const r = await fetch(`/api/kugou/relogin/status?key=${encodeURIComponent(key)}`);
+      const data = await r.json();
+      if (!data.ok) {
+        statusEl.textContent = `失败：${data.error || '未知'}`;
+        return;
+      }
+      const { status, statusText, savedCookie } = data;
+      statusEl.textContent = statusText + (savedCookie ? ' · cookie 已保存' : '');
+      if (status === 4 && savedCookie) {
+        clearInterval(pollId);
+        setTimeout(() => {
+          closeReloginModal();
+          toast('登录成功 · 已刷新 cookie');
+          load(true); // 健康列表会从 ○ 变 ✓
+        }, 800);
+      } else if (status === 0) {
+        clearInterval(pollId);
+        statusEl.textContent = '二维码过期 · 关闭后重试';
+      }
+    } catch (err) {
+      statusEl.textContent = `轮询失败：${err.message}`;
+    }
+  }, 2_000);
+
+  reloginState = { key, pollId, modal: backdrop };
+}
+
+async function startRelogin() {
+  btnRelogin.disabled = true;
+  const originalText = btnRelogin.textContent;
+  btnRelogin.textContent = '生成二维码…';
+  try {
+    const r = await fetch('/api/kugou/relogin/start', { method: 'POST' });
+    const data = await r.json();
+    if (!data.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    openReloginModal(data);
+  } catch (err) {
+    showAlert(`扫码登录启动失败：${err.message}`);
+  } finally {
+    btnRelogin.textContent = originalText;
+    btnRelogin.disabled = false;
+  }
+}
+
 export function initSettings() {
   for (const [k, sel] of Object.entries(fields)) {
     nodes[k] = document.querySelector(sel);
@@ -112,11 +188,18 @@ export function initSettings() {
   kugouStatus = document.getElementById('kugou-status');
   btnSave     = document.getElementById('settings-save');
   btnRefresh  = document.getElementById('settings-refresh');
+  btnRelogin  = document.getElementById('btn-kugou-relogin');
 
   btnSave.addEventListener('click', save);
   btnRefresh.addEventListener('click', () => load(true));
 
-  // 占位按钮：[test] / [试听] / [重扫码登录] —— 提示用户后续补
+  if (btnRelogin) {
+    btnRelogin.disabled = false;
+    btnRelogin.removeAttribute('title');
+    btnRelogin.addEventListener('click', startRelogin);
+  }
+
+  // 占位按钮：[test] / [试听] —— 后续补
   document.querySelectorAll('button[data-test]').forEach(b => {
     b.addEventListener('click', () => toast('该功能尚未接入'));
   });
