@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   buildRawMarkdown,
   buildTasteSummary,
+  importFromShareUrl,
   parseKugouInput,
 } from '../server/music/kugou-import.js';
+import { parseNameField } from '../server/services/kugou.js';
 
 describe('music/kugou-import', () => {
   it('parses tracks from OCR-like text and keeps source buckets', () => {
@@ -41,6 +43,19 @@ describe('music/kugou-import', () => {
     });
   });
 
+  it('does not treat years in headings as like levels', () => {
+    const tracks = parseKugouInput(`
+      # 年度报告 / 2023 年度歌曲
+      我期待的不是雪 (是有你的春夏秋冬) - 吞吞纯音社
+    `);
+
+    expect(tracks[0]).toMatchObject({
+      title: '我期待的不是雪 (是有你的春夏秋冬)',
+      artist: '吞吞纯音社',
+      likeLevel: null,
+    });
+  });
+
   it('builds raw markdown with audit-friendly song rows', () => {
     const markdown = buildRawMarkdown([
       { title: '晴天', artist: '周杰伦', album: '叶惠美', bucket: 'long_term', likeLevel: 3, source: '我的喜欢' },
@@ -48,6 +63,68 @@ describe('music/kugou-import', () => {
 
     expect(markdown).toContain('| 长期喜欢 | 晴天 | 周杰伦 | 叶惠美 | 3 | 我的喜欢 |');
     expect(markdown).toContain('## 原始来源');
+  });
+
+  it('flips KuGouMusicApi "Artist - Title" into the parser-canonical {title, artist}', () => {
+    expect(parseNameField('Marconi Union - Weightless (失重)')).toEqual({
+      artist: 'Marconi Union',
+      title: 'Weightless (失重)',
+    });
+    expect(parseNameField('周杰伦 - 晴天')).toEqual({ artist: '周杰伦', title: '晴天' });
+    // 多个 ' - ' 时只切第一处，剩下保留在 title 里
+    expect(parseNameField('Foo - Bar - Baz')).toEqual({ artist: 'Foo', title: 'Bar - Baz' });
+    // 无分隔符
+    expect(parseNameField('SoloTitle')).toEqual({ artist: '', title: 'SoloTitle' });
+    expect(parseNameField('')).toEqual({ artist: '', title: '' });
+  });
+
+  it('importFromShareUrl turns API songs into tracks the distiller can consume', async () => {
+    const fakeShareUrl = 'https://t1.kugou.com/fakecode';
+    const parseShareUrl = async () => ({
+      source: fakeShareUrl,
+      resolvedUrl: 'http://wwwapi.kugou.com/share/zlist.html?global_collection_id=collection_X&chain=fakecode',
+      chain: 'fakecode',
+      globalCollectionId: 'collection_X',
+      uid: '111',
+      listid: '2',
+    });
+    const fetchSharedPlaylist = async () => ({
+      tracks: [
+        { title: 'Weightless (失重)', artist: 'Marconi Union', album: '', hash: 'h1' },
+        { title: '晴天', artist: '周杰伦', album: '叶惠美', hash: 'h2' },
+      ],
+      totalCount: 2,
+      fetchedCount: 2,
+      truncated: false,
+    });
+
+    const result = await importFromShareUrl(
+      fakeShareUrl,
+      { bucket: 'long_term', likeLevel: 3, playlistName: '长期红心' },
+      { parseShareUrl, fetchSharedPlaylist },
+    );
+
+    expect(result.fetchedCount).toBe(2);
+    expect(result.playlistName).toBe('长期红心');
+    expect(result.tracks).toEqual([
+      expect.objectContaining({ title: 'Weightless (失重)', artist: 'Marconi Union', bucket: 'long_term', likeLevel: 3, source: fakeShareUrl }),
+      expect.objectContaining({ title: '晴天', artist: '周杰伦', album: '叶惠美', bucket: 'long_term', likeLevel: 3 }),
+    ]);
+
+    // 蒸馏链路与现有 parser 输出零差异
+    const summary = buildTasteSummary(result.tracks);
+    expect(summary).toContain('Marconi Union');
+    expect(summary).toContain('周杰伦');
+  });
+
+  it('importFromShareUrl falls back to chain-based playlistName when --name not given', async () => {
+    const parseShareUrl = async () => ({
+      source: 'x', resolvedUrl: 'x', chain: 'abc', globalCollectionId: 'collection_Y', uid: '', listid: '',
+    });
+    const fetchSharedPlaylist = async () => ({ tracks: [], totalCount: 0, fetchedCount: 0, truncated: false });
+
+    const result = await importFromShareUrl('x', {}, { parseShareUrl, fetchSharedPlaylist });
+    expect(result.playlistName).toBe('kugou_share_abc');
   });
 
   it('distills repeated artists and buckets into taste.md-ready summary', () => {
