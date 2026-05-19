@@ -3,6 +3,7 @@ const CACHE = 'claudio-shell-v3';
 const SHELL = [
   '/', '/index.html', '/app.js', '/styles.css', '/manifest.json', '/icon.svg',
   '/views/ui.js', '/views/player.js', '/views/profile.js', '/views/settings.js',
+  '/components/lyrics.js', '/components/env-strip.js',
 ];
 
 self.addEventListener('install', e => {
