@@ -59,10 +59,11 @@ Start-Process "http://localhost:8080/"
 - [ ] **多设备同步**：state.db 加 device_id，WS 区分 client
 
 ### P3 · 体验打磨（剩余）
-- [ ] **Settings 里"重扫码登录"按钮**：目前 disabled，需要后端暴露 `/api/kugou/relogin` 走 QR 流程
-- [ ] **Settings test/试听按钮**：weather test、tts 试听目前是 disabled 占位
-- [ ] **Profile 看 unmatched**：现在 unmatched 表只能用 sqlite cli 看，UI 没接
-- [ ] **routines.md 编辑**：Profile 只编辑 taste.md，routines 还得手动改文件
+- [x] ~~**Settings 里"重扫码登录"按钮**~~ → 已接：`POST /api/kugou/relogin/start` + `GET /api/kugou/relogin/status`，Settings 弹 QR modal poll
+- [ ] **Settings test/试听按钮**：weather test 真打一次 OpenWeather；TTS 试听合成一句"早安"播一次。两个按钮目前 disabled
+- [ ] **Profile 看 unmatched**：unmatched 表只能用 sqlite cli 看；Profile 加只读列表
+- [ ] **Profile 改 routines.md**：现在只编辑 taste.md，routines 还得手动改文件
+- [ ] **酷狗歌单导入 Profile 入口**：把 `scripts/import-kugou-data.js` 流程接到 Profile UI（粘贴链接/截图 → 一键蒸馏）
 
 ## 项目地图
 
