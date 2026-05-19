@@ -140,4 +140,76 @@ describe('music/kugou-import', () => {
     expect(summary).toContain('不要主动推荐');
     expect(summary).toContain('同一个艺人不要连续 3 首以上');
   });
+
+  it('summary includes language / decade / bpm distribution when metadata present', () => {
+    const summary = buildTasteSummary([
+      { title: 'A', artist: 'X', bucket: 'long_term', language: '华语', publishDate: '2010-05-01', bpm: 70 },
+      { title: 'B', artist: 'X', bucket: 'long_term', language: '华语', publishDate: '2012-01-01', bpm: 75 },
+      { title: 'C', artist: 'Y', bucket: 'long_term', language: '英语', publishDate: '2018-06-01', bpm: 120 },
+      { title: 'D', artist: 'Z', bucket: 'long_term', language: '纯音乐', publishDate: '2014-09-22', bpm: 60 },
+    ]);
+
+    expect(summary).toContain('### 听音指纹');
+    expect(summary).toContain('华语');
+    expect(summary).toContain('10s');
+    expect(summary).toContain('抒情慢');
+    expect(summary).toContain('### 核心歌手');
+    expect(summary).toContain('### 代表曲目');
+  });
+
+  it('TL;DR surfaces minority language as a distinct preference hook', () => {
+    // 90% 华语 + 5% 纯音乐（应该被识别为"独立偏好"）
+    const tracks = [];
+    for (let i = 0; i < 18; i += 1) {
+      tracks.push({ title: `c${i}`, artist: `华语歌手${i % 3}`, bucket: 'long_term', language: '华语' });
+    }
+    tracks.push({ title: 'Weightless', artist: 'Marconi Union', bucket: 'long_term', language: '纯音乐' });
+    tracks.push({ title: 'River Flows', artist: 'Yiruma', bucket: 'long_term', language: '纯音乐' });
+
+    const summary = buildTasteSummary(tracks);
+    expect(summary).toMatch(/纯音乐/);
+    expect(summary).toMatch(/TL;DR|你是什么样的听众/);
+  });
+
+  it('long-tail section highlights 1-2 occurrence non-Chinese artists', () => {
+    const tracks = [];
+    // 主力华语
+    for (let i = 0; i < 20; i += 1) {
+      tracks.push({ title: `t${i}`, artist: '周杰伦', bucket: 'long_term', language: '华语' });
+    }
+    // 长尾 - 纯音乐小众
+    tracks.push({ title: 'Weightless', artist: 'Marconi Union', bucket: 'long_term', language: '纯音乐' });
+    tracks.push({ title: 'River Flows', artist: 'Yiruma', bucket: 'long_term', language: '纯音乐' });
+    // 长尾 - 英语小众
+    tracks.push({ title: 'Someone You Loved', artist: 'Lewis Capaldi', bucket: 'long_term', language: '英语' });
+
+    const summary = buildTasteSummary(tracks);
+    expect(summary).toContain('### 长尾标签');
+    expect(summary).toContain('Marconi Union');
+    expect(summary).toContain('Yiruma');
+    expect(summary).toContain('Lewis Capaldi');
+  });
+
+  it('importFromShareUrl preserves API metadata so the distiller has signals', async () => {
+    const parseShareUrl = async () => ({
+      source: 'x', resolvedUrl: 'x', chain: 'c', globalCollectionId: 'g', uid: '', listid: '',
+    });
+    const fetchSharedPlaylist = async () => ({
+      tracks: [
+        {
+          title: 'Weightless (失重)', artist: 'Marconi Union', album: '',
+          hash: 'h1', publishDate: '2014-09-22', language: '纯音乐', bpm: 60,
+        },
+      ],
+      totalCount: 1, fetchedCount: 1, truncated: false,
+    });
+
+    const result = await importFromShareUrl('x', {}, { parseShareUrl, fetchSharedPlaylist });
+    expect(result.tracks[0]).toMatchObject({
+      language: '纯音乐',
+      publishDate: '2014-09-22',
+      bpm: 60,
+      hash: 'h1',
+    });
+  });
 });
