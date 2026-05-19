@@ -44,6 +44,7 @@ function playIndex(i, { autoplay = true } = {}) {
   if (i < 0 || i >= state.queue.length) {
     npBox.classList.add('hidden');
     audio.removeAttribute('src');
+    window.dispatchEvent(new CustomEvent('claudio:trackchange', { detail: null }));
     return;
   }
   state.index = i;
@@ -51,6 +52,8 @@ function playIndex(i, { autoplay = true } = {}) {
   npTitle.textContent = t.title;
   npArtist.textContent = t.artist;
   audio.src = t.audioUrl;
+  // 通知 components/lyrics.js 当前是哪首（它通过 #lyrics-panel 自动 attach）
+  window.dispatchEvent(new CustomEvent('claudio:trackchange', { detail: t }));
   if (autoplay && userActivated) {
     audio.play().catch(err => {
       console.warn('audio.play failed:', err.message);
