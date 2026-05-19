@@ -1,208 +1,67 @@
-const $ = sel => document.querySelector(sel);
-const chat = $('#chat');
-const composer = $('#composer');
-const input = $('#input');
-const submitBtn = composer.querySelector('button');
-const audio = $('#audio');
-const npBox = $('#now-playing');
-const npTitle = $('#np-title');
-const npArtist = $('#np-artist');
-const alertBar = $('#alert-bar');
-const statusEl = $('#status');
+// 三视图编排器：tab 切换 + URL 同步 + 全局 WS。
+// chat / audio 逻辑搬到 views/player.js；这里只负责导航和跨视图的状态推送。
+import { initPlayer, applyRuntime } from './views/player.js';
+import { initProfile } from './views/profile.js';
+import { initSettings } from './views/settings.js';
+import { setStatus, showAlert } from './views/ui.js';
 
-const state = {
-  queue: [],
-  index: 0,
-};
+const VIEWS = ['player', 'profile', 'settings'];
+const DEFAULT_VIEW = 'player';
 
-// ──────────────── UI helpers ────────────────
-function addBubble(role, content, meta = null) {
-  const div = document.createElement('div');
-  div.className = `bubble ${role}`;
-  div.textContent = content;
-  if (meta) {
-    const m = document.createElement('div');
-    m.className = 'meta';
-    m.innerHTML = meta;
-    div.appendChild(m);
+function currentViewFromUrl() {
+  const v = new URLSearchParams(location.search).get('view');
+  return VIEWS.includes(v) ? v : DEFAULT_VIEW;
+}
+
+function setView(name, { push = false } = {}) {
+  if (!VIEWS.includes(name)) name = DEFAULT_VIEW;
+  for (const v of VIEWS) {
+    const sec = document.getElementById(`view-${v}`);
+    const tab = document.querySelector(`.tab[data-view="${v}"]`);
+    if (sec) sec.classList.toggle('hidden', v !== name);
+    if (tab) tab.classList.toggle('active', v === name);
   }
-  chat.appendChild(div);
-  chat.scrollTop = chat.scrollHeight;
-  return div;
+  const url = new URL(location.href);
+  url.searchParams.set('view', name);
+  const method = push ? 'pushState' : 'replaceState';
+  history[method](null, '', url);
+  window.dispatchEvent(new CustomEvent('claudio:view-shown', { detail: name }));
 }
 
-function showAlert(msg) {
-  alertBar.textContent = msg;
-  alertBar.classList.remove('hidden');
-}
-function clearAlert() {
-  alertBar.classList.add('hidden');
-}
+// 各视图自己负责懒加载，初始化只挂事件
+initPlayer();
+initProfile();
+initSettings();
 
-function setStatus(text) {
-  statusEl.textContent = text;
-}
-
-// 用户手势状态。autoplay 在浏览器策略下需要"用户已交互过页面"才生效。
-// 在首次点击 input/button/启动幕 之前，autoplay 会被静默拒绝。
-let userActivated = false;
-function markActivated() { userActivated = true; }
-document.addEventListener('click', markActivated, { capture: true, once: true });
-document.addEventListener('keydown', markActivated, { capture: true, once: true });
-
-// 把服务端的真实位置推回前端的镜像状态（避免 server / client 两边索引漂移）
-function syncToServer(index, { paused = false } = {}) {
-  fetch('/api/runtime/state', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ index, paused }),
-  }).catch(() => {});
-}
-
-// ──────────────── Player ────────────────
-function playIndex(i, { autoplay = true } = {}) {
-  if (i < 0 || i >= state.queue.length) {
-    npBox.classList.add('hidden');
-    audio.removeAttribute('src');
-    return;
-  }
-  state.index = i;
-  const t = state.queue[i];
-  npTitle.textContent = t.title;
-  npArtist.textContent = t.artist;
-  audio.src = t.audioUrl;
-  if (autoplay && userActivated) {
-    audio.play().catch(err => {
-      console.warn('audio.play failed:', err.message);
-      showAlert('浏览器拦了自动播放，点一下页面上的 ▶ 按钮');
-    });
-  }
-  npBox.classList.remove('hidden');
-  syncToServer(state.index);
-}
-
-audio.addEventListener('ended', () => {
-  if (state.index < state.queue.length - 1) {
-    playIndex(state.index + 1);
-  } else {
-    npBox.classList.add('hidden');
-    syncToServer(state.index, { paused: true });
-  }
+document.querySelectorAll('.tab').forEach(btn => {
+  btn.addEventListener('click', () => setView(btn.dataset.view, { push: true }));
 });
 
-audio.addEventListener('play', () => syncToServer(state.index, { paused: false }));
-audio.addEventListener('pause', () => syncToServer(state.index, { paused: true }));
+window.addEventListener('popstate', () => setView(currentViewFromUrl()));
 
-$('#btn-prev').addEventListener('click', () => {
-  if (state.index > 0) playIndex(state.index - 1);
-});
-$('#btn-next').addEventListener('click', () => {
-  if (state.index < state.queue.length - 1) playIndex(state.index + 1);
-});
-const btnPp = $('#btn-pp');
-btnPp.addEventListener('click', () => {
-  if (audio.paused) audio.play().catch(err => showAlert(`播放失败：${err.message}`));
-  else audio.pause();
-});
-audio.addEventListener('play', () => { btnPp.textContent = '⏸'; btnPp.title = '暂停'; clearAlert(); });
-audio.addEventListener('pause', () => { btnPp.textContent = '▶'; btnPp.title = '播放'; });
+// 启动时根据 URL 落到对应 tab（默认 player）
+setView(currentViewFromUrl());
 
-// ──────────────── Chat ────────────────
-async function send(message) {
-  addBubble('user', message);
-  input.value = '';
-  submitBtn.disabled = true;
-  setStatus('思考中…');
-
+// ──────────────── 全局 WS（所有 tab 都保持连接） ────────────────
+function connectWs() {
+  let ws;
   try {
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message }),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-
-    let metaHtml = '';
-    if (data.queue && data.queue.length) {
-      const list = data.queue.map(q => `<li>${q.title} — ${q.artist}</li>`).join('');
-      metaHtml += `<ol>${list}</ol>`;
-    }
-    if (data.reason) metaHtml += `<div>${data.reason}</div>`;
-
-    addBubble('assistant', data.say || '(无回应)', metaHtml || null);
-
-    if (data.queue && data.queue.length) {
-      state.queue = data.queue;
-      state.index = 0;
-      playIndex(0);
-    }
-    clearAlert();
-  } catch (err) {
-    addBubble('assistant', `(出错：${err.message})`);
-    showAlert(`服务异常：${err.message}`);
-  } finally {
-    submitBtn.disabled = false;
-    setStatus('');
-    input.focus();
+    ws = new WebSocket(`ws://${location.host}/stream`);
+  } catch {
+    return; // WS 不可用不挡主流程
   }
+  ws.addEventListener('open',  () => setStatus('● 在线'));
+  ws.addEventListener('close', () => setStatus('● 离线'));
+  ws.addEventListener('message', ev => {
+    try {
+      const evt = JSON.parse(ev.data);
+      if (evt.type === 'state' && evt.runtime) applyRuntime(evt.runtime);
+    } catch { /* ignore */ }
+  });
 }
+connectWs();
 
-composer.addEventListener('submit', e => {
-  e.preventDefault();
-  const m = input.value.trim();
-  if (m) send(m);
-});
-
-// ──────────────── Boot ────────────────
-async function boot() {
-  try {
-    const r = await fetch('/api/now');
-    if (r.ok) {
-      const data = await r.json();
-      if (data.queue && data.queue.length) {
-        state.queue = data.queue;
-        state.index = data.index || 0;
-        // 不自动恢复播放（浏览器策略不允许 cold-load autoplay），但展示当前曲信息
-        const t = state.queue[state.index];
-        if (t) {
-          npTitle.textContent = t.title;
-          npArtist.textContent = t.artist;
-          audio.src = t.audioUrl;
-          npBox.classList.remove('hidden');
-        }
-      }
-      if (data.lastSay) {
-        addBubble('assistant', data.lastSay, '(上次会话)');
-      }
-    }
-  } catch (err) {
-    showAlert(`无法连接服务：${err.message}`);
-  }
-
-  // WS 连接（MVP 阶段只用来订阅 state 推送）
-  try {
-    const ws = new WebSocket(`ws://${location.host}/stream`);
-    ws.addEventListener('message', ev => {
-      try {
-        const evt = JSON.parse(ev.data);
-        if (evt.type === 'state' && evt.runtime) {
-          // 服务端发了新 runtime；仅当 PWA 没在本地超前播放时同步
-          if (state.queue.length === 0 && evt.runtime.queue && evt.runtime.queue.length) {
-            state.queue = evt.runtime.queue;
-            state.index = evt.runtime.index || 0;
-          }
-        }
-      } catch { /* ignore */ }
-    });
-    ws.addEventListener('close', () => setStatus('● 离线'));
-    ws.addEventListener('open', () => setStatus('● 在线'));
-  } catch { /* MVP: WS 不可用不挡主流程 */ }
-
-  // 注册 service worker（壳层缓存）
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js').catch(() => { /* 静默 */ });
-  }
+// 注册 service worker（壳层缓存）
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(() => { /* 静默 */ });
 }
-
-boot();
