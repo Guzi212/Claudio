@@ -4,6 +4,10 @@ import { initPlayer, applyRuntime } from './views/player.js';
 import { initProfile } from './views/profile.js';
 import { initSettings } from './views/settings.js';
 import { setStatus, showAlert } from './views/ui.js';
+// 增量组件 · DOMContentLoaded 自动 attach 到 #env-strip / #lyrics-panel
+// player.js 会 dispatchEvent('claudio:trackchange') 给 lyrics 当作切歌信号
+import './components/env-strip.js';
+import './components/lyrics.js';
 
 const VIEWS = ['player', 'profile', 'settings'];
 const DEFAULT_VIEW = 'player';
