@@ -50,6 +50,42 @@ copy .env.example .env
 
 填一下 `user/taste.md` —— 至少几行"喜欢的歌手"和"一两个场景偏好"。Claudio 才不会推荐通用电台。
 
+### 4.1 导入酷狗口味数据（可选）
+
+如果你手头是酷狗截图、分享链接或复制出来的歌单，不需要登录抓取私有接口：
+
+```powershell
+# 1. 把酷狗 OCR 文本 / 分享链接 / 歌单复制文本粘到这里
+notepad user\music\kugou_input.txt
+
+# 2. 生成歌曲级原始清单 + 口味摘要
+npm run music:import:kugou
+
+# 3. 检查 user\music\kugou_raw.md 歌名/歌手没错后，写入 taste.md
+node scripts\import-kugou-data.js --apply-taste
+```
+
+建议输入格式：
+
+```text
+https://www.kugou.com/playlist/xxxxx
+
+# 红心 3
+晴天 - 周杰伦
+夜曲 周杰伦 《十一月的萧邦》
+
+# 最近循环
+Sweet Soul Revue - Pizzicato Five
+
+# 雷区
+土嗨电音 - 某某DJ
+```
+
+脚本会生成：
+- `user/music/kugou_raw.md`：歌曲级原始数据，方便回看和校对。
+- `user/music/kugou_taste_summary.md`：可读口味摘要。
+- `user/taste.md` 的酷狗蒸馏区：Claudio 每次推荐时会读到。
+
 ### 5. 跑起来
 
 ```powershell
