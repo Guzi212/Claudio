@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import axios from 'axios';
 import 'dotenv/config';
+import { get as getSetting } from './services/settings.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_CACHE_DIR = path.resolve(__dirname, '..', 'cache', 'tts');
@@ -36,8 +37,8 @@ export async function synthesize(text) {
   const trimmed = String(text ?? '').trim();
   if (!trimmed) return null;
 
-  const apiKey = process.env.FISH_API_KEY;
-  const voiceId = process.env.FISH_VOICE_ID || '';
+  const apiKey = getSetting('fish_api_key');
+  const voiceId = getSetting('fish_voice_id') || '';
   if (!apiKey) {
     console.warn('[tts] FISH_API_KEY 未配置，跳过语音合成');
     return null;
