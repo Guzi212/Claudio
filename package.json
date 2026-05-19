@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "node --no-warnings server/app.js",
     "start": "node --no-warnings server/app.js",
+    "music:import:kugou": "node scripts/import-kugou-data.js",
     "test": "vitest run",
     "test:watch": "vitest"
   },

@@ -1,0 +1,20 @@
+# 把酷狗截图 OCR 文本、分享链接、复制出来的歌单粘在这里。
+# 支持的常用格式：
+#
+# https://www.kugou.com/playlist/xxxxx
+#
+# # 红心 3
+# 晴天 - 周杰伦
+# 夜曲 周杰伦 《十一月的萧邦》
+#
+# # 最近循环
+# Sweet Soul Revue - Pizzicato Five
+#
+# # 雷区
+# 土嗨电音 - 某某DJ
+#
+# 填好后运行：
+# npm run music:import:kugou
+#
+# 如果确认摘要想直接写进 user/taste.md，运行：
+# node scripts/import-kugou-data.js --apply-taste
