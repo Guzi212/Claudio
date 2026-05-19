@@ -1,5 +1,6 @@
 import axios from 'axios';
 import 'dotenv/config';
+import { get as getSetting } from './settings.js';
 
 const BASE = 'https://api.openweathermap.org/data/2.5';
 const CACHE_TTL_MS = 60_000;
@@ -11,11 +12,11 @@ const cache = {
 };
 
 function getKey() {
-  return process.env.OPENWEATHER_API_KEY || '';
+  return getSetting('openweather_api_key') || '';
 }
 
 function getCity() {
-  return process.env.OPENWEATHER_CITY || 'Shanghai';
+  return getSetting('openweather_city') || 'Shanghai';
 }
 
 function client() {
@@ -84,10 +85,15 @@ export async function getNext24h() {
   }
 }
 
-// 测试辅助：清缓存
-export function _resetCache() {
+// settings 改动后由 app.js 调用，避免缓存陈旧
+export function invalidateCache() {
   cache.current = { value: null, expiresAt: 0 };
   cache.next24h = { value: null, expiresAt: 0 };
 }
 
-export default { getCurrent, getNext24h, _resetCache };
+// 测试辅助：清缓存（保留旧 API 名以兼容老测试）
+export function _resetCache() {
+  invalidateCache();
+}
+
+export default { getCurrent, getNext24h, invalidateCache, _resetCache };

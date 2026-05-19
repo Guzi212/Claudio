@@ -3,9 +3,19 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+const prefMem = vi.hoisted(() => new Map());
+
 // 让 server/tts.js 拿到的 axios 是 mock
 vi.mock('axios', () => ({
   default: { post: vi.fn() },
+}));
+
+vi.mock('../server/db.js', () => ({
+  dbApi: {
+    getPref: k => (prefMem.has(k) ? prefMem.get(k) : null),
+    setPref: (k, v) => { prefMem.set(k, String(v)); },
+    delPref: k => { prefMem.delete(k); },
+  },
 }));
 
 let tempDir;
@@ -15,6 +25,7 @@ beforeEach(() => {
   process.env.TTS_CACHE_DIR = tempDir;
   process.env.FISH_API_KEY = 'fake-key';
   process.env.FISH_VOICE_ID = 'fake-voice';
+  prefMem.clear();
   vi.resetModules();
 });
 
@@ -99,6 +110,21 @@ describe('synthesize', () => {
     expect(body).toMatchObject({ text: 'hi', reference_id: 'fake-voice', format: 'mp3' });
     expect(config.headers.Authorization).toBe('Bearer fake-key');
     expect(config.responseType).toBe('arraybuffer');
+  });
+
+  it('prefs.fish_api_key / fish_voice_id 优先于 .env', async () => {
+    const axios = (await import('axios')).default;
+    axios.post.mockResolvedValue({ data: Buffer.from('x') });
+    prefMem.set('fish_api_key', 'pref-key');
+    prefMem.set('fish_voice_id', 'pref-voice');
+
+    const { synthesize } = await import('../server/tts.js');
+    await synthesize('hello');
+
+    expect(axios.post).toHaveBeenCalledTimes(1);
+    const [, body, config] = axios.post.mock.calls[0];
+    expect(body.reference_id).toBe('pref-voice');
+    expect(config.headers.Authorization).toBe('Bearer pref-key');
   });
 });
 
