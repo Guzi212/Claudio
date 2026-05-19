@@ -1,3 +1,6 @@
+import { parseShareUrl as defaultParseShareUrl } from './kugou-share-url.js';
+import { fetchSharedPlaylist as defaultFetchSharedPlaylist } from '../services/kugou.js';
+
 const BUCKET_LABELS = {
   long_term: '长期喜欢',
   recent_mood: '最近 mood',
@@ -19,8 +22,8 @@ function detectBucket(line, currentBucket = 'long_term') {
 }
 
 function detectLikeLevel(line) {
-  const m = line.match(/(?:红心|喜欢|like|level)?\s*([123])\s*(?:心|星|级)?/i);
-  return m ? Number(m[1]) : null;
+  const m = line.match(/(?:红心|喜欢|like|level)\s*([123])\s*(?:心|星|级)?|([123])\s*(?:心|星|级)/i);
+  return m ? Number(m[1] || m[2]) : null;
 }
 
 function extractAlbum(line) {
@@ -200,8 +203,54 @@ export function buildTasteSummary(tracks, { maxItems = 8 } = {}) {
   return lines.join('\n');
 }
 
+// 把 KuGouMusicApi 抓回来的歌单转成 parseKugouInput 输出同形态的 tracks，让 buildRawMarkdown
+// / buildTasteSummary 不需要任何改动就能消费。bucket / likeLevel 由调用方语义注入（API 不知道
+// 这个歌单是"红心"还是"循环"还是"雷区"）。
+export async function importFromShareUrl(
+  url,
+  { bucket = 'long_term', likeLevel = null, playlistName = '' } = {},
+  {
+    parseShareUrl = defaultParseShareUrl,
+    fetchSharedPlaylist = defaultFetchSharedPlaylist,
+  } = {},
+) {
+  const info = await parseShareUrl(url);
+  if (!info.globalCollectionId) {
+    throw new Error(`importFromShareUrl: 无法从分享链接抽出 global_collection_id：${url}`);
+  }
+
+  const { tracks: songs, totalCount, fetchedCount, truncated } =
+    await fetchSharedPlaylist({ globalCollectionId: info.globalCollectionId });
+
+  const resolvedName = playlistName
+    || `kugou_share_${info.chain || info.globalCollectionId}`;
+  const source = url;
+
+  const tracks = songs.map(song => ({
+    title: song.title,
+    artist: song.artist,
+    album: song.album || '',
+    bucket,
+    likeLevel,
+    source,
+    note: '',
+  }));
+
+  return {
+    tracks,
+    playlistName: resolvedName,
+    totalCount,
+    fetchedCount,
+    truncated,
+    chain: info.chain,
+    globalCollectionId: info.globalCollectionId,
+    resolvedUrl: info.resolvedUrl,
+  };
+}
+
 export default {
   parseKugouInput,
   buildRawMarkdown,
   buildTasteSummary,
+  importFromShareUrl,
 };

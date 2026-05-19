@@ -6,9 +6,10 @@ const BASE = process.env.KUGOU_API_BASE || 'http://localhost:3000';
 
 // KuGouMusicApi 社区版常见接口路径。不同 fork 略有差异，按需在这里改。
 const ENDPOINTS = {
-  search:    '/search',           // ?keywords=
-  songUrl:   '/song/url',          // ?hash=
-  lyric:     '/lyric',             // ?hash=
+  search:         '/search',            // ?keywords=
+  songUrl:        '/song/url',           // ?hash=
+  lyric:          '/lyric',              // ?hash=
+  playlistTracks: '/playlist/track/all', // ?id=<global_collection_id>&page=&pagesize=
 };
 
 function getCookie() {
@@ -146,4 +147,87 @@ export async function resolveTrack({ title, artist, hint = '' }) {
   return null;
 }
 
-export default { search, songUrl, lyric, resolveTrack };
+// KuGouMusicApi 在歌单接口返回的 name 形如 "Artist - Title"（与现有 OCR 解析的 "Title - Artist"
+// 相反）。差异留在 service 层修正，downstream 拿到的就是已经摆正的 {title, artist}。
+function parseNameField(name) {
+  if (!name) return { title: '', artist: '' };
+  const str = String(name).trim();
+  const idx = str.indexOf(' - ');
+  if (idx === -1) return { title: str, artist: '' };
+  return {
+    artist: str.slice(0, idx).trim(),
+    title: str.slice(idx + 3).trim(),
+  };
+}
+
+export { parseNameField };
+
+export async function fetchSharedPlaylist({
+  globalCollectionId,
+  pagesize = 300,
+  maxPages = 50,
+  retries = 2,
+} = {}) {
+  if (!globalCollectionId) {
+    throw new Error('fetchSharedPlaylist: 必须提供 globalCollectionId');
+  }
+
+  const tracks = [];
+  let totalCount = 0;
+  let lastError = null;
+  const httpClient = client();
+
+  for (let page = 1; page <= maxPages; page += 1) {
+    let response = null;
+    for (let attempt = 0; attempt <= retries; attempt += 1) {
+      try {
+        response = await httpClient.get(ENDPOINTS.playlistTracks, {
+          params: { id: globalCollectionId, page, pagesize },
+        });
+        lastError = null;
+        break;
+      } catch (err) {
+        lastError = err;
+        response = null;
+      }
+    }
+    if (!response) {
+      console.error(`[kugou] fetchSharedPlaylist page ${page} 失败：`, lastError?.message);
+      break;
+    }
+
+    const data = response.data?.data || response.data || {};
+    if (page === 1) totalCount = Number(data.count || data.total || 0);
+    const songs = Array.isArray(data.songs) ? data.songs
+      : Array.isArray(data.info) ? data.info
+      : Array.isArray(data.list) ? data.list
+      : [];
+    if (!songs.length) break;
+
+    for (const song of songs) {
+      const { title, artist } = parseNameField(song.name || song.filename || song.OriSongName);
+      tracks.push({
+        title,
+        artist,
+        album: song.album_name || song.AlbumName || '',
+        hash: song.hash || song.FileHash || '',
+        audioId: song.audio_id || song.audio_info?.audio_id || null,
+        duration: song.timelen || song.duration || song.time_length || 0,
+        publishDate: song.publish_date || '',
+        language: song.language || '',
+        bpm: song.bpm || null,
+      });
+    }
+
+    if (totalCount && tracks.length >= totalCount) break;
+  }
+
+  return {
+    tracks,
+    totalCount,
+    fetchedCount: tracks.length,
+    truncated: Boolean(totalCount) && tracks.length < totalCount,
+  };
+}
+
+export default { search, songUrl, lyric, resolveTrack, fetchSharedPlaylist, parseNameField };

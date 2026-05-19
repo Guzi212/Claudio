@@ -1,20 +1,13 @@
-# 把酷狗截图 OCR 文本、分享链接、复制出来的歌单粘在这里。
-# 支持的常用格式：
+# 来源：飞书私聊「蒋绍锋」中由 loic 于 2026-05-19 11:31-11:36 发送的酷狗年度听歌报告和歌单链接。
+# 读取方式：lark-cli im +chat-messages-list --chat-id oc_90e888f382429b09fa976092ad1ecb32 --as user
 #
-# https://www.kugou.com/playlist/xxxxx
-#
-# # 红心 3
-# 晴天 - 周杰伦
-# 夜曲 周杰伦 《十一月的萧邦》
-#
-# # 最近循环
-# Sweet Soul Revue - Pizzicato Five
-#
-# # 雷区
-# 土嗨电音 - 某某DJ
-#
-# 填好后运行：
-# npm run music:import:kugou
-#
-# 如果确认摘要想直接写进 user/taste.md，运行：
-# node scripts/import-kugou-data.js --apply-taste
+# 注意：2019-2025 年度报告页面大多是酷狗活动 H5，静态 HTML 里没有完整榜单。
+# 本文件只写入已经能从公开页面可靠提取或交叉确认的歌曲级信息；其它链接保留在 user/music/kugou_raw.md 作为来源。
+
+# 长期喜欢 / 歌单链接
+https://t1.kugou.com/6wPXbceG1V2
+Weightless (失重) - Marconi Union
+
+# 年度报告 / 2023 年度歌曲
+https://activity.kugou.com/report2023/v-d8e46be0/index.html?isHideTitleBar=1&tgp=5&u=854483130&h1=523543980dcf70de6be35456da6bf5a5e280ed2b
+我期待的不是雪 (是有你的春夏秋冬) - 吞吞纯音社
