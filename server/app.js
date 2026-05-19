@@ -14,6 +14,10 @@ import { ask as claudeAsk } from './claude.js';
 import { ensureLogin } from './services/kugou-login.js';
 import { start as startScheduler } from './scheduler.js';
 import { synthesize as ttsSynthesize, mountTtsRoutes } from './tts.js';
+import { mountSettingsRoutes } from './api/settings.js';
+import { mountLyricRoute } from './api/lyric.js';
+import { mountTasteRoutes } from './api/taste.js';
+import { mountHealthRoute } from './api/health.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -268,6 +272,12 @@ app.post('/api/runtime/state', (req, res) => {
 
 // TTS 路由（/tts/<sha1>.mp3 读 cache/tts/<sha1>.mp3）
 mountTtsRoutes(app);
+
+// W2/W3 视图依赖的扩展 API
+mountSettingsRoutes(app);
+mountLyricRoute(app);
+mountTasteRoutes(app, { rootDir: ROOT });
+mountHealthRoute(app);
 
 // ────────────────────────────────────────────────────────
 // HTTP server + WS upgrade

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const mockGet = vi.hoisted(() => vi.fn());
+const prefMem = vi.hoisted(() => new Map());
 
 vi.mock('axios', () => ({
   default: {
@@ -8,10 +9,19 @@ vi.mock('axios', () => ({
   },
 }));
 
+vi.mock('../server/db.js', () => ({
+  dbApi: {
+    getPref: vi.fn(k => (prefMem.has(k) ? prefMem.get(k) : null)),
+    setPref: vi.fn((k, v) => { prefMem.set(k, String(v)); }),
+    delPref: vi.fn(k => { prefMem.delete(k); }),
+  },
+}));
+
 describe('services/weather', () => {
   beforeEach(() => {
     vi.resetModules();
     mockGet.mockReset();
+    prefMem.clear();
     delete process.env.OPENWEATHER_API_KEY;
     delete process.env.OPENWEATHER_CITY;
   });
@@ -77,5 +87,33 @@ describe('services/weather', () => {
     const { getCurrent } = await import('../server/services/weather.js');
     const r = await getCurrent();
     expect(r).toBeNull();
+  });
+
+  it('prefs.openweather_api_key 优先于 .env，且当 city 也在 prefs 时按 prefs 城市拉取', async () => {
+    process.env.OPENWEATHER_API_KEY = 'env-key';
+    prefMem.set('openweather_api_key', 'pref-key');
+    prefMem.set('openweather_city', 'Beijing');
+    mockGet.mockResolvedValueOnce({
+      data: { main: { temp: 5, humidity: 40 }, weather: [{ description: '晴' }], name: 'Beijing' },
+    });
+    const { getCurrent } = await import('../server/services/weather.js');
+    await getCurrent();
+    expect(mockGet).toHaveBeenCalledTimes(1);
+    const [, { params }] = mockGet.mock.calls[0];
+    expect(params.appid).toBe('pref-key');
+    expect(params.q).toBe('Beijing');
+  });
+
+  it('invalidateCache 清掉 60s 内的缓存，下次会重新打上游', async () => {
+    process.env.OPENWEATHER_API_KEY = 'test-key';
+    mockGet.mockResolvedValue({
+      data: { main: { temp: 10, humidity: 50 }, weather: [{ description: '晴' }], name: 'Shanghai' },
+    });
+    const { getCurrent, invalidateCache } = await import('../server/services/weather.js');
+    await getCurrent();
+    expect(mockGet).toHaveBeenCalledTimes(1);
+    invalidateCache();
+    await getCurrent();
+    expect(mockGet).toHaveBeenCalledTimes(2);
   });
 });
