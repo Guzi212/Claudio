@@ -12,30 +12,118 @@
 <body>
   <header id="topbar">
     <span class="brand">◐ Claudio</span>
+    <nav id="tabs" class="tabs">
+      <button type="button" class="tab" data-view="player">Player</button>
+      <button type="button" class="tab" data-view="profile">Profile</button>
+      <button type="button" class="tab" data-view="settings">Settings</button>
+    </nav>
     <span id="status" class="status"></span>
   </header>
 
   <div id="alert-bar" class="alert-bar hidden"></div>
+  <div id="toast" class="toast hidden"></div>
 
-  <main id="chat" class="chat" aria-live="polite"></main>
+  <!-- ─────────────── Player ─────────────── -->
+  <section id="view-player" class="view view-player">
+    <main id="chat" class="chat" aria-live="polite"></main>
 
-  <section id="now-playing" class="now-playing hidden">
-    <div class="np-meta">
-      <div class="np-title" id="np-title">—</div>
-      <div class="np-artist" id="np-artist">—</div>
-    </div>
-    <audio id="audio" controls preload="none"></audio>
-    <div class="np-controls">
-      <button id="btn-prev" title="上一首">◀</button>
-      <button id="btn-pp"   title="暂停/继续">⏸</button>
-      <button id="btn-next" title="下一首">▶</button>
+    <div id="env-strip" class="env-strip hidden"></div>
+
+    <section id="now-playing" class="now-playing hidden">
+      <div class="np-meta">
+        <div class="np-title" id="np-title">—</div>
+        <div class="np-artist" id="np-artist">—</div>
+      </div>
+      <audio id="audio" controls preload="none"></audio>
+      <div class="np-controls">
+        <button id="btn-prev" title="上一首">◀</button>
+        <button id="btn-pp"   title="暂停/继续">⏸</button>
+        <button id="btn-next" title="下一首">▶</button>
+      </div>
+    </section>
+
+    <div id="lyrics-panel" class="lyrics-panel hidden"></div>
+
+    <form id="composer" class="composer" autocomplete="off">
+      <input id="input" name="message" placeholder="跟 Claudio 说点什么 · 也支持 /skip /pause /play /queue /help" />
+      <button type="submit">↑</button>
+    </form>
+  </section>
+
+  <!-- ─────────────── Profile ─────────────── -->
+  <section id="view-profile" class="view view-profile hidden">
+    <header class="view-head">
+      <h2>Profile · taste.md</h2>
+      <button id="profile-save" type="button" class="btn primary">保存</button>
+    </header>
+    <div class="profile-body">
+      <textarea id="taste-editor" class="taste-editor" spellcheck="false" placeholder="taste.md 内容加载中…"></textarea>
+      <aside class="profile-hints">
+        <p>编辑时请<strong>保留</strong>这一段（由酷狗导入脚本自动维护）：</p>
+        <pre>&lt;!-- kugou-distilled:start --&gt;
+…脚本生成的蒸馏内容…
+&lt;!-- kugou-distilled:end --&gt;</pre>
+        <p class="muted">保存后下次进入仍可见。</p>
+      </aside>
     </div>
   </section>
 
-  <form id="composer" class="composer" autocomplete="off">
-    <input id="input" name="message" placeholder="跟 Claudio 说点什么 · 也支持 /skip /pause /play /queue /help" />
-    <button type="submit">↑</button>
-  </form>
+  <!-- ─────────────── Settings ─────────────── -->
+  <section id="view-settings" class="view view-settings hidden">
+    <header class="view-head">
+      <h2>Settings</h2>
+      <div class="view-actions">
+        <button id="settings-refresh" type="button" class="btn">刷新状态</button>
+        <button id="settings-save" type="button" class="btn primary">保存</button>
+      </div>
+    </header>
+
+    <section class="card">
+      <h3>集成健康</h3>
+      <ul id="health-list" class="health-list">
+        <li class="muted">加载中…</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h3>天气</h3>
+      <label class="field">
+        <span>OpenWeather API Key</span>
+        <div class="field-row">
+          <input id="set-weather-key" type="text" autocomplete="off" placeholder="未配置">
+          <button type="button" class="btn ghost" data-test="weather" disabled>test</button>
+        </div>
+      </label>
+      <label class="field">
+        <span>城市</span>
+        <input id="set-weather-city" type="text" autocomplete="off" placeholder="Shanghai">
+      </label>
+    </section>
+
+    <section class="card">
+      <h3>TTS · Fish Audio</h3>
+      <label class="field">
+        <span>API Key</span>
+        <input id="set-tts-key" type="text" autocomplete="off" placeholder="未配置">
+      </label>
+      <label class="field">
+        <span>Voice ID</span>
+        <div class="field-row">
+          <input id="set-tts-voice" type="text" autocomplete="off" placeholder="voice id">
+          <button type="button" class="btn ghost" data-test="tts" disabled>试听</button>
+        </div>
+      </label>
+    </section>
+
+    <section class="card">
+      <h3>酷狗</h3>
+      <div class="field">
+        <span>Cookie 状态</span>
+        <div id="kugou-status" class="readonly">读取中…</div>
+      </div>
+      <button type="button" class="btn ghost" id="btn-kugou-relogin" disabled title="后端未暴露此接口">重扫码登录</button>
+    </section>
+  </section>
 
   <script type="module" src="/app.js"></script>
 </body>
