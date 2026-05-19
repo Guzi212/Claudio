@@ -1,15 +1,22 @@
 # Claudio · 交接文档
 
-## 当前状态（MVP + P0 + P1 都跑通了）
+## 当前状态（MVP + P0 + P1 + 三视图都跑通了）
 
 - ✅ PWA chat → Claude → 酷狗 → 浏览器播放（端到端验证通过）
 - ✅ P0 体验补：proxy 长流不再 timeout · queue 切歌同步 · autoplay 兜底 · PWA icon
-- ✅ P1 三件套已合并 + 接入：
-  - **scheduler**（节律调度）— 已挂 cron：07:00 早间规划 · 09:00 通勤 · 每小时情绪检查（PWA 在线时才触发）
-  - **tts**（Fish Audio 合成）— 配 key 后 `say` 会被合成 mp3 放队首
-  - **env-injection**（天气 + 飞书日历）— context.js 第 3 片已自动注入
-- ✅ 测试 57/57 全绿
-- ✅ git 历史干净：9 个 commit，main 一路推平
+- ✅ P1 已合并 + 接入：
+  - **scheduler** — 已挂 cron：07:00 / 09:00 / 每小时（PWA 在线时才触发）
+  - **tts**（Fish Audio）— 配 key 后 `say` 自动合成 mp3 放队首
+  - **env-injection**（天气 + 飞书日历）— context.js 第 3 片自动注入；**lark-cli 已就绪可直接用**
+- ✅ **PWA 三视图 + 后端 settings API + 歌词**：
+  - **Player / Profile / Settings** 三 tab，URL `?view=` 同步
+  - **Profile** 编辑 `taste.md`（保留 kugou-distilled 蒸馏区）
+  - **Settings** 可视化集成健康 + 表单改 key，PUT 落 `state.db.prefs`（**不动 `.env`**）
+  - **歌词面板**：跟随 audio.currentTime 高亮当前行 + slide-to-center
+  - **环境信息条**：Player 顶部显示当前时段
+  - 新 API：`GET/PUT /api/settings` · `PUT /api/taste` · `GET /api/lyric?hash=` · `GET /api/health/integrations`
+- ✅ 测试 107/107 全绿
+- ✅ git 历史干净：15 个 commit，main 一路推平
 
 ## 启动命令（每天就这套）
 
@@ -32,10 +39,10 @@ Start-Process "http://localhost:8080/"
 - [ ] **`user/taste.md`** 自己填几行（喜欢的歌手、风格、场景），现在是空模板 → Claude 推荐才有"你"味
 - [ ] **`user/routines.md`** 可选填，填了 scheduler 推荐更准
 
-### 选填 · 打开 P1 模块开关
-- [ ] **天气**：去 https://openweathermap.org 申请免费 key，`.env` 填 `OPENWEATHER_API_KEY` + `OPENWEATHER_CITY=Shanghai`（或你的城市英文名）
-- [ ] **TTS 真开口**：去 https://fish.audio 注册（付费），`.env` 填 `FISH_API_KEY` + `FISH_VOICE_ID`（在 Fish 控制台 Voice 详情页拿）
-- [ ] **飞书日历**：本机跑过 `lark-cli auth login` 即可，无需 .env 配置
+### 选填 · 打开 P1 模块开关（**现在也可以直接在 PWA Settings 视图里填，PUT 后落 state.db.prefs，不用动 .env**）
+- [ ] **天气**：去 https://openweathermap.org 申请免费 key → Settings 表单填 OpenWeather + 城市
+- [ ] **TTS 真开口**：去 https://fish.audio 注册 → Settings 表单填 API Key + Voice ID
+- [ ] **飞书日历**：已就绪（lark-cli 已登录），无需配置
 
 ### 维护 · 长期使用要注意的事
 - [ ] **酷狗 cookie 过期**：如果发现搜歌全 0 匹配，cookie 死了。重扫码：
@@ -51,9 +58,11 @@ Start-Process "http://localhost:8080/"
 - [ ] **UPnP 推 Naim**：用 node-upnp 在 PWA `<audio>` 旁边并存输出 adapter；切换播放目标到客厅音响
 - [ ] **多设备同步**：state.db 加 device_id，WS 区分 client
 
-### P3 · 体验打磨
-- [ ] **PWA 三视图**（Player / Profile / Settings）：当前只有 Player。Settings 里能编辑 taste.md、看 unmatched、点按钮重扫码
-- [ ] **歌词显示**：`/lyric?hash=...` 后端已就绪，前端没接
+### P3 · 体验打磨（剩余）
+- [ ] **Settings 里"重扫码登录"按钮**：目前 disabled，需要后端暴露 `/api/kugou/relogin` 走 QR 流程
+- [ ] **Settings test/试听按钮**：weather test、tts 试听目前是 disabled 占位
+- [ ] **Profile 看 unmatched**：现在 unmatched 表只能用 sqlite cli 看，UI 没接
+- [ ] **routines.md 编辑**：Profile 只编辑 taste.md，routines 还得手动改文件
 
 ## 项目地图
 
