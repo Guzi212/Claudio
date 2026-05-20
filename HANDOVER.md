@@ -1,5 +1,23 @@
 # Claudio · 交接文档
 
+## 2026-05-20 · Codex → CC 接手说明
+
+- 当前工作分支：`codex-studio-console-ui`
+- 本轮核心：Player 首页已从聊天/播放器堆叠页重做成科技感电台控制台。
+- 前端入口：
+  - `pwa/index.html`：`radio-console` 是主 UI；主题、播放控制、当前播放条、对话、输入框都已合并在控制台内部。
+  - `pwa/styles.css`：`studio-stage[data-theme]` 驱动 `dark / poetry / focus` 三套主题色；粒子背景和控制台布局在这里。
+  - `pwa/views/player.js`：绑定主题切换、控制台播放按钮、收藏态、队列展开、`/api/studio/state` 同步。
+  - `pwa/components/studio-visual.js`：粒子动画和顶部时钟。
+- 后端入口：
+  - `server/api/studio.js`：`GET /api/studio/state`，从 runtime 派生控制台状态。
+  - `server/app.js`：已挂载 studio API。
+- 回归测试：
+  - `tests/player-console-controls.test.js`：防止主题/播放按钮再次变成假按钮，防止播放条和输入框又被放回控制台外。
+  - `tests/studio-api.test.js`：覆盖 studio API 状态派生。
+- 已验证：`npm test` 全绿，22 个测试文件 / 166 个测试；`git diff --check` 通过；浏览器冒烟确认 `now-playing` 和 `composer` 在 `.radio-console` 内，无横向溢出。
+- 未纳入本轮提交的已有脏文件：`pwa/sw.js`、`server/services/weather.js`、`server/tts.js`、`tests/tts.test.js`、`tests/weather.test.js`。这些不是本轮 UI/Studio API 变更范围，CC 接手时不要误以为是这次提交漏了。
+
 ## 当前状态（MVP + P0 + P1 + 三视图都跑通了）
 
 - ✅ PWA chat → Claude → 酷狗 → 浏览器播放（端到端验证通过）
