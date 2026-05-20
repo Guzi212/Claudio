@@ -19,6 +19,7 @@ import { mountLyricRoute } from './api/lyric.js';
 import { mountTasteRoutes } from './api/taste.js';
 import { mountHealthRoute } from './api/health.js';
 import { mountKugouReloginRoutes } from './api/kugou-relogin.js';
+import { mountStudioRoutes } from './api/studio.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -280,6 +281,7 @@ mountLyricRoute(app);
 mountTasteRoutes(app, { rootDir: ROOT });
 mountHealthRoute(app);
 mountKugouReloginRoutes(app);
+mountStudioRoutes(app, { getRuntime: () => runtime });
 
 // ────────────────────────────────────────────────────────
 // HTTP server + WS upgrade

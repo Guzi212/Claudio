@@ -8,6 +8,7 @@ import { setStatus, showAlert } from './views/ui.js';
 // player.js 会 dispatchEvent('claudio:trackchange') 给 lyrics 当作切歌信号
 import './components/env-strip.js';
 import './components/lyrics.js';
+import './components/studio-visual.js';
 
 const VIEWS = ['player', 'profile', 'settings'];
 const DEFAULT_VIEW = 'player';
@@ -48,6 +49,7 @@ setView(currentViewFromUrl());
 
 // ──────────────── 全局 WS（所有 tab 都保持连接） ────────────────
 function connectWs() {
+  if (location.protocol === 'file:') return;
   let ws;
   try {
     ws = new WebSocket(`ws://${location.host}/stream`);
@@ -66,6 +68,6 @@ function connectWs() {
 connectWs();
 
 // 注册 service worker（壳层缓存）
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw.js').catch(() => { /* 静默 */ });
+if (location.protocol !== 'file:' && 'serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').catch(() => { /* 静默 */ });
 }
