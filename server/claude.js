@@ -3,7 +3,7 @@ import 'dotenv/config';
 import { dbApi } from './db.js';
 import { resolveTrack } from './services/kugou.js';
 
-const TIMEOUT_MS = Number(process.env.CLAUDE_TIMEOUT_MS) || 15_000;
+const TIMEOUT_MS = Number(process.env.CLAUDE_TIMEOUT_MS) || 60_000;
 const IS_WIN = process.platform === 'win32';
 
 // 调用 claude CLI 子进程，返回它写在 stdout 的文本。

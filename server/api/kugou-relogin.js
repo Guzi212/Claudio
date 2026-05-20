@@ -39,8 +39,9 @@ export async function checkRelogin(key, { httpGet = defaultGet, db = dbApi } = {
   const statusText = STATUS_TEXT[status] || `未知(${status})`;
 
   if (status === 4) {
-    const token  = res?.data?.token;
-    const userid = res?.data?.userid;
+    // 不同 fork 字段名不一样，取第一个存在的
+    const token  = res?.data?.token  || res?.data?.userinfo?.token;
+    const userid = res?.data?.userid || res?.data?.userinfo?.userid || res?.data?.user_id;
     if (token && userid) {
       db.setPref('kugou_cookie', `token=${token}; userid=${userid}`);
       return { status, statusText, savedCookie: true };

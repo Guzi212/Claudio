@@ -43,22 +43,22 @@ function renderHealth(health) {
 }
 
 function applySettings(s) {
-  nodes.weatherKey.value  = s?.weather?.apiKey ?? '';
-  nodes.weatherCity.value = s?.weather?.city   ?? '';
-  nodes.ttsKey.value      = s?.tts?.apiKey     ?? '';
-  nodes.ttsVoice.value    = s?.tts?.voiceId    ?? '';
+  nodes.weatherKey.value  = s?.openweather_api_key ?? '';
+  nodes.weatherCity.value = s?.openweather_city    ?? '';
+  nodes.ttsKey.value      = s?.fish_api_key        ?? '';
+  nodes.ttsVoice.value    = s?.fish_voice_id       ?? '';
 }
 
 // 构造 PUT body：跳过 mask 占位（避免覆盖原 key）
 function buildPayload() {
-  const payload = { weather: {}, tts: {} };
+  const payload = {};
   const wk = nodes.weatherKey.value;
-  if (wk !== MASK) payload.weather.apiKey = wk;
-  payload.weather.city = nodes.weatherCity.value;
+  if (wk !== MASK) payload.openweather_api_key = wk;
+  payload.openweather_city = nodes.weatherCity.value;
 
   const tk = nodes.ttsKey.value;
-  if (tk !== MASK) payload.tts.apiKey = tk;
-  payload.tts.voiceId = nodes.ttsVoice.value;
+  if (tk !== MASK) payload.fish_api_key = tk;
+  payload.fish_voice_id = nodes.ttsVoice.value;
   return payload;
 }
 
@@ -199,10 +199,57 @@ export function initSettings() {
     btnRelogin.addEventListener('click', startRelogin);
   }
 
-  // 占位按钮：[test] / [试听] —— 后续补
-  document.querySelectorAll('button[data-test]').forEach(b => {
-    b.addEventListener('click', () => toast('该功能尚未接入'));
-  });
+  const btnTestWeather = document.querySelector('button[data-test="weather"]');
+  if (btnTestWeather) {
+    btnTestWeather.disabled = false;
+    btnTestWeather.removeAttribute('title');
+    btnTestWeather.addEventListener('click', async () => {
+      btnTestWeather.disabled = true;
+      const orig = btnTestWeather.textContent;
+      btnTestWeather.textContent = '测试中…';
+      try {
+        const r = await fetch('/api/test/weather', { method: 'POST' });
+        const data = await r.json();
+        if (data.ok) {
+          const d = data.data;
+          toast(`天气 OK · ${d.city} ${d.temp}°C ${d.condition}`);
+        } else {
+          showAlert(`天气测试失败：${data.error}`);
+        }
+      } catch (err) {
+        showAlert(`天气测试失败：${err.message}`);
+      } finally {
+        btnTestWeather.textContent = orig;
+        btnTestWeather.disabled = false;
+      }
+    });
+  }
+
+  const btnTestTts = document.querySelector('button[data-test="tts"]');
+  if (btnTestTts) {
+    btnTestTts.disabled = false;
+    btnTestTts.removeAttribute('title');
+    btnTestTts.addEventListener('click', async () => {
+      btnTestTts.disabled = true;
+      const orig = btnTestTts.textContent;
+      btnTestTts.textContent = '合成中…';
+      try {
+        const r = await fetch('/api/test/tts', { method: 'POST' });
+        const data = await r.json();
+        if (data.ok) {
+          new Audio(data.url).play();
+          toast('TTS OK · 正在播放');
+        } else {
+          showAlert(`TTS 测试失败：${data.error}`);
+        }
+      } catch (err) {
+        showAlert(`TTS 测试失败：${err.message}`);
+      } finally {
+        btnTestTts.textContent = orig;
+        btnTestTts.disabled = false;
+      }
+    });
+  }
 
   window.addEventListener('claudio:view-shown', e => {
     if (e.detail === 'settings') load();

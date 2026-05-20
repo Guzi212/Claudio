@@ -6,7 +6,7 @@ const execAsync = promisify(exec);
 const CACHE_TTL_MS = 60_000;
 const TIMEOUT_MS = 15_000;
 const MAX_BUFFER = 4 * 1024 * 1024;
-const CMD = 'lark-cli calendar +agenda --json';
+const CMD = 'lark-cli calendar +agenda --format json';
 
 const cache = { value: null, expiresAt: 0 };
 
