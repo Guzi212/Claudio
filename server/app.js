@@ -22,6 +22,7 @@ import { mountKugouReloginRoutes } from './api/kugou-relogin.js';
 import { mountTestRoutes } from './api/test.js';
 import { mountUnmatchedRoute } from './api/unmatched.js';
 import { mountKugouImportApiRoute } from './api/kugou-import-api.js';
+import { mountStudioRoutes } from './api/studio.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -286,6 +287,7 @@ mountKugouReloginRoutes(app);
 mountTestRoutes(app);
 mountUnmatchedRoute(app);
 mountKugouImportApiRoute(app);
+mountStudioRoutes(app, { getRuntime: () => runtime });
 
 // ────────────────────────────────────────────────────────
 // HTTP server + WS upgrade
