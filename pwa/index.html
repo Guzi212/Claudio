@@ -4,10 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Claudio · 私人电台</title>
-  <link rel="manifest" href="/manifest.json">
-  <link rel="icon" type="image/svg+xml" href="/icon.svg">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
   <meta name="theme-color" content="#101015">
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <header id="topbar">
@@ -25,29 +25,76 @@
 
   <!-- ─────────────── Player ─────────────── -->
   <section id="view-player" class="view view-player">
-    <main id="chat" class="chat" aria-live="polite"></main>
+    <section class="studio-stage" data-theme="focus" aria-label="Claudio 电台主持画面">
+      <canvas id="particle-field" class="particle-field" aria-hidden="true"></canvas>
 
-    <div id="env-strip" class="env-strip hidden"></div>
+      <div class="radio-console" aria-label="Claudio 电台控制台">
+        <div class="console-topline">
+          <div class="console-brand">
+            <span class="brand-orb"></span>
+            <strong>Claudio</strong>
+          </div>
+          <div class="console-modes" aria-label="主题色">
+            <button type="button" data-studio-theme="dark" aria-pressed="false">DARK</button>
+            <button type="button" data-studio-theme="poetry" aria-pressed="false">POETRY</button>
+            <button type="button" class="active" data-studio-theme="focus" aria-pressed="true">FOCUS</button>
+          </div>
+        </div>
 
-    <section id="now-playing" class="now-playing hidden">
-      <div class="np-meta">
-        <div class="np-title" id="np-title">—</div>
-        <div class="np-artist" id="np-artist">—</div>
-      </div>
-      <audio id="audio" controls preload="none"></audio>
-      <div class="np-controls">
-        <button id="btn-prev" title="上一首">◀</button>
-        <button id="btn-pp"   title="暂停/继续">⏸</button>
-        <button id="btn-next" title="下一首">▶</button>
+        <div class="clock-panel">
+          <time id="studio-clock" class="studio-clock">--:--</time>
+          <span id="studio-weekday" class="studio-weekday">Today</span>
+          <span id="studio-date" class="studio-date">-- · --- · ----</span>
+          <span class="on-air">● ON AIR</span>
+        </div>
+
+        <div class="console-main">
+          <section class="track-panel" aria-label="当前电台状态">
+            <div class="signal-meter" aria-hidden="true"></div>
+            <p class="track-eyebrow">Now Tuning</p>
+            <h2 id="studio-track-title">Claudio<br>Radio</h2>
+            <p id="studio-track-artist">Claude DJ · 私人电台</p>
+          </section>
+
+          <section class="poem-panel" aria-label="AI 电台文案">
+            <span>AI RADIO</span>
+            <p id="console-dialog-text">欢迎来到 Claudio，电台已经准备好接收你的 mood。</p>
+          </section>
+        </div>
+
+        <section id="now-playing" class="now-playing console-player-strip hidden" aria-label="当前播放">
+          <div class="np-meta">
+            <div class="np-title" id="np-title">—</div>
+            <div class="np-artist" id="np-artist">—</div>
+          </div>
+          <audio id="audio" controls preload="none"></audio>
+        </section>
+
+        <div class="console-actions" aria-label="电台播放控制">
+          <button type="button" data-console-control="prev" aria-label="上一首">◁</button>
+          <button type="button" class="primary" data-console-control="play-pause" aria-label="暂停">Ⅱ</button>
+          <button type="button" data-console-control="next" aria-label="下一首">▷</button>
+          <button type="button" data-console-control="favorite" aria-label="收藏当前歌曲" aria-pressed="false">♡</button>
+          <button type="button" data-console-control="queue" aria-label="查看队列">LIST</button>
+        </div>
+
+        <div class="console-chat">
+          <div class="chat-speaker">
+            <span class="brand-orb small"></span>
+            <span>Claudio · LIVE</span>
+          </div>
+          <div id="chat" class="chat" role="log" aria-live="polite"></div>
+          <form id="composer" class="composer" autocomplete="off">
+            <input id="input" name="message" placeholder="跟 Claudio 说点什么 · /skip /pause /play /queue" />
+            <button type="submit">↑</button>
+          </form>
+        </div>
       </div>
     </section>
 
-    <div id="lyrics-panel" class="lyrics-panel hidden"></div>
+    <div id="env-strip" class="env-strip hidden"></div>
 
-    <form id="composer" class="composer" autocomplete="off">
-      <input id="input" name="message" placeholder="跟 Claudio 说点什么 · 也支持 /skip /pause /play /queue /help" />
-      <button type="submit">↑</button>
-    </form>
+    <div id="lyrics-panel" class="lyrics-panel hidden"></div>
   </section>
 
   <!-- ─────────────── Profile ─────────────── -->
@@ -125,6 +172,6 @@
     </section>
   </section>
 
-  <script type="module" src="/app.js"></script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>
