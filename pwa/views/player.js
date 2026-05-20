@@ -148,10 +148,16 @@ function playIndex(i, { autoplay = true } = {}) {
   state.index = i;
   const t = state.queue[i];
   resetFavoriteState();
-  npTitle.textContent = t.title;
-  npArtist.textContent = t.artist;
-  setStudioTrack(t);
-  setConsoleDialog(`接下来播放 ${t.title} — ${t.artist}。`);
+  if (t.isTts) {
+    // TTS 播报：不覆盖 NOW TUNING 大字和 AI RADIO 文案，它们已显示 say 文本
+    npTitle.textContent = 'Claudio';
+    npArtist.textContent = '语音播报';
+  } else {
+    npTitle.textContent = t.title;
+    npArtist.textContent = t.artist;
+    setStudioTrack(t);
+    setConsoleDialog(`接下来播放 ${t.title} — ${t.artist}。`);
+  }
   audio.src = t.audioUrl;
   // 通知 components/lyrics.js 当前是哪首（它通过 #lyrics-panel 自动 attach）
   window.dispatchEvent(new CustomEvent('claudio:trackchange', { detail: t }));
@@ -245,8 +251,11 @@ async function send(message) {
 
     let metaHtml = '';
     if (data.queue && data.queue.length) {
-      const list = data.queue.map(q => `<li>${q.title} — ${q.artist}</li>`).join('');
-      metaHtml += `<ol>${list}</ol>`;
+      const songItems = data.queue.filter(q => !q.isTts);
+      if (songItems.length) {
+        const list = songItems.map(q => `<li>${q.title} — ${q.artist}</li>`).join('');
+        metaHtml += `<ol>${list}</ol>`;
+      }
     }
     if (data.reason) metaHtml += `<div>${data.reason}</div>`;
 
