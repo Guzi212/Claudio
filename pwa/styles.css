@@ -101,6 +101,7 @@ html, body {
 
 /* ──────────────── Player ──────────────── */
 .view-player {
+  overflow-y: auto;
   background:
     linear-gradient(180deg, rgba(124, 226, 255, 0.03), transparent 34%),
     var(--bg);
