@@ -58,6 +58,7 @@ const stmts = {
   setPref: db.prepare(`INSERT INTO prefs (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`),
   delPref: db.prepare(`DELETE FROM prefs WHERE key = ?`),
   insertUnmatched: db.prepare(`INSERT INTO unmatched (title, artist, hint, ts) VALUES (?, ?, ?, ?)`),
+  recentUnmatched: db.prepare(`SELECT id, title, artist, hint, ts FROM unmatched ORDER BY ts DESC LIMIT ?`),
 };
 
 export const dbApi = {
@@ -92,6 +93,10 @@ export const dbApi = {
 
   addUnmatched({ title, artist, hint = null }) {
     return stmts.insertUnmatched.run(title, artist, hint, Date.now()).lastInsertRowid;
+  },
+
+  recentUnmatched(n = 50) {
+    return stmts.recentUnmatched.all(n);
   },
 
   raw: db,
