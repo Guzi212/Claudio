@@ -53,18 +53,42 @@
   <!-- ─────────────── Profile ─────────────── -->
   <section id="view-profile" class="view view-profile hidden">
     <header class="view-head">
-      <h2>Profile · taste.md</h2>
+      <h2>Profile</h2>
       <button id="profile-save" type="button" class="btn primary">保存</button>
     </header>
-    <div class="profile-body">
-      <textarea id="taste-editor" class="taste-editor" spellcheck="false" placeholder="taste.md 内容加载中…"></textarea>
-      <aside class="profile-hints">
-        <p>编辑时请<strong>保留</strong>这一段（由酷狗导入脚本自动维护）：</p>
-        <pre>&lt;!-- kugou-distilled:start --&gt;
-…脚本生成的蒸馏内容…
-&lt;!-- kugou-distilled:end --&gt;</pre>
-        <p class="muted">保存后下次进入仍可见。</p>
-      </aside>
+    <div class="profile-scroll">
+
+      <section class="card">
+        <h3>taste.md</h3>
+        <p class="field-hint">保留 kugou-distilled 区块（导入时自动维护）</p>
+        <textarea id="taste-editor" class="profile-editor taste-editor" spellcheck="false" placeholder="加载中…"></textarea>
+      </section>
+
+      <section class="card">
+        <h3>routines.md</h3>
+        <p class="field-hint">填写日常作息，scheduler 推歌更准</p>
+        <textarea id="routines-editor" class="profile-editor" spellcheck="false" placeholder="加载中…"></textarea>
+      </section>
+
+      <section class="card">
+        <h3>酷狗歌单导入</h3>
+        <div class="import-row">
+          <input id="import-url" type="text" placeholder="粘贴酷狗分享链接（t1.kugou.com/…）">
+          <select id="import-bucket">
+            <option value="long_term">长期喜欢</option>
+            <option value="recent_mood">最近 mood</option>
+            <option value="avoid">雷区</option>
+          </select>
+          <button id="btn-import" type="button" class="btn primary">导入</button>
+        </div>
+        <p id="import-status" class="field-hint"></p>
+      </section>
+
+      <details id="unmatched-section" class="card">
+        <summary>未匹配歌曲 <span id="unmatched-count" class="muted"></span></summary>
+        <ul id="unmatched-list" class="unmatched-list"></ul>
+      </details>
+
     </div>
   </section>
 
