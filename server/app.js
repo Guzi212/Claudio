@@ -16,6 +16,7 @@ import { start as startScheduler } from './scheduler.js';
 import { synthesize as ttsSynthesize, mountTtsRoutes } from './tts.js';
 import { mountSettingsRoutes } from './api/settings.js';
 import { mountLyricRoute } from './api/lyric.js';
+import { mountWeatherRoute } from './api/weather.js';
 import { mountTasteRoutes } from './api/taste.js';
 import { mountHealthRoute } from './api/health.js';
 import { mountKugouReloginRoutes } from './api/kugou-relogin.js';
@@ -279,6 +280,7 @@ mountTtsRoutes(app);
 // W2/W3 视图依赖的扩展 API
 mountSettingsRoutes(app);
 mountLyricRoute(app);
+mountWeatherRoute(app);
 mountTasteRoutes(app, { rootDir: ROOT });
 mountHealthRoute(app);
 mountKugouReloginRoutes(app);

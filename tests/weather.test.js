@@ -45,13 +45,13 @@ describe('services/weather', () => {
     mockGet.mockResolvedValueOnce({
       data: {
         main: { temp: 22.4, humidity: 65 },
-        weather: [{ description: '多云' }],
+        weather: [{ description: '多云', icon: '03d' }],
         name: 'Shanghai',
       },
     });
     const { getCurrent } = await import('../server/services/weather.js');
     const r = await getCurrent();
-    expect(r).toEqual({ temp: 22, condition: '多云', humidity: 65, city: 'Shanghai' });
+    expect(r).toEqual({ temp: 22, condition: '多云', icon: '03d', humidity: 65, city: 'Shanghai' });
   });
 
   it('getCurrent 城市名直查 404 时用 geocoding 解析后按经纬度重试', async () => {
@@ -65,7 +65,7 @@ describe('services/weather', () => {
       .mockResolvedValueOnce({
         data: {
           main: { temp: 25.2, humidity: 58 },
-          weather: [{ description: '晴' }],
+          weather: [{ description: '晴', icon: '01d' }],
           name: 'Changsha',
         },
       });
@@ -73,7 +73,7 @@ describe('services/weather', () => {
     const { getCurrent } = await import('../server/services/weather.js');
     const r = await getCurrent();
 
-    expect(r).toEqual({ temp: 25, condition: '晴', humidity: 58, city: 'Changsha' });
+    expect(r).toEqual({ temp: 25, condition: '晴', icon: '01d', humidity: 58, city: 'Changsha' });
     expect(mockGet).toHaveBeenCalledTimes(3);
     expect(mockGet.mock.calls[1]).toEqual([
       '/direct',
