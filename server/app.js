@@ -143,7 +143,8 @@ app.post('/api/chat', async (req, res) => {
     dbApi.addMessage('assistant', say);
     broadcast({ type: 'state', runtime });
 
-    res.json({ say, queue: finalQueue, reason, intent: 'chat', _raw: raw });
+    const _resolveError = Array.isArray(raw?.play) && raw.play.length > 0 && songQueue.length === 0;
+    res.json({ say, queue: finalQueue, reason, intent: 'chat', _raw: raw, _resolveError });
   } catch (err) {
     console.error('[chat] error:', err);
     res.status(500).json({ error: err.message });
