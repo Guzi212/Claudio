@@ -4,10 +4,15 @@ import os from 'node:os';
 import path from 'node:path';
 
 const prefMem = vi.hoisted(() => new Map());
+const mockExecFile = vi.hoisted(() => vi.fn());
 
 // 让 server/tts.js 拿到的 axios 是 mock
 vi.mock('axios', () => ({
   default: { post: vi.fn() },
+}));
+
+vi.mock('node:child_process', () => ({
+  execFile: mockExecFile,
 }));
 
 vi.mock('../server/db.js', () => ({
@@ -95,6 +100,26 @@ describe('synthesize', () => {
     const { synthesize } = await import('../server/tts.js');
     expect(await synthesize('hello')).toBeNull();
     expect(errSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('Axios 被 Fish Audio 重置连接时 fallback 到 curl 合成', async () => {
+    const axios = (await import('axios')).default;
+    axios.post.mockRejectedValue(Object.assign(new Error('socket reset'), { code: 'ECONNRESET' }));
+    mockExecFile.mockImplementation((_cmd, args, _opts, cb) => {
+      const out = args[args.indexOf('-o') + 1];
+      fs.writeFileSync(out, Buffer.from('CURL_MP3_BYTES'));
+      cb(null, '', '');
+    });
+
+    const { synthesize } = await import('../server/tts.js');
+    const result = await synthesize('早安');
+
+    expect(result).not.toBeNull();
+    expect(fs.readFileSync(result.filePath).toString()).toBe('CURL_MP3_BYTES');
+    expect(mockExecFile).toHaveBeenCalledTimes(1);
+    const [cmd, args] = mockExecFile.mock.calls[0];
+    expect(cmd).toBe('curl');
+    expect(args).toContain('https://api.fish.audio/v1/tts');
   });
 
   it('调用 Fish Audio 时带 Bearer + 正确 body 字段', async () => {

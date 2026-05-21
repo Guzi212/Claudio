@@ -1,5 +1,5 @@
 // 极简 service worker：只缓存壳层（HTML/CSS/JS），不缓存音频和 /api/*
-const CACHE = 'claudio-shell-v3';
+const CACHE = 'claudio-shell-v5';
 const SHELL = [
   '/', '/index.html', '/app.js', '/styles.css', '/manifest.json', '/icon.svg',
   '/views/ui.js', '/views/player.js', '/views/profile.js', '/views/settings.js',
@@ -22,19 +22,16 @@ self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   // /api/* 和音频代理永远不走缓存
   if (url.pathname.startsWith('/api/')) return;
-  // 仅对 GET 走 cache-first
+  // GET 走 network-first：开发时优先拿最新壳层，离线时再回退缓存
   if (e.request.method !== 'GET') return;
 
   e.respondWith(
-    caches.match(e.request).then(hit => {
-      if (hit) return hit;
-      return fetch(e.request).then(res => {
-        if (res.ok && SHELL.includes(url.pathname)) {
-          const copy = res.clone();
-          caches.open(CACHE).then(c => c.put(e.request, copy));
-        }
-        return res;
-      }).catch(() => hit);
-    })
+    fetch(e.request).then(res => {
+      if (res.ok && SHELL.includes(url.pathname)) {
+        const copy = res.clone();
+        caches.open(CACHE).then(c => c.put(e.request, copy));
+      }
+      return res;
+    }).catch(() => caches.match(e.request))
   );
 });
