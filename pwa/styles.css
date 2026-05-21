@@ -316,14 +316,21 @@ html, body {
 
 .clock-panel {
   min-height: 260px;
-  display: grid;
-  place-items: center;
-  align-content: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   gap: 12px;
-  padding: 34px 18px 40px;
+  padding: 34px 18px 0;
   background:
     radial-gradient(circle at 50% 42%, rgba(var(--theme-accent-rgb), 0.13), transparent 36%),
     radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.04), transparent 48%);
+}
+
+.clock-panel .signal-meter {
+  width: 100%;
+  height: 36px;
+  margin: auto 0 0;
 }
 
 .studio-clock {
@@ -365,13 +372,32 @@ html, body {
   padding: 20px;
 }
 
+.studio-weather {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  color: rgba(232, 232, 234, 0.70);
+}
+.studio-weather.hidden { display: none; }
+
 .track-panel {
+  display: flex;
+  flex-direction: column;
   border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.track-panel .lyrics-panel {
+  flex: 1;
+  min-height: 120px;
+  height: auto;
+  background: none;
+  border-top: none;
+  padding: 60px 0;
+  margin-top: 12px;
 }
 
 .signal-meter {
   height: 44px;
-  margin-bottom: 18px;
   background:
     linear-gradient(90deg, transparent 0 5px, rgba(var(--theme-accent-rgb), 0.92) 5px 9px, transparent 9px 13px),
     linear-gradient(180deg, transparent 18%, rgba(var(--theme-accent-rgb), 0.25));
@@ -819,9 +845,28 @@ details.card > summary::-webkit-details-marker { display: none; }
   font-size: 13px;
   font-family: inherit;
 }
-.field input:focus { outline: none; border-color: var(--accent); }
+.field select {
+  width: 100%;
+  padding: 8px 10px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23888' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 28px;
+  cursor: pointer;
+}
+.field input:focus,
+.field select:focus { outline: none; border-color: var(--accent); }
 .field-row { display: flex; gap: 8px; }
-.field-row input { flex: 1; }
+.field-row input,
+.field-row select { flex: 1; }
 
 .readonly {
   padding: 8px 10px;
@@ -988,7 +1033,7 @@ details.card > summary::-webkit-details-marker { display: none; }
 
   .clock-panel {
     min-height: 220px;
-    padding: 28px 12px 32px;
+    padding: 28px 12px 0;
   }
 
   .studio-clock {

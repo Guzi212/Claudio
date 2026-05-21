@@ -46,14 +46,16 @@
           <span id="studio-weekday" class="studio-weekday">Today</span>
           <span id="studio-date" class="studio-date">-- · --- · ----</span>
           <span class="on-air">● ON AIR</span>
+          <span id="studio-weather" class="studio-weather hidden"></span>
+          <div class="signal-meter" aria-hidden="true"></div>
         </div>
 
         <div class="console-main">
           <section class="track-panel" aria-label="当前电台状态">
-            <div class="signal-meter" aria-hidden="true"></div>
             <p class="track-eyebrow">Now Tuning</p>
             <h2 id="studio-track-title">Claudio<br>Radio</h2>
             <p id="studio-track-artist">Claude DJ · 私人电台</p>
+            <div id="lyrics-panel" class="lyrics-panel hidden"></div>
           </section>
 
           <section class="poem-panel" aria-label="AI 电台文案">
@@ -101,8 +103,6 @@
     </section>
 
     <div id="env-strip" class="env-strip hidden"></div>
-
-    <div id="lyrics-panel" class="lyrics-panel hidden"></div>
   </section>
 
   <!-- ─────────────── Profile ─────────────── -->
@@ -191,6 +191,23 @@
           <input id="set-tts-voice" type="text" autocomplete="off" placeholder="voice id">
           <button type="button" class="btn ghost" data-test="tts" disabled>试听</button>
         </div>
+      </label>
+    </section>
+
+    <section class="card">
+      <h3>AI 模型 · DeepSeek</h3>
+      <label class="field">
+        <span>API Key</span>
+        <input id="set-deepseek-key" type="text" autocomplete="off" placeholder="未配置">
+      </label>
+      <label class="field">
+        <span>模型</span>
+        <select id="set-deepseek-model">
+          <option value="deepseek-v4-flash">deepseek-v4-flash（快速，默认）</option>
+          <option value="deepseek-v4-pro">deepseek-v4-pro（推理）</option>
+          <option value="deepseek-chat">deepseek-chat（旧，2026/07 弃用）</option>
+          <option value="deepseek-reasoner">deepseek-reasoner（旧，2026/07 弃用）</option>
+        </select>
       </label>
     </section>
 

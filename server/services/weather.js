@@ -49,6 +49,7 @@ function currentFromResponse(data) {
   return {
     temp: Math.round(data.main?.temp ?? NaN),
     condition: data.weather?.[0]?.description || '',
+    icon: data.weather?.[0]?.icon || '',
     humidity: data.main?.humidity ?? null,
     city: data.name || getCity(),
   };
