@@ -150,8 +150,10 @@ function playIndex(i, { autoplay = true } = {}) {
   resetFavoriteState();
   npTitle.textContent = t.title;
   npArtist.textContent = t.artist;
-  setStudioTrack(t);
-  setConsoleDialog(`接下来播放 ${t.title} — ${t.artist}。`);
+  if (!t.isTts) {
+    setStudioTrack(t);
+    setConsoleDialog(`接下来播放 ${t.title} — ${t.artist}。`);
+  }
   audio.src = t.audioUrl;
   // 通知 components/lyrics.js 当前是哪首（它通过 #lyrics-panel 自动 attach）
   window.dispatchEvent(new CustomEvent('claudio:trackchange', { detail: t }));
