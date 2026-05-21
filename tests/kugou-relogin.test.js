@@ -120,3 +120,22 @@ describe('checkRelogin', () => {
     expect(out.statusText).toContain('未知');
   });
 });
+
+describe('酷狗 API 不可达时给出用户友好错误', () => {
+  function makeConnRefused() {
+    return Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:3000'), {
+      code: 'ECONNREFUSED',
+    });
+  }
+
+  it('startRelogin: ECONNREFUSED → 友好中文错误', async () => {
+    const httpGet = async () => { throw makeConnRefused(); };
+    await expect(startRelogin({ httpGet })).rejects.toThrow(/酷狗.*服务|服务未启动|无法连接/);
+  });
+
+  it('checkRelogin: ECONNREFUSED → 友好中文错误', async () => {
+    const db = { setPref: vi.fn() };
+    const httpGet = async () => { throw makeConnRefused(); };
+    await expect(checkRelogin('K', { httpGet, db })).rejects.toThrow(/酷狗.*服务|服务未启动|无法连接/);
+  });
+});
