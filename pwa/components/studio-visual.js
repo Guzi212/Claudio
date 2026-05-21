@@ -85,7 +85,11 @@ function initParticleField() {
 
   resize();
   draw();
-  window.addEventListener('resize', resize);
+  let resizeTimer = 0;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(resize, 150);
+  });
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) cancelAnimationFrame(raf);
     else draw();

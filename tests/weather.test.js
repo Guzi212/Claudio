@@ -54,6 +54,38 @@ describe('services/weather', () => {
     expect(r).toEqual({ temp: 22, condition: '多云', humidity: 65, city: 'Shanghai' });
   });
 
+  it('getCurrent 城市名直查 404 时用 geocoding 解析后按经纬度重试', async () => {
+    process.env.OPENWEATHER_API_KEY = 'test-key';
+    process.env.OPENWEATHER_CITY = '长沙';
+    const notFound = new Error('city not found');
+    notFound.response = { status: 404 };
+    mockGet
+      .mockRejectedValueOnce(notFound)
+      .mockResolvedValueOnce({ data: [{ lat: 28.23, lon: 112.94, name: 'Changsha' }] })
+      .mockResolvedValueOnce({
+        data: {
+          main: { temp: 25.2, humidity: 58 },
+          weather: [{ description: '晴' }],
+          name: 'Changsha',
+        },
+      });
+
+    const { getCurrent } = await import('../server/services/weather.js');
+    const r = await getCurrent();
+
+    expect(r).toEqual({ temp: 25, condition: '晴', humidity: 58, city: 'Changsha' });
+    expect(mockGet).toHaveBeenCalledTimes(3);
+    expect(mockGet.mock.calls[1]).toEqual([
+      '/direct',
+      { params: { q: '长沙', limit: 1, appid: 'test-key' } },
+    ]);
+    expect(mockGet.mock.calls[2][1].params).toMatchObject({
+      lat: 28.23,
+      lon: 112.94,
+      appid: 'test-key',
+    });
+  });
+
   it('getCurrent 60s 内重复调用走缓存（spy 仅触发 1 次）', async () => {
     process.env.OPENWEATHER_API_KEY = 'test-key';
     mockGet.mockResolvedValue({

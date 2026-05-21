@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,6 +24,53 @@ function ensureCacheDir() {
 
 function hashKey(text, voiceId) {
   return createHash('sha1').update(`${text}::${voiceId}`).digest('hex');
+}
+
+function isConnectionReset(err) {
+  return err?.code === 'ECONNRESET' || /socket.*reset/i.test(err?.message || '');
+}
+
+function runCurlTts({ text, voiceId, apiKey, filePath }) {
+  return new Promise((resolve, reject) => {
+    const tmpPath = `${filePath}.tmp`;
+    const body = JSON.stringify({ text, reference_id: voiceId, format: 'mp3' });
+    execFile('curl', [
+      '-sS',
+      '--retry', '2',
+      '--retry-delay', '1',
+      '--retry-all-errors',
+      '--connect-timeout', '10',
+      '--fail-with-body',
+      '-o', tmpPath,
+      '-X', 'POST',
+      FISH_API_URL,
+      '-H', `Authorization: Bearer ${apiKey}`,
+      '-H', 'Content-Type: application/json',
+      '-d', body,
+    ], { timeout: REQUEST_TIMEOUT_MS }, (err, _stdout, stderr) => {
+      if (err) {
+        let detail = stderr || `curl exited with code ${err.code ?? 'unknown'}`;
+        if (fs.existsSync(tmpPath)) {
+          detail = fs.readFileSync(tmpPath, 'utf8').slice(0, 500) || detail;
+          fs.unlinkSync(tmpPath);
+        }
+        reject(new Error(detail));
+        return;
+      }
+      fs.renameSync(tmpPath, filePath);
+      resolve();
+    });
+  });
+}
+
+async function curlTts(opts) {
+  try {
+    await runCurlTts(opts);
+  } catch (err) {
+    // One extra process-level retry covers intermittent TLS resets that curl's
+    // own retry may not classify consistently.
+    await runCurlTts(opts).catch(() => { throw err; });
+  }
 }
 
 /**
@@ -54,20 +102,24 @@ export async function synthesize(text) {
   }
 
   try {
-    const res = await axios.post(
-      FISH_API_URL,
-      { text: trimmed, reference_id: voiceId, format: 'mp3' },
-      {
-        responseType: 'arraybuffer',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
+    try {
+      const res = await axios.post(
+        FISH_API_URL,
+        { text: trimmed, reference_id: voiceId, format: 'mp3' },
+        {
+          responseType: 'arraybuffer',
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: REQUEST_TIMEOUT_MS,
         },
-        timeout: REQUEST_TIMEOUT_MS,
-      },
-    );
-
-    fs.writeFileSync(filePath, Buffer.from(res.data));
+      );
+      fs.writeFileSync(filePath, Buffer.from(res.data));
+    } catch (err) {
+      if (!isConnectionReset(err)) throw err;
+      await curlTts({ text: trimmed, voiceId, apiKey, filePath });
+    }
     return { hash, filePath, url };
   } catch (err) {
     const detail = err?.response?.status ? `HTTP ${err.response.status}` : err.message;
