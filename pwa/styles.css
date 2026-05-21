@@ -101,7 +101,6 @@ html, body {
 
 /* ──────────────── Player ──────────────── */
 .view-player {
-  overflow-y: auto;
   background:
     linear-gradient(180deg, rgba(124, 226, 255, 0.03), transparent 34%),
     var(--bg);
@@ -544,100 +543,49 @@ audio {
 
 /* ──────────────── Profile ──────────────── */
 .view-profile { padding: 0; }
-.profile-scroll {
+.profile-body {
   flex: 1;
-  overflow-y: auto;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr 280px;
   gap: 16px;
+  padding: 16px;
+  min-height: 0;
 }
-.view-profile .card {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 14px 16px;
-}
-.view-profile .card h3 {
-  margin: 0 0 8px;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--muted);
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-}
-.profile-editor {
-  display: block;
+.taste-editor {
   width: 100%;
-  height: 180px;
-  resize: vertical;
-  background: var(--bg);
+  height: 100%;
+  min-height: 320px;
+  resize: none;
+  background: var(--panel);
   color: var(--text);
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 10px 12px;
+  padding: 12px 14px;
   font-family: ui-monospace, "JetBrains Mono", Consolas, Menlo, monospace;
   font-size: 13px;
   line-height: 1.6;
 }
-.profile-editor:focus { outline: none; border-color: var(--accent); }
-.taste-editor { height: 260px; }
-.field-hint { margin: 4px 0 8px; font-size: 12px; color: var(--muted); }
-
-.import-row {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  align-items: center;
-}
-.import-row input[type="text"] {
-  flex: 1;
-  min-width: 160px;
-  padding: 8px 10px;
-  background: var(--bg);
-  color: var(--text);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  font-size: 13px;
-}
-.import-row input[type="text"]:focus { outline: none; border-color: var(--accent); }
-.import-row select {
-  padding: 8px 10px;
-  background: var(--bg);
-  color: var(--text);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  font-size: 13px;
-}
-
-#unmatched-section summary {
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 600;
+.taste-editor:focus { outline: none; border-color: var(--accent); }
+.profile-hints {
   color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  user-select: none;
-  list-style: none;
-}
-#unmatched-section summary::-webkit-details-marker { display: none; }
-#unmatched-section[open] summary { margin-bottom: 10px; }
-.unmatched-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  max-height: 280px;
-  overflow-y: auto;
-}
-.unmatched-list li {
   font-size: 13px;
-  padding: 5px 0;
-  border-bottom: 1px solid var(--line);
+  line-height: 1.6;
 }
-.unmatched-list li:last-child { border-bottom: none; }
+.profile-hints pre {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--text);
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+.profile-hints .muted { font-size: 12px; }
+
+@media (max-width: 720px) {
+  .profile-body { grid-template-columns: 1fr; }
+}
 
 /* ──────────────── Settings ──────────────── */
 .view-settings { overflow-y: auto; padding: 16px; gap: 16px; }
