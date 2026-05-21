@@ -334,6 +334,28 @@ export function applyRuntime(runtime) {
   }
 }
 
+const WEATHER_ICON_MAP = {
+  '01': '☀', '02': '⛅', '03': '☁', '04': '☁',
+  '09': '🌧', '10': '🌦', '11': '⛈', '13': '❄', '50': '🌫',
+};
+function weatherIconToEmoji(code) {
+  return WEATHER_ICON_MAP[code?.slice(0, 2)] || '🌡';
+}
+
+async function fetchWeather() {
+  const el = document.getElementById('studio-weather');
+  if (!el) return;
+  try {
+    const res = await fetch('/api/weather');
+    if (!res.ok) return;
+    const d = await res.json();
+    if (typeof d.temp === 'number') {
+      el.textContent = `${weatherIconToEmoji(d.icon)} ${d.temp}°`;
+      el.classList.remove('hidden');
+    }
+  } catch {}
+}
+
 export function initPlayer() {
   chat      = $('#chat');
   composer  = $('#composer');
@@ -418,6 +440,9 @@ export function initPlayer() {
 
   // 启动时拉一下当前队列 / 上次会话
   bootCurrent();
+
+  fetchWeather();
+  setInterval(fetchWeather, 5 * 60 * 1000);
 }
 
 async function bootCurrent() {
