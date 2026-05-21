@@ -28,7 +28,7 @@ function renderHealth(health) {
   for (const { key, label } of HEALTH_KEYS) {
     const row = health?.[key] || {};
     const ok = !!row.ok;
-    const msg = row.message || (ok ? 'ok' : 'unconfigured');
+    const msg = row.message || row.detail || (ok ? 'ok' : 'unconfigured');
     const li = document.createElement('li');
     li.className = ok ? 'ok' : 'off';
     li.innerHTML = `<span class="mark">${ok ? '✓' : '○'}</span><span class="label">${label}</span><span class="msg">${msg}</span>`;
@@ -37,28 +37,33 @@ function renderHealth(health) {
   // Kugou 状态镜像到下方
   const k = health?.kugou;
   if (k) {
-    kugouStatus.textContent = k.ok ? `alive · ${k.message || 'cookie ok'}` : (k.message || 'unknown');
+    const msg = k.message || k.detail;
+    kugouStatus.textContent = k.ok ? `alive · ${msg || 'cookie ok'}` : (msg || 'unknown');
     kugouStatus.className = 'readonly ' + (k.ok ? 'ok' : 'off');
   }
 }
 
+function pickSetting(s, flatKey, groupKey, nestedKey) {
+  return s?.[flatKey] ?? s?.[groupKey]?.[nestedKey] ?? '';
+}
+
 function applySettings(s) {
-  nodes.weatherKey.value  = s?.weather?.apiKey ?? '';
-  nodes.weatherCity.value = s?.weather?.city   ?? '';
-  nodes.ttsKey.value      = s?.tts?.apiKey     ?? '';
-  nodes.ttsVoice.value    = s?.tts?.voiceId    ?? '';
+  nodes.weatherKey.value  = pickSetting(s, 'openweather_api_key', 'weather', 'apiKey');
+  nodes.weatherCity.value = pickSetting(s, 'openweather_city', 'weather', 'city');
+  nodes.ttsKey.value      = pickSetting(s, 'fish_api_key', 'tts', 'apiKey');
+  nodes.ttsVoice.value    = pickSetting(s, 'fish_voice_id', 'tts', 'voiceId');
 }
 
 // 构造 PUT body：跳过 mask 占位（避免覆盖原 key）
 function buildPayload() {
-  const payload = { weather: {}, tts: {} };
+  const payload = {};
   const wk = nodes.weatherKey.value;
-  if (wk !== MASK) payload.weather.apiKey = wk;
-  payload.weather.city = nodes.weatherCity.value;
+  if (wk !== MASK) payload.openweather_api_key = wk;
+  payload.openweather_city = nodes.weatherCity.value;
 
   const tk = nodes.ttsKey.value;
-  if (tk !== MASK) payload.tts.apiKey = tk;
-  payload.tts.voiceId = nodes.ttsVoice.value;
+  if (tk !== MASK) payload.fish_api_key = tk;
+  payload.fish_voice_id = nodes.ttsVoice.value;
   return payload;
 }
 
