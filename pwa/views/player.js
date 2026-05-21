@@ -8,11 +8,29 @@ const $ = sel => document.querySelector(sel);
 const state = {
   queue: [],
   index: 0,
+  loopMode: 'list',
 };
 
-let chat, composer, input, submitBtn, audio, npBox, npTitle, npArtist, consolePlayBtn, consoleFavoriteBtn;
+let chat, composer, input, submitBtn, audio, npBox, npTitle, npArtist, consolePlayBtn, consoleFavoriteBtn, loopBtn, queueList, npSeek, npTimeCur, npTimeDur, npVol;
 const STUDIO_THEME_KEY = 'claudio:studio-theme';
 const STUDIO_THEMES = new Set(['dark', 'poetry', 'focus']);
+
+function fmtTime(s) {
+  if (!isFinite(s) || s < 0) return '0:00';
+  const m = Math.floor(s / 60);
+  const sec = String(Math.floor(s % 60)).padStart(2, '0');
+  return `${m}:${sec}`;
+}
+
+function updateSeekBar(cur, dur) {
+  const pct = dur > 0 ? (cur / dur) * 100 : 0;
+  if (npSeek) {
+    npSeek.style.setProperty('--seek-pct', `${pct.toFixed(2)}%`);
+    npSeek.value = pct;
+  }
+  if (npTimeCur) npTimeCur.textContent = fmtTime(cur);
+  if (npTimeDur) npTimeDur.textContent = fmtTime(dur);
+}
 
 // autoplay 在浏览器策略下需要"用户已交互过页面"才生效
 let userActivated = false;
@@ -147,6 +165,7 @@ function playIndex(i, { autoplay = true } = {}) {
   }
   state.index = i;
   const t = state.queue[i];
+  updateSeekBar(0, 0);
   resetFavoriteState();
   npTitle.textContent = t.title;
   npArtist.textContent = t.artist;
@@ -165,6 +184,7 @@ function playIndex(i, { autoplay = true } = {}) {
   }
   npBox.classList.remove('hidden');
   syncToServer(state.index);
+  renderQueuePanel();
 }
 
 function goPrev() {
@@ -207,12 +227,40 @@ function toggleFavorite() {
     : `已取消收藏：${track?.title || '当前电台氛围'}`);
 }
 
-function showQueue() {
-  const message = state.queue.length
-    ? '当前队列：\n' + state.queue.map((q, i) => `${i === state.index ? '▶' : '  '} ${q.title} — ${q.artist}`).join('\n')
-    : '当前队列还是空的。';
-  addBubble('assistant', message);
-  setConsoleDialog(state.queue.length ? '队列已展开在下方对话里。' : message);
+function renderQueuePanel() {
+  if (!queueList) return;
+  const dialogText = document.getElementById('console-dialog-text');
+  if (!state.queue.length) {
+    queueList.classList.add('hidden');
+    if (dialogText) dialogText.classList.remove('hidden');
+    return;
+  }
+  queueList.innerHTML = state.queue.map((t, i) => {
+    const active = i === state.index;
+    const label = `${t.title} — ${t.artist}`;
+    return `<li class="${active ? 'active' : ''}" data-idx="${i}">${active ? '▶ ' : ''}${label}</li>`;
+  }).join('');
+  queueList.classList.remove('hidden');
+  if (dialogText) dialogText.classList.add('hidden');
+  const activeEl = queueList.querySelector('li.active');
+  if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
+  queueList.querySelectorAll('li[data-idx]').forEach(li => {
+    li.addEventListener('click', () => {
+      markActivated();
+      playIndex(Number(li.dataset.idx));
+    });
+  });
+}
+
+function toggleLoopMode() {
+  state.loopMode = state.loopMode === 'list' ? 'one' : 'list';
+  const isOne = state.loopMode === 'one';
+  if (loopBtn) {
+    loopBtn.textContent = isOne ? '↺1' : '↻';
+    loopBtn.setAttribute('aria-label', isOne ? '单曲循环' : '列表循环');
+    loopBtn.setAttribute('aria-pressed', String(isOne));
+    loopBtn.classList.toggle('active', isOne);
+  }
 }
 
 function bindConsoleControls() {
@@ -225,7 +273,7 @@ function bindConsoleControls() {
       if (action === 'play-pause') togglePlayback();
       if (action === 'next') goNext();
       if (action === 'favorite') toggleFavorite();
-      if (action === 'queue') showQueue();
+      if (action === 'loop') toggleLoopMode();
     });
   });
 }
@@ -245,9 +293,10 @@ async function send(message) {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
 
+    const songItems = (data.queue || []).filter(q => !q.isTts);
     let metaHtml = '';
-    if (data.queue && data.queue.length) {
-      const list = data.queue.map(q => `<li>${q.title} — ${q.artist}</li>`).join('');
+    if (songItems.length) {
+      const list = songItems.map(q => `<li>${q.title} — ${q.artist}</li>`).join('');
       metaHtml += `<ol>${list}</ol>`;
     }
     if (data.reason) metaHtml += `<div>${data.reason}</div>`;
@@ -260,7 +309,11 @@ async function send(message) {
       state.index = 0;
       playIndex(0);
     }
-    clearAlert();
+    if (data._resolveError) {
+      showAlert('酷狗搜索失败，请检查酷狗 API 服务是否正在运行');
+    } else {
+      clearAlert();
+    }
   } catch (err) {
     addBubble('assistant', `(出错：${err.message})`);
     showAlert(`服务异常：${err.message}`);
@@ -277,6 +330,7 @@ export function applyRuntime(runtime) {
   if (state.queue.length === 0 && runtime.queue.length) {
     state.queue = runtime.queue;
     state.index = runtime.index || 0;
+    renderQueuePanel();
   }
 }
 
@@ -294,24 +348,66 @@ export function initPlayer() {
   document.addEventListener('keydown', markActivated, { capture: true, once: true });
 
   audio.addEventListener('ended', () => {
-    if (state.index < state.queue.length - 1) {
-      playIndex(state.index + 1);
+    if (state.loopMode === 'one') {
+      audio.currentTime = 0;
+      audio.play().catch(() => {});
+    } else if (state.queue.length) {
+      playIndex((state.index + 1) % state.queue.length);
     } else {
       npBox.classList.add('hidden');
       syncToServer(state.index, { paused: true });
     }
   });
 
-  audio.addEventListener('play',  () => syncToServer(state.index, { paused: false }));
-  audio.addEventListener('pause', () => syncToServer(state.index, { paused: true }));
+  // 歌曲加载失败（URL 过期、代理出错等）→ 跳到下一首，避免静默卡死
+  audio.addEventListener('error', () => {
+    if (state.index < state.queue.length - 1) {
+      playIndex(state.index + 1);
+    } else {
+      showAlert('音频加载失败');
+    }
+  });
+
+  // 只对真实歌曲才清除 alert，避免 TTS 播放时把"酷狗搜索失败"之类的错误提示抹掉
+  audio.addEventListener('play',  () => {
+    syncToServer(state.index, { paused: false });
+    updatePlayButtons(true);
+    if (!state.queue[state.index]?.isTts) clearAlert();
+  });
+  audio.addEventListener('pause', () => {
+    syncToServer(state.index, { paused: true });
+    updatePlayButtons(false);
+  });
 
   consolePlayBtn = $('[data-console-control="play-pause"]');
   consoleFavoriteBtn = $('[data-console-control="favorite"]');
+  loopBtn = $('[data-console-control="loop"]');
+  queueList = document.getElementById('queue-list');
+  npSeek = document.getElementById('np-seek');
+  npTimeCur = document.getElementById('np-time-cur');
+  npTimeDur = document.getElementById('np-time-dur');
+  npVol = document.getElementById('np-vol');
+
+  audio.addEventListener('timeupdate', () => updateSeekBar(audio.currentTime, audio.duration));
+  audio.addEventListener('durationchange', () => updateSeekBar(audio.currentTime, audio.duration));
+  audio.addEventListener('loadedmetadata', () => updateSeekBar(audio.currentTime, audio.duration));
+
+  if (npSeek) {
+    npSeek.addEventListener('input', () => {
+      if (audio.duration) audio.currentTime = (npSeek.value / 100) * audio.duration;
+    });
+  }
+
+  if (npVol) {
+    npVol.addEventListener('input', () => {
+      audio.volume = npVol.value / 100;
+      npVol.style.setProperty('--vol-pct', `${npVol.value}%`);
+    });
+  }
+
   bindConsoleControls();
   bindStudioThemes();
   setStudioTheme(savedStudioTheme() || 'focus', { persist: false });
-  audio.addEventListener('play',  () => { updatePlayButtons(true); clearAlert(); });
-  audio.addEventListener('pause', () => { updatePlayButtons(false); });
   updatePlayButtons(false);
 
   composer.addEventListener('submit', e => {
@@ -354,6 +450,7 @@ async function bootCurrent() {
         audio.src = t.audioUrl;
         npBox.classList.remove('hidden');
       }
+      renderQueuePanel();
     }
     if (data.lastSay) {
       addBubble('assistant', data.lastSay, '(上次会话)');

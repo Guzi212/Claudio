@@ -19,9 +19,21 @@ const QR_CHECK_PATH  = '/login/qr/check';
 
 const STATUS_TEXT = { 0: '过期', 1: '等扫码', 2: '等确认', 4: '成功' };
 
+function wrapApiError(err) {
+  if (err.code === 'ECONNREFUSED') {
+    return new Error(`酷狗 API 服务未启动（${BASE} 无法连接）`);
+  }
+  return err;
+}
+
 // 依赖注入版的核心逻辑，便于单测 mock fetch / dbApi 替身
 export async function startRelogin({ httpGet = defaultGet } = {}) {
-  const r1 = await httpGet(`${BASE}${QR_KEY_PATH}`, { type: 'web' });
+  let r1;
+  try {
+    r1 = await httpGet(`${BASE}${QR_KEY_PATH}`, { type: 'web' });
+  } catch (err) {
+    throw wrapApiError(err);
+  }
   const key = r1?.data?.qrcode || r1?.qrcode || '';
   if (!key) throw new Error('QR key empty');
 
@@ -34,7 +46,12 @@ export async function startRelogin({ httpGet = defaultGet } = {}) {
 
 export async function checkRelogin(key, { httpGet = defaultGet, db = dbApi } = {}) {
   if (!key) throw new Error('key required');
-  const res = await httpGet(`${BASE}${QR_CHECK_PATH}`, { key });
+  let res;
+  try {
+    res = await httpGet(`${BASE}${QR_CHECK_PATH}`, { key });
+  } catch (err) {
+    throw wrapApiError(err);
+  }
   const status = res?.data?.status;
   const statusText = STATUS_TEXT[status] || `未知(${status})`;
 
