@@ -22,6 +22,8 @@ beforeEach(() => {
   delete process.env.OPENWEATHER_CITY;
   delete process.env.FISH_API_KEY;
   delete process.env.FISH_VOICE_ID;
+  delete process.env.DEEPSEEK_API_KEY;
+  delete process.env.DEEPSEEK_MODEL;
   vi.resetModules();
 });
 
@@ -71,6 +73,8 @@ describe('mountSettingsRoutes', () => {
       openweather_city: 'Shanghai',
       fish_api_key: '',
       fish_voice_id: 'voice-x',
+      deepseek_api_key: '',
+      deepseek_model: '',
     });
   });
 

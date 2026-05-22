@@ -44,25 +44,38 @@ export async function startRelogin({ httpGet = defaultGet } = {}) {
   return { key, qrImg, qrUrl };
 }
 
-export async function checkRelogin(key, { httpGet = defaultGet, db = dbApi } = {}) {
+export async function checkRelogin(key, { httpGet = defaultGetFull, db = dbApi } = {}) {
   if (!key) throw new Error('key required');
-  let res;
+  let raw;
   try {
-    res = await httpGet(`${BASE}${QR_CHECK_PATH}`, { key });
+    raw = await httpGet(`${BASE}${QR_CHECK_PATH}`, { key });
   } catch (err) {
     throw wrapApiError(err);
   }
+
+  // 兼容两种格式：
+  //   旧（测试 mock）: { data: { status, token, userid } }
+  //   新（defaultGetFull）: { data: <http body>, cookies: { token, userid, ... } }
+  const hasCookies = raw != null && typeof raw.cookies === 'object';
+  const res = hasCookies ? raw.data : raw;
+  const cookieMap = hasCookies ? raw.cookies : {};
+
   const status = res?.data?.status;
   const statusText = STATUS_TEXT[status] || `未知(${status})`;
 
   if (status === 4) {
-    // 不同 fork 字段名不一样，取第一个存在的
-    const token  = res?.data?.token  || res?.data?.userinfo?.token;
-    const userid = res?.data?.userid || res?.data?.userinfo?.userid || res?.data?.user_id;
+    const token  = res?.data?.token  || res?.data?.userinfo?.token  || cookieMap.token;
+    const userid = res?.data?.userid || res?.data?.userinfo?.userid || res?.data?.user_id || cookieMap.userid;
+
     if (token && userid) {
       db.setPref('kugou_cookie', `token=${token}; userid=${userid}`);
       return { status, statusText, savedCookie: true };
     }
+
+    // 调试：帮助诊断 Kugou API 响应字段名变化
+    console.warn('[kugou-relogin] status=4 但 token/userid 未找到'
+      + ' · body.data keys:', Object.keys(res?.data || {})
+      + ' · cookie keys:', Object.keys(cookieMap));
     return { status, statusText, savedCookie: false };
   }
   return { status, statusText, savedCookie: false };
@@ -72,6 +85,19 @@ async function defaultGet(url, params) {
   const { default: axios } = await import('axios');
   const r = await axios.get(url, { params, timeout: 5_000 });
   return r.data;
+}
+
+// checkRelogin 专用：额外捕获 Set-Cookie headers，以便 token 只出现在 cookie 里时也能提取
+async function defaultGetFull(url, params) {
+  const { default: axios } = await import('axios');
+  const r = await axios.get(url, { params, timeout: 5_000 });
+  const cookies = {};
+  for (const c of r.headers?.['set-cookie'] || []) {
+    const [kv] = c.split(';');
+    const eq = kv.indexOf('=');
+    if (eq > 0) cookies[kv.slice(0, eq).trim()] = kv.slice(eq + 1).trim();
+  }
+  return { data: r.data, cookies };
 }
 
 export function mountKugouReloginRoutes(app) {

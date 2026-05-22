@@ -16,6 +16,8 @@ beforeEach(() => {
   delete process.env.OPENWEATHER_CITY;
   delete process.env.FISH_API_KEY;
   delete process.env.FISH_VOICE_ID;
+  delete process.env.DEEPSEEK_API_KEY;
+  delete process.env.DEEPSEEK_MODEL;
   vi.resetModules();
 });
 
@@ -28,6 +30,8 @@ describe('services/settings', () => {
       'openweather_city',
       'fish_api_key',
       'fish_voice_id',
+      'deepseek_api_key',
+      'deepseek_model',
     ]);
     expect(typeof mod.getAll).toBe('function');
     expect(typeof mod.get).toBe('function');
@@ -49,7 +53,7 @@ describe('services/settings', () => {
     expect(get('fish_api_key')).toBe('');
   });
 
-  it('getAll 返回四个 key 的当前值', async () => {
+  it('getAll 返回六个 key 的当前值', async () => {
     process.env.OPENWEATHER_CITY = 'Beijing';
     mem.set('fish_voice_id', 'voice-x');
 
@@ -59,6 +63,8 @@ describe('services/settings', () => {
       openweather_city: 'Beijing',
       fish_api_key: '',
       fish_voice_id: 'voice-x',
+      deepseek_api_key: '',
+      deepseek_model: '',
     });
   });
 
@@ -82,7 +88,9 @@ describe('services/settings', () => {
     const { isSensitive } = await import('../server/services/settings.js');
     expect(isSensitive('openweather_api_key')).toBe(true);
     expect(isSensitive('fish_api_key')).toBe(true);
+    expect(isSensitive('deepseek_api_key')).toBe(true);
     expect(isSensitive('openweather_city')).toBe(false);
     expect(isSensitive('fish_voice_id')).toBe(false);
+    expect(isSensitive('deepseek_model')).toBe(false);
   });
 });

@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import 'dotenv/config';
 import { dbApi } from './db.js';
 import { resolveTrack } from './services/kugou.js';
+import { get as getSetting } from './services/settings.js';
 
 const TIMEOUT_MS = Number(process.env.CLAUDE_TIMEOUT_MS) || 60_000;
 const IS_WIN = process.platform === 'win32';
@@ -114,38 +115,74 @@ function fallbackFromHistory(reason) {
   };
 }
 
+// DeepSeek 直调（比 claude -p 快 3-5x，不带 Claude Code 自身的 24K token 开销）
+async function callDeepSeek(systemPrompt, userMessage) {
+  const { default: axios } = await import('axios');
+  const apiKey = getSetting('deepseek_api_key') || process.env.DEEPSEEK_API_KEY;
+  const model  = getSetting('deepseek_model')   || process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
+  const r = await axios.post(
+    'https://api.deepseek.com/chat/completions',
+    {
+      model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user',   content: userMessage   },
+      ],
+      max_tokens: 2000,
+      temperature: 0.8,
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      timeout: TIMEOUT_MS,
+    },
+  );
+  const choice = r.data.choices[0];
+  if (choice.finish_reason === 'length') {
+    console.warn('[deepseek] response truncated (finish_reason=length)');
+  }
+  return choice.message.content;
+}
+
 /**
- * 完整链路：systemPrompt + 用户输入 → Claude → 解析 → 翻译成可播放队列
+ * 完整链路：systemPrompt + 用户输入 → LLM → 解析 → 翻译成可播放队列
+ * 优先用 DeepSeek（settings 或 DEEPSEEK_API_KEY），否则回退到 claude -p
  * @returns {Promise<{say, queue, reason, raw}>}
  */
 export async function ask(systemPrompt, userMessage) {
-  const fullPrompt = `${systemPrompt}\n\n用户：${userMessage}\n\nClaudio 的 JSON 回复：`;
-
   let djJson;
   try {
-    const stdout = await runClaudeCli(fullPrompt);
-    const resultField = extractResultField(stdout);
-    djJson = parseDjJson(resultField);
+    let resultText;
+    if (getSetting('deepseek_api_key')) {
+      console.log('[claude] using DeepSeek API');
+      resultText = await callDeepSeek(systemPrompt, userMessage);
+    } else {
+      const fullPrompt = `${systemPrompt}\n\n用户：${userMessage}\n\nClaudio 的 JSON 回复：`;
+      const stdout = await runClaudeCli(fullPrompt);
+      resultText = extractResultField(stdout);
+    }
+    djJson = parseDjJson(resultText);
   } catch (err) {
-    console.error('[claude] CLI failure, falling back:', err.message);
+    console.error('[claude] failure, falling back:', err.message);
     djJson = fallbackFromHistory(err.message);
   }
 
-  // 翻译 play[] → queue（每条调酷狗匹配）
-  const queue = [];
-  for (const want of djJson.play) {
-    const track = await resolveTrack(want);
-    if (track) {
-      queue.push({
-        title: track.title,
-        artist: track.artist,
-        album: track.album,
-        duration: track.duration,
-        kugouId: track.kugouId,
-        audioUrl: `/api/proxy?u=${encodeURIComponent(track.upstreamUrl)}`,
-      });
-    }
-  }
+  // 并发解析所有曲目（比串行快 3-4 倍）
+  const resolved = await Promise.all(
+    djJson.play.map(want => resolveTrack(want)),
+  );
+  const queue = resolved
+    .filter(Boolean)
+    .map(track => ({
+      title:    track.title,
+      artist:   track.artist,
+      album:    track.album,
+      duration: track.duration,
+      kugouId:  track.kugouId,
+      audioUrl: `/api/proxy?u=${encodeURIComponent(track.upstreamUrl)}`,
+    }));
 
   return {
     say: djJson.say,

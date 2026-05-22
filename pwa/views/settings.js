@@ -4,10 +4,12 @@ import { showAlert, toast } from './ui.js';
 const MASK = '****已配置';
 
 const fields = {
-  weatherKey:  '#set-weather-key',
-  weatherCity: '#set-weather-city',
-  ttsKey:      '#set-tts-key',
-  ttsVoice:    '#set-tts-voice',
+  weatherKey:    '#set-weather-key',
+  weatherCity:   '#set-weather-city',
+  ttsKey:        '#set-tts-key',
+  ttsVoice:      '#set-tts-voice',
+  deepseekKey:   '#set-deepseek-key',
+  deepseekModel: '#set-deepseek-model',
 };
 
 let nodes = {};
@@ -20,6 +22,7 @@ const HEALTH_KEYS = [
   { key: 'kugou',   label: 'KuGou'   },
   { key: 'weather', label: 'Weather' },
   { key: 'tts',     label: 'TTS'     },
+  { key: 'ai',      label: 'AI'      },
   { key: 'lark',    label: 'Lark'    },
 ];
 
@@ -52,6 +55,9 @@ function applySettings(s) {
   nodes.weatherCity.value = pickSetting(s, 'openweather_city', 'weather', 'city');
   nodes.ttsKey.value      = pickSetting(s, 'fish_api_key', 'tts', 'apiKey');
   nodes.ttsVoice.value    = pickSetting(s, 'fish_voice_id', 'tts', 'voiceId');
+  nodes.deepseekKey.value = s?.deepseek_api_key || '';
+  const savedModel = s?.deepseek_model;
+  if (savedModel) nodes.deepseekModel.value = savedModel;
 }
 
 // 构造 PUT body：跳过 mask 占位（避免覆盖原 key）
@@ -64,6 +70,10 @@ function buildPayload() {
   const tk = nodes.ttsKey.value;
   if (tk !== MASK) payload.fish_api_key = tk;
   payload.fish_voice_id = nodes.ttsVoice.value;
+
+  const dk = nodes.deepseekKey.value;
+  if (dk !== MASK) payload.deepseek_api_key = dk;
+  payload.deepseek_model = nodes.deepseekModel.value;
   return payload;
 }
 
@@ -148,22 +158,34 @@ function openReloginModal({ qrImg, qrUrl, key }) {
         return;
       }
       const { status, statusText, savedCookie } = data;
-      statusEl.textContent = statusText + (savedCookie ? ' · cookie 已保存' : '');
-      if (status === 4 && savedCookie) {
+
+      if (status === 4) {
         clearInterval(pollId);
-        setTimeout(() => {
-          closeReloginModal();
-          toast('登录成功 · 已刷新 cookie');
-          load(true); // 健康列表会从 ○ 变 ✓
-        }, 800);
-      } else if (status === 0) {
+        if (savedCookie) {
+          statusEl.textContent = '✓ 登录成功 · cookie 已保存';
+          setTimeout(() => {
+            closeReloginModal();
+            toast('酷狗登录成功，可以放歌了');
+            load(true);
+          }, 600);
+        } else {
+          // token 提取失败：给出明确提示，让用户知道发生了什么
+          statusEl.textContent = '登录已确认，但 token 提取失败，请重试';
+          statusEl.style.color = 'var(--accent, #e07)';
+        }
+        return;
+      }
+
+      statusEl.textContent = statusText;
+
+      if (status === 0) {
         clearInterval(pollId);
         statusEl.textContent = '二维码过期 · 关闭后重试';
       }
     } catch (err) {
       statusEl.textContent = `轮询失败：${err.message}`;
     }
-  }, 2_000);
+  }, 1_500);
 
   reloginState = { key, pollId, modal: backdrop };
 }
