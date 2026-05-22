@@ -5,9 +5,11 @@ export const KEYS = [
   'openweather_city',
   'fish_api_key',
   'fish_voice_id',
+  'deepseek_api_key',
+  'deepseek_model',
 ];
 
-const SENSITIVE = new Set(['openweather_api_key', 'fish_api_key']);
+const SENSITIVE = new Set(['openweather_api_key', 'fish_api_key', 'deepseek_api_key']);
 
 function envName(key) {
   return key.toUpperCase();
