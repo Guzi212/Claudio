@@ -101,6 +101,7 @@ html, body {
 
 /* ──────────────── Player ──────────────── */
 .view-player {
+  overflow-y: auto;
   background:
     linear-gradient(180deg, rgba(124, 226, 255, 0.03), transparent 34%),
     var(--bg);
@@ -387,12 +388,10 @@ html, body {
 }
 
 .track-panel .lyrics-panel {
-  flex: 1;
-  min-height: 120px;
-  height: auto;
+  height: 160px;
   background: none;
   border-top: none;
-  padding: 60px 0;
+  padding: 70px 4px;
   margin-top: 12px;
 }
 
@@ -1067,5 +1066,38 @@ details.card > summary::-webkit-details-marker { display: none; }
 
   .bubble {
     max-width: 100%;
+  }
+}
+
+/* 矮屏幕适配：压缩时钟面板和控制条，确保输入框始终在可视区域内 */
+@media (max-height: 950px) {
+  .clock-panel {
+    min-height: 180px;
+    padding-top: 18px;
+  }
+  .console-actions {
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+  .console-chat {
+    padding-top: 14px;
+    padding-bottom: 14px;
+  }
+}
+
+@media (max-height: 800px) {
+  .clock-panel {
+    min-height: 140px;
+    padding-top: 12px;
+  }
+  .studio-clock {
+    font-size: clamp(44px, 10vw, 64px);
+  }
+  .console-main {
+    min-height: 160px;
+  }
+  .console-actions {
+    padding-top: 8px;
+    padding-bottom: 8px;
   }
 }
