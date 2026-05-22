@@ -1,7 +1,7 @@
 // Player 视图 · 保留原 chat + audio player 全部逻辑。
 // 入口：initPlayer() — 在 DOM 就绪后调用一次。
 // 对外：applyRuntime(runtime) — 让 app.js 把 WS 推来的 runtime 同步进来。
-import { showAlert, clearAlert, setStatus } from './ui.js';
+import { showAlert, clearAlert, setStatus, toast } from './ui.js';
 
 const $ = sel => document.querySelector(sel);
 
@@ -222,7 +222,7 @@ function toggleFavorite() {
   const track = currentTrack();
   consoleFavoriteBtn.setAttribute('aria-pressed', String(next));
   consoleFavoriteBtn.classList.toggle('active', next);
-  showAlert(next
+  toast(next
     ? `已收藏：${track?.title || '当前电台氛围'}`
     : `已取消收藏：${track?.title || '当前电台氛围'}`);
 }
@@ -473,6 +473,7 @@ async function bootCurrent() {
         setStudioTrack(t);
         setConsoleDialog(`回到电台：${t.title} — ${t.artist}。`);
         audio.src = t.audioUrl;
+        window.dispatchEvent(new CustomEvent('claudio:trackchange', { detail: t }));
         npBox.classList.remove('hidden');
       }
       renderQueuePanel();
