@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const prefMem = vi.hoisted(() => new Map());
 const mockExec = vi.hoisted(() => vi.fn());
+const mockAxiosGet = vi.hoisted(() => vi.fn());
 
 vi.mock('../server/db.js', () => ({
   dbApi: {
@@ -13,9 +14,15 @@ vi.mock('../server/db.js', () => ({
 
 vi.mock('node:child_process', () => ({ exec: mockExec }));
 
+vi.mock('axios', () => ({
+  default: { get: mockAxiosGet },
+}));
+
 beforeEach(() => {
   prefMem.clear();
   mockExec.mockReset();
+  // 默认：kugou user/detail 返回有效用户（测试可按需覆盖）
+  mockAxiosGet.mockResolvedValue({ data: { status: 1, userid: 'u1' } });
   delete process.env.KUGOU_COOKIE;
   delete process.env.OPENWEATHER_API_KEY;
   delete process.env.FISH_API_KEY;
