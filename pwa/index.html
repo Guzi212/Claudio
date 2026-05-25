@@ -25,6 +25,9 @@
 
   <!-- ─────────────── Player ─────────────── -->
   <section id="view-player" class="view view-player">
+    <div id="boot-overlay" class="boot-overlay hidden" aria-label="电台开播">
+      <button type="button" id="boot-btn" class="boot-btn">▶ 开始电台</button>
+    </div>
     <section class="studio-stage" data-theme="focus" aria-label="Claudio 电台主持画面">
       <canvas id="particle-field" class="particle-field" aria-hidden="true"></canvas>
 
@@ -85,6 +88,7 @@
           <button type="button" class="primary" data-console-control="play-pause" aria-label="暂停">Ⅱ</button>
           <button type="button" data-console-control="next" aria-label="下一首">▷</button>
           <button type="button" data-console-control="favorite" aria-label="收藏当前歌曲" aria-pressed="false">♡</button>
+          <button type="button" data-console-control="queue" aria-label="显示播放队列" aria-pressed="true">☰</button>
           <button type="button" data-console-control="loop" aria-label="列表循环" aria-pressed="false">↻</button>
         </div>
 
