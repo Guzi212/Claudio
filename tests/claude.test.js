@@ -60,4 +60,22 @@ describe('parseDjJson', () => {
     expect(r.reason).toBe('');
     expect(r.segue).toBe('');
   });
+
+  it('保留 play 里的 comment 字段', () => {
+    const r = parseDjJson(JSON.stringify({
+      say: '来了',
+      play: [{ title: '蜉蝣', artist: '落日飞车', hint: '', comment: '给你今天慢热开场，city pop 节奏正好' }],
+      reason: '', segue: '',
+    }));
+    expect(r.play[0].comment).toBe('给你今天慢热开场，city pop 节奏正好');
+  });
+
+  it('play 里没有 comment 时默认空字符串', () => {
+    const r = parseDjJson(JSON.stringify({
+      say: '来了',
+      play: [{ title: '晴天', artist: '周杰伦' }],
+      reason: '', segue: '',
+    }));
+    expect(r.play[0].comment).toBe('');
+  });
 });
