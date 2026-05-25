@@ -175,14 +175,16 @@ export async function ask(systemPrompt, userMessage) {
     djJson.play.map(want => resolveTrack(want)),
   );
   const queue = resolved
+    .map((track, i) => track ? { track, comment: djJson.play[i].comment || '' } : null)
     .filter(Boolean)
-    .map(track => ({
+    .map(({ track, comment }) => ({
       title:    track.title,
       artist:   track.artist,
       album:    track.album,
       duration: track.duration,
       kugouId:  track.kugouId,
       audioUrl: `/api/proxy?u=${encodeURIComponent(track.upstreamUrl)}`,
+      comment,
     }));
 
   return {
