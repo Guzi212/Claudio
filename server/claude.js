@@ -93,12 +93,13 @@ function normalizeDjJson(obj) {
   return {
     say: String(obj?.say ?? '').trim(),
     play: Array.isArray(obj?.play) ? obj.play.map(p => ({
-      title: String(p?.title ?? '').trim(),
-      artist: String(p?.artist ?? '').trim(),
-      hint: String(p?.hint ?? '').trim(),
+      title:   String(p?.title   ?? '').trim(),
+      artist:  String(p?.artist  ?? '').trim(),
+      hint:    String(p?.hint    ?? '').trim(),
+      comment: String(p?.comment ?? '').trim(),
     })).filter(p => p.title) : [],
     reason: String(obj?.reason ?? '').trim(),
-    segue: String(obj?.segue ?? '').trim(),
+    segue:  String(obj?.segue  ?? '').trim(),
   };
 }
 
