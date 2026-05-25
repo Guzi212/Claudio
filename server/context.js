@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import 'dotenv/config';
 import { dbApi } from './db.js';
 import { getCurrent as getWeather } from './services/weather.js';
-import { getTodayEvents } from './services/lark-calendar.js';
+import { getTodayEvents } from './services/google-calendar.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
