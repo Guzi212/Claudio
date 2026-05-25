@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /Users/loic/workspace/Claudio/.claude/hooks/block-env-write.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /Users/loic/workspace/Claudio/.claude/hooks/run-related-tests.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
