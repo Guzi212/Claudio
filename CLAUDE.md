@@ -110,11 +110,14 @@ pnpm test
 # 2. push 分支
 git push -u origin feat/<branch-name>
 
-# 3. 开 PR（开启 auto-merge）
+# 3. 开 PR
 gh pr create --title "<标题>" --body "<描述>" --base main
-gh pr merge --auto --squash
 
-# 4. 清理 worktree（merge 完成后）
+# 4. 等 CI 通过后再 merge（检查状态）
+gh pr checks          # 等所有 checks 变绿
+gh pr merge --squash  # CI 全绿后执行
+
+# 5. 清理 worktree（merge 完成后）
 cd /Users/loic/workspace/Claudio
 git worktree remove ../claudio-<branch-name>
 ```
