@@ -285,15 +285,26 @@ function renderQueuePanel() {
   }
   queueList.innerHTML = state.queue.map((t, i) => {
     const active = i === state.index;
-    const label = `${t.title} — ${t.artist}`;
-    return `<li class="${active ? 'active' : ''}" data-idx="${i}">${active ? '▶ ' : ''}${label}</li>`;
+    const prefix = active ? '▶ ' : '';
+    const label = `<span class="track-label">${prefix}${escapeHtml(t.title)} — ${escapeHtml(t.artist)}</span>`;
+    const infoBtn = t.comment
+      ? `<button class="track-expand-btn" aria-label="查看推荐理由" data-expand="${i}">ℹ</button>`
+      : '';
+    const comment = t.comment
+      ? `<div class="track-comment">${escapeHtml(t.comment)}</div>`
+      : '';
+    return `<li class="${active ? 'active' : ''}" data-idx="${i}"><div class="track-row">${label}${infoBtn}</div>${comment}</li>`;
   }).join('');
   queueList.classList.remove('hidden');
   if (dialogText) dialogText.classList.add('hidden');
   const activeEl = queueList.querySelector('li.active');
   if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
   queueList.querySelectorAll('li[data-idx]').forEach(li => {
-    li.addEventListener('click', () => {
+    li.addEventListener('click', e => {
+      if (e.target.closest('[data-expand]')) {
+        li.classList.toggle('expanded');
+        return;
+      }
       markActivated();
       playIndex(Number(li.dataset.idx));
     });
