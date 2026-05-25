@@ -8,6 +8,7 @@
     "node": ">=22.5"
   },
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks",
     "dev": "node --no-warnings server/app.js",
     "start": "node --no-warnings server/app.js",
     "music:import:kugou": "node scripts/import-kugou-data.js",

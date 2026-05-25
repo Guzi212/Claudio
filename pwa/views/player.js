@@ -23,7 +23,14 @@ let autoRecommending = false;
 let pendingPlayFrom = -1;
 let autoRecommendGen = 0;
 
-let chat, composer, input, submitBtn, audio, npBox, npTitle, npArtist, consolePlayBtn, consoleFavoriteBtn, loopBtn, queueList, npSeek, npTimeCur, npTimeDur, npVol;
+let bootOverlay = null;
+let bootBtn = null;
+let bootReady = false;
+let bootData = null;
+let bootClicked = false;
+let queueVisible = true;
+
+let chat, composer, input, submitBtn, audio, npBox, npTitle, npArtist, consolePlayBtn, consoleFavoriteBtn, queueBtn, loopBtn, queueList, npSeek, npTimeCur, npTimeDur, npVol;
 const STUDIO_THEME_KEY = 'claudio:studio-theme';
 const STUDIO_THEMES = new Set(['dark', 'poetry', 'focus']);
 
@@ -168,6 +175,65 @@ function applyStudioState(studio) {
   }
 }
 
+async function preFetchBoot() {
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: '刚打开电台，请根据现在的时间和天气推荐开播曲目' }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    bootData = await res.json();
+    bootReady = true;
+    if (bootClicked) startBoot();
+  } catch (err) {
+    console.warn('[boot] pre-fetch failed:', err.message);
+    bootReady = true;
+    bootData = null;
+    if (bootClicked) {
+      showAlert('推歌失败，请手动输入指令');
+      dismissBootOverlay();
+    } else if (bootBtn) {
+      bootBtn.textContent = '▶ 开始电台';
+      bootBtn.disabled = false;
+    }
+  }
+}
+
+function startBoot() {
+  dismissBootOverlay();
+  const data = bootData;
+  if (!data) {
+    setConsoleDialog('连接失败，请手动输入指令');
+    return;
+  }
+  const songItems = (data.queue || []).filter(q => !q.isTts);
+  let metaHtml = '';
+  if (songItems.length) {
+    const list = songItems.map(q => `<li>${escapeHtml(q.title)} — ${escapeHtml(q.artist)}</li>`).join('');
+    metaHtml += `<ol>${list}</ol>`;
+  }
+  if (data.reason) metaHtml += `<div>${escapeHtml(data.reason)}</div>`;
+  if (data.say) {
+    setConsoleDialog(data.say);
+    addBubble('assistant', data.say, metaHtml || null);
+  }
+  if (data._resolveError) {
+    showAlert('酷狗搜索失败，请检查酷狗 API 服务是否正在运行');
+  } else {
+    clearAlert();
+  }
+  if (data.queue && data.queue.length) {
+    state.queue = data.queue;
+    state.index = 0;
+    playIndex(0);
+  }
+}
+
+function dismissBootOverlay() {
+  if (bootOverlay) bootOverlay.classList.add('hidden');
+}
+
 async function autoRecommend(prompt) {
   if (autoRecommending) return;
   autoRecommending = true;
@@ -281,6 +347,7 @@ function renderQueuePanel() {
   if (!state.queue.length) {
     queueList.classList.add('hidden');
     if (dialogText) dialogText.classList.remove('hidden');
+    if (queueBtn) queueBtn.setAttribute('aria-pressed', 'false');
     return;
   }
   queueList.innerHTML = state.queue.map((t, i) => {
@@ -295,8 +362,9 @@ function renderQueuePanel() {
       : '';
     return `<li class="${active ? 'active' : ''}" data-idx="${i}"><div class="track-row">${label}${infoBtn}</div>${comment}</li>`;
   }).join('');
-  queueList.classList.remove('hidden');
-  if (dialogText) dialogText.classList.add('hidden');
+  queueList.classList.toggle('hidden', !queueVisible);
+  if (dialogText) dialogText.classList.toggle('hidden', queueVisible);
+  if (queueBtn) queueBtn.setAttribute('aria-pressed', String(queueVisible));
   const activeEl = queueList.querySelector('li.active');
   if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
   queueList.querySelectorAll('li[data-idx]').forEach(li => {
@@ -322,6 +390,15 @@ function toggleLoopMode() {
   }
 }
 
+function toggleQueuePanel() {
+  if (!state.queue.length) {
+    showAlert('队列还是空的');
+    return;
+  }
+  queueVisible = !queueVisible;
+  renderQueuePanel();
+}
+
 function bindConsoleControls() {
   const controls = document.querySelectorAll('[data-console-control]');
   controls.forEach(btn => {
@@ -332,6 +409,7 @@ function bindConsoleControls() {
       if (action === 'play-pause') togglePlayback();
       if (action === 'next') goNext();
       if (action === 'favorite') toggleFavorite();
+      if (action === 'queue') toggleQueuePanel();
       if (action === 'loop') toggleLoopMode();
     });
   });
@@ -477,7 +555,9 @@ export function initPlayer() {
 
   consolePlayBtn = $('[data-console-control="play-pause"]');
   consoleFavoriteBtn = $('[data-console-control="favorite"]');
+  queueBtn = $('[data-console-control="queue"]');
   loopBtn = $('[data-console-control="loop"]');
+  if (queueBtn) queueBtn.setAttribute('aria-pressed', 'false');
   queueList = document.getElementById('queue-list');
   npSeek = document.getElementById('np-seek');
   npTimeCur = document.getElementById('np-time-cur');
@@ -505,6 +585,21 @@ export function initPlayer() {
   bindStudioThemes();
   setStudioTheme(savedStudioTheme() || 'focus', { persist: false });
   updatePlayButtons(false);
+
+  bootOverlay = document.getElementById('boot-overlay');
+  bootBtn = document.getElementById('boot-btn');
+  if (bootBtn) {
+    bootBtn.addEventListener('click', () => {
+      markActivated();
+      bootClicked = true;
+      if (bootReady) {
+        startBoot();
+      } else {
+        bootBtn.textContent = '加载中…';
+        bootBtn.disabled = true;
+      }
+    });
+  }
 
   composer.addEventListener('submit', e => {
     e.preventDefault();
@@ -552,8 +647,8 @@ async function bootCurrent() {
       }
       renderQueuePanel();
     } else {
-      pendingPlayFrom = 0;
-      autoRecommend('刚打开电台，请根据现在的时间和天气推荐开播曲目');
+      if (bootOverlay) bootOverlay.classList.remove('hidden');
+      preFetchBoot();
     }
     if (data.lastSay) {
       addBubble('assistant', data.lastSay, '(上次会话)');

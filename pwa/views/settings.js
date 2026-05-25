@@ -123,9 +123,21 @@ async function save() {
 // ──────────── 酷狗扫码续登录 ────────────
 function closeReloginModal() {
   if (!reloginState) return;
-  if (reloginState.pollId) clearInterval(reloginState.pollId);
+  clearInterval(reloginState.pollId);
+  clearInterval(reloginState.probeId);
   if (reloginState.modal?.parentNode) reloginState.modal.parentNode.removeChild(reloginState.modal);
   reloginState = null;
+}
+
+function onLoginSuccess(statusEl) {
+  statusEl.textContent = '✓ 登录成功 · cookie 已保存';
+  statusEl.className = 'modal-status ok';
+  setTimeout(() => {
+    closeReloginModal();
+    toast('酷狗登录成功，可以放歌了');
+    loaded = false;
+    load(true);
+  }, 800);
 }
 
 function openReloginModal({ qrImg, qrUrl, key }) {
@@ -138,56 +150,92 @@ function openReloginModal({ qrImg, qrUrl, key }) {
       <h3>用手机酷狗 App 扫码</h3>
       ${qrImg ? `<img class="qr" src="${qrImg}" alt="QR" />` : ''}
       ${qrUrl ? `<p class="muted small">或浏览器打开：<a href="${qrUrl}" target="_blank" rel="noopener">${qrUrl}</a></p>` : ''}
-      <p class="modal-status" data-status>等扫码…</p>
+      <div class="modal-status-row">
+        <span class="modal-status" data-status>检查中…</span>
+        <button type="button" class="btn ghost modal-refresh" data-refresh>手动刷新</button>
+      </div>
+      <p class="modal-checked" data-checked></p>
+      <p class="modal-probe" data-probe></p>
     </div>
   `;
-  backdrop.addEventListener('click', e => {
-    if (e.target === backdrop) closeReloginModal();
-  });
+  backdrop.addEventListener('click', e => { if (e.target === backdrop) closeReloginModal(); });
   backdrop.querySelector('.modal-close').addEventListener('click', closeReloginModal);
   document.body.appendChild(backdrop);
 
-  const statusEl = backdrop.querySelector('[data-status]');
+  const statusEl  = backdrop.querySelector('[data-status]');
+  const checkedEl = backdrop.querySelector('[data-checked]');
+  const probeEl   = backdrop.querySelector('[data-probe]');
+  const refreshBtn = backdrop.querySelector('[data-refresh]');
 
-  const pollId = setInterval(async () => {
+  let checking = false;
+  let done = false;
+
+  // ── 路径 1：QR 状态码（标准流，部分 API 可靠）──
+  async function checkQrStatus() {
+    if (checking || done) return;
+    checking = true;
+    refreshBtn.disabled = true;
     try {
       const r = await fetch(`/api/kugou/relogin/status?key=${encodeURIComponent(key)}`);
       const data = await r.json();
+      checkedEl.textContent = `QR 检查 ${new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+
       if (!data.ok) {
-        statusEl.textContent = `失败：${data.error || '未知'}`;
+        statusEl.textContent = `上游错误：${data.error || '未知'}`;
+        statusEl.className = 'modal-status off';
         return;
       }
-      const { status, statusText, savedCookie } = data;
-
+      const { status, savedCookie } = data;
       if (status === 4) {
-        clearInterval(pollId);
-        if (savedCookie) {
-          statusEl.textContent = '✓ 登录成功 · cookie 已保存';
-          setTimeout(() => {
-            closeReloginModal();
-            toast('酷狗登录成功，可以放歌了');
-            load(true);
-          }, 600);
-        } else {
-          // token 提取失败：给出明确提示，让用户知道发生了什么
-          statusEl.textContent = '登录已确认，但 token 提取失败，请重试';
-          statusEl.style.color = 'var(--accent, #e07)';
-        }
+        if (savedCookie) { done = true; onLoginSuccess(statusEl); return; }
+        statusEl.textContent = 'QR status=4 但 token 提取失败，等待 probe…';
+        statusEl.className = 'modal-status off';
         return;
       }
-
-      statusEl.textContent = statusText;
-
       if (status === 0) {
-        clearInterval(pollId);
-        statusEl.textContent = '二维码过期 · 关闭后重试';
+        clearInterval(reloginState?.pollId);
+        statusEl.textContent = '二维码已过期 · 关闭后重新生成';
+        statusEl.className = 'modal-status off';
+        return;
       }
+      const label = status === 2 ? '📱 已扫码，等待手机确认…' : '⏳ 等待扫码…';
+      statusEl.textContent = label;
+      statusEl.className = status === 2 ? 'modal-status ok' : 'modal-status';
     } catch (err) {
-      statusEl.textContent = `轮询失败：${err.message}`;
+      statusEl.textContent = `网络错误：${err.message}`;
+      statusEl.className = 'modal-status off';
+    } finally {
+      checking = false;
+      refreshBtn.disabled = false;
     }
-  }, 1_500);
+  }
 
-  reloginState = { key, pollId, modal: backdrop };
+  // ── 路径 2：probe 上游 session（QR 状态码卡住时的兜底）──
+  async function probeUpstream() {
+    if (done) return;
+    try {
+      const r = await fetch('/api/kugou/relogin/probe', { method: 'POST' });
+      const data = await r.json();
+      if (data.ok && data.found) {
+        done = true;
+        probeEl.textContent = '';
+        onLoginSuccess(statusEl);
+      } else {
+        probeEl.textContent = `后台探测中… ${new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+      }
+    } catch {
+      // probe 静默失败，不打扰 QR 状态显示
+    }
+  }
+
+  refreshBtn.addEventListener('click', () => { checkQrStatus(); probeUpstream(); });
+
+  checkQrStatus();
+  probeUpstream();
+  const pollId  = setInterval(checkQrStatus,  2_000);
+  const probeId = setInterval(probeUpstream,  3_000);  // probe 频率稍低，避免压上游
+
+  reloginState = { key, pollId, probeId, modal: backdrop };
 }
 
 async function startRelogin() {

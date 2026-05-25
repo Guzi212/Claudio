@@ -12,6 +12,9 @@ cache/
 .DS_Store
 Thumbs.db
 
+# Claude Code MCP (含本地路径和 token，不提交)
+.mcp.json
+
 # Editor
 .vscode/
 .idea/

@@ -929,6 +929,41 @@ details.card > summary::-webkit-details-marker { display: none; }
 .btn.primary:hover:not(:disabled) { filter: brightness(1.1); }
 .btn.ghost { background: transparent; }
 
+/* ──────── Boot overlay · 冷启动开播遮罩 ──────── */
+.boot-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(12, 12, 16, 0.78);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 150;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.boot-overlay.hidden { display: none; }
+
+.boot-btn {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  padding: 18px 52px;
+  border: 1px solid rgba(23, 239, 139, 0.55);
+  border-radius: 999px;
+  background: rgba(23, 239, 139, 0.10);
+  color: #17ef8b;
+  cursor: pointer;
+  transition: background 180ms ease, box-shadow 180ms ease, transform 120ms ease;
+  box-shadow: 0 0 40px rgba(23, 239, 139, 0.16);
+}
+.boot-btn:hover {
+  background: rgba(23, 239, 139, 0.20);
+  box-shadow: 0 0 64px rgba(23, 239, 139, 0.26);
+}
+.boot-btn:active { transform: scale(0.97); }
+.boot-btn:disabled { opacity: 0.60; cursor: wait; }
+
 /* ──────── Modal · 扫码登录用 ──────── */
 .modal-backdrop {
   position: fixed;

@@ -48,7 +48,8 @@ export async function checkRelogin(key, { httpGet = defaultGetFull, db = dbApi }
   if (!key) throw new Error('key required');
   let raw;
   try {
-    raw = await httpGet(`${BASE}${QR_CHECK_PATH}`, { key });
+    // _t 时间戳破 KuGou 端 max-age=120 缓存，确保每次拿到实时扫码状态
+    raw = await httpGet(`${BASE}${QR_CHECK_PATH}`, { key, _t: Date.now() });
   } catch (err) {
     throw wrapApiError(err);
   }
@@ -100,6 +101,30 @@ async function defaultGetFull(url, params) {
   return { data: r.data, cookies };
 }
 
+// 探测上游 API 的内部 session 是否已认证（扫码后上游自身 cookie jar 会更新，
+// 但 /login/qr/check 状态码可能卡在 1）。不带我们存的 cookie，依赖上游自身 session。
+export async function probeSession({ httpGetFull = defaultGetFull, db = dbApi } = {}) {
+  const raw = await httpGetFull(`${BASE}/user/detail`, {});
+  const hasCookies = raw != null && typeof raw.cookies === 'object';
+  const body = hasCookies ? raw.data : raw;
+  const cookieMap = hasCookies ? raw.cookies : {};
+
+  // 上游用自身 session 返回了有效用户
+  const userid = body?.userid || body?.data?.userid || body?.userinfo?.userid || cookieMap.userid;
+  const token  = body?.token  || body?.data?.token  || body?.userinfo?.token  || cookieMap.token;
+
+  if (userid && token) {
+    db.setPref('kugou_cookie', `token=${token}; userid=${userid}`);
+    return { found: true, userid };
+  }
+  // 部分实现只在 Set-Cookie 里有 token，userid 在 body
+  if (userid && cookieMap.token) {
+    db.setPref('kugou_cookie', `token=${cookieMap.token}; userid=${userid}`);
+    return { found: true, userid };
+  }
+  return { found: false };
+}
+
 export function mountKugouReloginRoutes(app) {
   app.post('/api/kugou/relogin/start', async (req, res) => {
     try {
@@ -125,6 +150,17 @@ export function mountKugouReloginRoutes(app) {
       res.status(502).json({ ok: false, error: err.message });
     }
   });
+
+  // 探测上游是否已认证，成功则保存 cookie 到 DB
+  app.post('/api/kugou/relogin/probe', async (req, res) => {
+    try {
+      const out = await probeSession();
+      res.json({ ok: true, ...out });
+    } catch (err) {
+      console.error('[kugou-relogin] probe failed:', err.message);
+      res.status(502).json({ ok: false, error: err.message });
+    }
+  });
 }
 
-export default { startRelogin, checkRelogin, mountKugouReloginRoutes };
+export default { startRelogin, checkRelogin, probeSession, mountKugouReloginRoutes };

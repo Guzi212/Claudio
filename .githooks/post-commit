@@ -1,0 +1,16 @@
+#!/bin/sh
+# 每次 commit 后自动追加一条记录到 docs/devlog.md
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+DEVLOG="$REPO_ROOT/docs/devlog.md"
+DATE=$(date +%Y-%m-%d)
+MSG=$(git log -1 --pretty=%s)
+FILES=$(git diff-tree --no-commit-id -r --name-only HEAD | awk '{printf "%s%s", sep, $0; sep=", "} END {print ""}')
+
+[ -f "$DEVLOG" ] || printf '# 开发日志\n' > "$DEVLOG"
+
+if ! grep -q "^## $DATE" "$DEVLOG"; then
+  printf '\n## %s\n' "$DATE" >> "$DEVLOG"
+fi
+
+printf -- '- `%s` — %s\n' "$MSG" "$FILES" >> "$DEVLOG"
