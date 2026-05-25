@@ -175,7 +175,7 @@ export async function ask(systemPrompt, userMessage) {
     djJson.play.map(want => resolveTrack(want)),
   );
   const queue = resolved
-    .map((track, i) => track ? { track, comment: djJson.play[i].comment || '' } : null)
+    .map((track, i) => track ? { track, comment: djJson.play[i].comment ?? '' } : null)
     .filter(Boolean)
     .map(({ track, comment }) => ({
       title:    track.title,
