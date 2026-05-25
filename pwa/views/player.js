@@ -11,6 +11,10 @@ const state = {
   loopMode: 'list',
 };
 
+let autoRecommending = false;
+let pendingPlayFrom = -1;
+let autoRecommendGen = 0;
+
 let chat, composer, input, submitBtn, audio, npBox, npTitle, npArtist, consolePlayBtn, consoleFavoriteBtn, loopBtn, queueList, npSeek, npTimeCur, npTimeDur, npVol;
 const STUDIO_THEME_KEY = 'claudio:studio-theme';
 const STUDIO_THEMES = new Set(['dark', 'poetry', 'focus']);
@@ -156,6 +160,39 @@ function applyStudioState(studio) {
   }
 }
 
+async function autoRecommend(prompt) {
+  if (autoRecommending) return;
+  autoRecommending = true;
+  const myGen = ++autoRecommendGen;
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: prompt }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (myGen !== autoRecommendGen) return;
+    const newSongs = (data.queue || []).filter(q => !q.isTts);
+    if (newSongs.length) {
+      state.queue = [...state.queue, ...newSongs];
+      if (data.say) setConsoleDialog(data.say);
+      renderQueuePanel();
+      if (pendingPlayFrom >= 0 && pendingPlayFrom < state.queue.length) {
+        const idx = pendingPlayFrom;
+        pendingPlayFrom = -1;
+        playIndex(idx);
+      }
+    }
+  } catch (err) {
+    console.warn('[autoRecommend] failed:', err.message);
+    if (pendingPlayFrom >= 0) setConsoleDialog('自动推荐失败，请手动输入指令');
+    pendingPlayFrom = -1;
+  } finally {
+    if (myGen === autoRecommendGen) autoRecommending = false;
+  }
+}
+
 function playIndex(i, { autoplay = true } = {}) {
   if (i < 0 || i >= state.queue.length) {
     npBox.classList.add('hidden');
@@ -185,6 +222,9 @@ function playIndex(i, { autoplay = true } = {}) {
   npBox.classList.remove('hidden');
   syncToServer(state.index);
   renderQueuePanel();
+  if (i === state.queue.length - 1 && !autoRecommending) {
+    autoRecommend('上一批歌已经播完了，请根据当前时间和氛围继续推荐下一批');
+  }
 }
 
 function goPrev() {
@@ -279,6 +319,8 @@ function bindConsoleControls() {
 }
 
 async function send(message) {
+  pendingPlayFrom = -1;
+  autoRecommendGen++;
   addBubble('user', message);
   input.value = '';
   submitBtn.disabled = true;
@@ -373,8 +415,16 @@ export function initPlayer() {
     if (state.loopMode === 'one') {
       audio.currentTime = 0;
       audio.play().catch(() => {});
+    } else if (state.index < state.queue.length - 1) {
+      playIndex(state.index + 1);
     } else if (state.queue.length) {
-      playIndex((state.index + 1) % state.queue.length);
+      // 队列结束：若预取已在途，等它回来；否则立即发起推荐
+      pendingPlayFrom = state.queue.length;
+      if (autoRecommending) {
+        setConsoleDialog('正在准备下一批曲目…');
+      } else {
+        autoRecommend('上一批歌已经播完了，请根据当前时间和氛围继续推荐下一批');
+      }
     } else {
       npBox.classList.add('hidden');
       syncToServer(state.index, { paused: true });
@@ -477,6 +527,9 @@ async function bootCurrent() {
         npBox.classList.remove('hidden');
       }
       renderQueuePanel();
+    } else {
+      pendingPlayFrom = 0;
+      autoRecommend('刚打开电台，请根据现在的时间和天气推荐开播曲目');
     }
     if (data.lastSay) {
       addBubble('assistant', data.lastSay, '(上次会话)');
