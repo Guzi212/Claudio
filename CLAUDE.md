@@ -75,3 +75,53 @@ Issues 存放在 GitHub（`Guzi212/Claudio`），通过 `gh` CLI 操作。见 `d
 - 是否存在需要升级的风险点
 
 如果当前会话模型能力不足，不要硬做；应说明原因并建议切换到更强模型。
+
+## 多会话开发工作流
+
+并行会话会踩脚。每个任务必须在独立的 git worktree 里进行，禁止直接在 main 分支上改代码。
+
+### 开始任务前（必须执行）
+
+```bash
+# 1. 确认当前在主工作目录（不是 worktree）
+cd /Users/loic/workspace/Claudio
+
+# 2. 拉取最新 main
+git fetch origin main
+git checkout main
+git pull origin main
+
+# 3. 建分支 + worktree（feat/xxx 或 fix/xxx）
+git worktree add ../claudio-<branch-name> -b feat/<branch-name>
+
+# 4. 进入 worktree 工作目录
+cd ../claudio-<branch-name>
+
+# 5. 安装依赖（如果 package.json 有变化）
+pnpm install
+```
+
+### 任务完成后（必须执行）
+
+```bash
+# 1. 跑测试，必须全部通过
+pnpm test
+
+# 2. push 分支
+git push -u origin feat/<branch-name>
+
+# 3. 开 PR（开启 auto-merge）
+gh pr create --title "<标题>" --body "<描述>" --base main
+gh pr merge --auto --squash
+
+# 4. 清理 worktree（merge 完成后）
+cd /Users/loic/workspace/Claudio
+git worktree remove ../claudio-<branch-name>
+```
+
+### 规则
+
+- 分支命名：`feat/<功能描述>` 或 `fix/<问题描述>`，用连字符，全小写
+- 禁止直接 push main，禁止 `git checkout main` 后直接改文件
+- PR 有冲突时不要尝试自动解决，停下来通知用户
+- 每个 worktree 对应一个独立任务，不在同一 worktree 里做多个无关改动
