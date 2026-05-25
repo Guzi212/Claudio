@@ -3,6 +3,14 @@
 // 对外：applyRuntime(runtime) — 让 app.js 把 WS 推来的 runtime 同步进来。
 import { showAlert, clearAlert, setStatus, toast } from './ui.js';
 
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 const $ = sel => document.querySelector(sel);
 
 const state = {
@@ -338,10 +346,15 @@ async function send(message) {
     const songItems = (data.queue || []).filter(q => !q.isTts);
     let metaHtml = '';
     if (songItems.length) {
-      const list = songItems.map(q => `<li>${q.title} — ${q.artist}</li>`).join('');
-      metaHtml += `<ol>${list}</ol>`;
+      const items = songItems.map(q => {
+        const name = `<span class="track-name">${escapeHtml(q.title)} — ${escapeHtml(q.artist)}</span>`;
+        const cmt  = q.comment
+          ? `<span class="track-comment">${escapeHtml(q.comment)}</span>`
+          : '';
+        return `<li>${name}${cmt}</li>`;
+      }).join('');
+      metaHtml += `<ol class="track-list">${items}</ol>`;
     }
-    if (data.reason) metaHtml += `<div>${data.reason}</div>`;
 
     addBubble('assistant', data.say || '(无回应)', metaHtml || null);
     setConsoleDialog(data.say || '我已经整理好这一轮电台推荐。');
