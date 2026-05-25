@@ -1,8 +1,7 @@
 const MODES = ['DARK', 'POETRY', 'FOCUS'];
-const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const FALLBACK_DIALOG = '欢迎来到 Claudio，电台已经准备好接收你的 mood。';
 const MAX_DIALOG_LENGTH = 72;
+const STUDIO_TIME_ZONE = 'Asia/Shanghai';
 
 function clampIndex(index, size) {
   if (!size) return 0;
@@ -16,14 +15,25 @@ function shortText(value, fallback = FALLBACK_DIALOG) {
 }
 
 function clockState(now) {
-  const hh = String(now.getHours()).padStart(2, '0');
-  const mm = String(now.getMinutes()).padStart(2, '0');
-  const dd = String(now.getDate()).padStart(2, '0');
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: STUDIO_TIME_ZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    weekday: 'long',
+    hourCycle: 'h23',
+  }).formatToParts(now).reduce((acc, part) => {
+    acc[part.type] = part.value;
+    return acc;
+  }, {});
+
   return {
     iso: now.toISOString(),
-    hhmm: `${hh}:${mm}`,
-    weekday: WEEKDAYS[now.getDay()],
-    date: `${dd} · ${MONTHS[now.getMonth()]} · ${now.getFullYear()}`,
+    hhmm: `${parts.hour}:${parts.minute}`,
+    weekday: parts.weekday,
+    date: `${parts.day} · ${parts.month} · ${parts.year}`,
   };
 }
 
