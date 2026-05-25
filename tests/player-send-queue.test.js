@@ -18,4 +18,10 @@ describe('send() 响应队列处理', () => {
     expect(sendFnBody).toContain('_resolveError');
     expect(sendFnBody).toMatch(/showAlert\(/);
   });
+
+  it('聊天气泡为每首有 comment 的歌渲染 track-comment', () => {
+    // send() 生成的 metaHtml 必须包含 track-list 和 q.comment 的引用
+    expect(sendFnBody).toContain('track-list');
+    expect(sendFnBody).toMatch(/q\.comment/);
+  });
 });
