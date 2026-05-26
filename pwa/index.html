@@ -55,10 +55,9 @@
 
         <div class="console-main">
           <section class="track-panel" aria-label="当前电台状态">
-            <p class="track-eyebrow">Now Tuning</p>
-            <h2 id="studio-track-title">Claudio<br>Radio</h2>
-            <p id="studio-track-artist">Claude DJ · 私人电台</p>
+            <p class="track-eyebrow" id="studio-track-meta">Now Tuning</p>
             <div id="lyrics-panel" class="lyrics-panel hidden"></div>
+            <div id="studio-track-comment" class="track-comment-text"></div>
           </section>
 
           <section class="poem-panel" aria-label="AI 电台文案">
@@ -174,7 +173,7 @@
         <span>OpenWeather API Key</span>
         <div class="field-row">
           <input id="set-weather-key" type="text" autocomplete="off" placeholder="未配置">
-          <button type="button" class="btn ghost" data-test="weather" disabled>test</button>
+          <button type="button" class="btn ghost" data-test="weather">test</button>
         </div>
       </label>
       <label class="field">
@@ -193,7 +192,7 @@
         <span>Voice ID</span>
         <div class="field-row">
           <input id="set-tts-voice" type="text" autocomplete="off" placeholder="voice id">
-          <button type="button" class="btn ghost" data-test="tts" disabled>试听</button>
+          <button type="button" class="btn ghost" data-test="tts">试听</button>
         </div>
       </label>
     </section>

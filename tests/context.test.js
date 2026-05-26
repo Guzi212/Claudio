@@ -6,12 +6,12 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 
-// 避免 buildSystemPrompt 真去打 OpenWeather / 跑 lark-cli
+// 避免 buildSystemPrompt 真去打 OpenWeather / Google Calendar
 vi.mock('../server/services/weather.js', () => ({
   getCurrent: vi.fn().mockResolvedValue(null),
   getNext24h: vi.fn().mockResolvedValue(null),
 }));
-vi.mock('../server/services/lark-calendar.js', () => ({
+vi.mock('../server/services/google-calendar.js', () => ({
   getTodayEvents: vi.fn().mockResolvedValue(null),
 }));
 
@@ -60,11 +60,11 @@ describe('buildSystemPrompt', () => {
 
   it('天气和日程拿到数据时按格式注入', async () => {
     const weatherMod = await import('../server/services/weather.js');
-    const larkMod = await import('../server/services/lark-calendar.js');
+    const calendarMod = await import('../server/services/google-calendar.js');
     weatherMod.getCurrent.mockResolvedValueOnce({
       temp: 22, condition: '多云', humidity: 60, city: 'Shanghai',
     });
-    larkMod.getTodayEvents.mockResolvedValueOnce([
+    calendarMod.getTodayEvents.mockResolvedValueOnce([
       { title: '产品评审', start: '2026-05-18T15:00:00', end: '2026-05-18T16:00:00', location: 'A301' },
     ]);
     const { buildSystemPrompt } = await import('../server/context.js');
