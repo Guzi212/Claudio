@@ -191,11 +191,7 @@ function applyStudioState(studio) {
 
 async function preFetchBoot() {
   try {
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: '刚打开电台，请根据现在的时间和天气推荐开播曲目' }),
-    });
+    const res = await fetch('/api/boot', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     bootData = await res.json();
     bootReady = true;
@@ -520,6 +516,13 @@ export function applyRuntime(runtime) {
     state.index = runtime.index || 0;
     renderQueuePanel();
   }
+}
+
+// boot 后台拉完追加的歌曲，通过 WS queue-append 推进来
+export function appendToQueue(tracks) {
+  if (!Array.isArray(tracks) || !tracks.length) return;
+  state.queue = [...state.queue, ...tracks];
+  renderQueuePanel();
 }
 
 const WEATHER_ICON_MAP = {
