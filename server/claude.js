@@ -83,8 +83,7 @@ export function parseDjJson(text) {
   return {
     say: trimmed.slice(0, 500),
     play: [],
-    reason: '(claude 输出未通过 JSON 解析，已回退为纯文本)',
-    segue: '',
+    reason: 'parse-failed',
     _parseFailed: true,
   };
 }
@@ -99,7 +98,6 @@ function normalizeDjJson(obj) {
       comment: String(p?.comment ?? '').trim(),
     })).filter(p => p.title) : [],
     reason: String(obj?.reason ?? '').trim(),
-    segue:  String(obj?.segue  ?? '').trim(),
   };
 }
 
@@ -110,8 +108,7 @@ function fallbackFromHistory(reason) {
   return {
     say: 'DJ 今天思路有点卡，先给你接着放最近听的几首。',
     play: picks.map(p => ({ title: p.title, artist: p.artist, hint: '' })),
-    reason: reason || '(fallback: 取自播放历史)',
-    segue: '',
+    reason: 'fallback',
     _fallback: true,
   };
 }
@@ -129,7 +126,7 @@ async function callDeepSeek(systemPrompt, userMessage) {
         { role: 'system', content: systemPrompt },
         { role: 'user',   content: userMessage   },
       ],
-      max_tokens: 2000,
+      max_tokens: 900,
       temperature: 0.8,
     },
     {
