@@ -22,6 +22,7 @@ import { mountHealthRoute } from './api/health.js';
 import { mountKugouReloginRoutes } from './api/kugou-relogin.js';
 import { mountStudioRoutes } from './api/studio.js';
 import { mountTestRoutes } from './api/test.js';
+import { detectSignal, appendJournalEntry } from './services/journal.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -114,6 +115,13 @@ app.post('/api/chat', async (req, res) => {
   try {
     const systemPrompt = await buildSystemPrompt();
     const { say, queue: songQueue, reason, raw } = await claudeAsk(systemPrompt, message);
+
+    // fire-and-forget：信号检测 + 日志追加，不阻塞响应
+    try {
+      const recentPlays = dbApi.recentPlays(8);
+      const signal = detectSignal(message, recentPlays, new Date());
+      if (signal) appendJournalEntry(signal);
+    } catch { /* 日志写入失败不影响主流程 */ }
 
     // 把 say 合成语音放队首（Fish Audio 未配置时 synthesize 返 null，自动降级）
     const voice = say ? await ttsSynthesize(say) : null;
