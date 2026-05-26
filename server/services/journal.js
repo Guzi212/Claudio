@@ -66,6 +66,11 @@ export function appendJournalEntry(signal, now = new Date(), journalPath = DEFAU
   const existing = middle.split('\n').filter(l => l.startsWith('- '));
   const trimmed  = existing.slice(0, MAX_ENTRIES - 1);
 
+  // entries 区块格式：\n<新条目>\n<旧条目...>\n
   const newMiddle = '\n' + entry + trimmed.join('\n') + (trimmed.length ? '\n' : '');
-  fs.writeFileSync(journalPath, before + newMiddle + after, 'utf8');
+  try {
+    fs.writeFileSync(journalPath, before + newMiddle + after, 'utf8');
+  } catch {
+    /* 磁盘写入失败静默跳过，不影响主流程 */
+  }
 }
