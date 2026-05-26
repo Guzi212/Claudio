@@ -21,6 +21,7 @@ import { mountTasteRoutes } from './api/taste.js';
 import { mountHealthRoute } from './api/health.js';
 import { mountKugouReloginRoutes } from './api/kugou-relogin.js';
 import { mountStudioRoutes } from './api/studio.js';
+import { mountTestRoutes } from './api/test.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -285,6 +286,7 @@ mountTasteRoutes(app, { rootDir: ROOT });
 mountHealthRoute(app);
 mountKugouReloginRoutes(app);
 mountStudioRoutes(app, { getRuntime: () => runtime });
+mountTestRoutes(app);
 
 // ────────────────────────────────────────────────────────
 // HTTP server + WS upgrade

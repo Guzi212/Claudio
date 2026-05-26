@@ -16,6 +16,30 @@ describe('services/kugou', () => {
     expect(typeof mod.resolveTrack).toBe('function');
   });
 
+  it('lyric 两步走：先 search/lyric 拿 id+accesskey，再拿 LRC', async () => {
+    let callCount = 0;
+    const axiosMock = vi.fn().mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        return Promise.resolve({ data: { candidates: [{ id: 144545941, accesskey: 'TESTKEY' }] } });
+      }
+      return Promise.resolve({ data: { decodeContent: '[00:01.00]测试歌词\n[00:04.00]第二行' } });
+    });
+    vi.doMock('axios', () => ({ default: { create: () => ({ get: axiosMock }) } }));
+    const { lyric } = await import('../server/services/kugou.js');
+    const result = await lyric('abc123');
+    expect(callCount).toBe(2);
+    expect(result).toBe('[00:01.00]测试歌词\n[00:04.00]第二行');
+  });
+
+  it('lyric search/lyric 无候选时返回 null', async () => {
+    const axiosMock = vi.fn().mockResolvedValue({ data: { candidates: [] } });
+    vi.doMock('axios', () => ({ default: { create: () => ({ get: axiosMock }) } }));
+    const { lyric } = await import('../server/services/kugou.js');
+    const result = await lyric('no-such-hash');
+    expect(result).toBeNull();
+  });
+
   it('search 上游断开时不抛、返回空数组', async () => {
     // 临时把 KUGOU_API_BASE 指向一个肯定连不上的端口
     const orig = process.env.KUGOU_API_BASE;
