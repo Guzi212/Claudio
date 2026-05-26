@@ -58,6 +58,20 @@ describe('detectSignal', () => {
     expect(signal).toBeNull();
   });
 
+  it('重复歌曲不在 index 0 时也触发循环信号', async () => {
+    const { detectSignal } = await import('../server/services/journal.js');
+    const plays = [
+      { title: '晴天', artist: '周杰伦' },       // index 0，只出现 1 次
+      { title: 'Serene Awakening', artist: '安涛' }, // 出现 3 次
+      { title: 'Serene Awakening', artist: '安涛' },
+      { title: 'Serene Awakening', artist: '安涛' },
+    ];
+    const signal = detectSignal('', plays, new Date('2026-05-26T15:00:00'));
+    expect(signal).not.toBeNull();
+    expect(signal).toMatch(/Serene Awakening/);
+    expect(signal).toMatch(/循环/);
+  });
+
   it('情绪关键词"压力很大"触发信号', async () => {
     const { detectSignal } = await import('../server/services/journal.js');
     const signal = detectSignal('最近压力很大，来首舒缓的', [], new Date('2026-05-26T15:00:00'));
