@@ -20,6 +20,9 @@ beforeAll(() => {
   for (const f of ['user/taste.md', 'user/routines.md', 'prompts/dj-persona.md']) {
     expect(fs.existsSync(path.join(ROOT, f))).toBe(true);
   }
+  for (const f of ['claudio/identity.md', 'claudio/journal.md']) {
+    expect(fs.existsSync(path.join(ROOT, f))).toBe(true);
+  }
 });
 
 describe('buildSystemPrompt', () => {
@@ -71,5 +74,14 @@ describe('buildSystemPrompt', () => {
     const prompt = await buildSystemPrompt({ now: new Date('2026-05-18T09:00:00') });
     expect(prompt).toContain('天气：Shanghai 22℃ 多云');
     expect(prompt).toContain('· 15:00 产品评审');
+  });
+
+  it('包含 Claudio 自我认知和关系记忆两个新 section', async () => {
+    const { buildSystemPrompt } = await import('../server/context.js');
+    const prompt = await buildSystemPrompt({ now: new Date('2026-05-26T20:00:00') });
+
+    expect(prompt).toContain('① Claudio 的自我认知');
+    expect(prompt).toContain('① Claudio 的关系记忆');
+    expect(prompt).toContain('我叫 Claudio'); // identity.md 内容片段
   });
 });

@@ -54,6 +54,10 @@ export async function buildSystemPrompt({ now = new Date() } = {}) {
   // ① 系统提示词
   const persona = readSafe('prompts/dj-persona.md').trim();
 
+  // ① Claudio 自我认知
+  const identity = readSafe('claudio/identity.md').trim();
+  const journal  = readSafe('claudio/journal.md').trim();
+
   // ② 用户语料
   const taste = readSafe('user/taste.md').trim();
   const routines = readSafe('user/routines.md').trim();
@@ -91,6 +95,12 @@ export async function buildSystemPrompt({ now = new Date() } = {}) {
   return [
     '=== ① 角色与硬约束 ===',
     persona,
+    '',
+    '=== ① Claudio 的自我认知 (identity.md) ===',
+    identity || '(identity.md 不存在)',
+    '',
+    '=== ① Claudio 的关系记忆 (journal.md) ===',
+    journal || '(journal.md 不存在)',
     '',
     '=== ② 用户品味语料 (taste.md) ===',
     taste || '(用户还没填 taste.md)',
