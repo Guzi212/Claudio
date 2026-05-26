@@ -8,8 +8,9 @@ export async function testWeather({ getWeather = getCurrent, clearCache = invali
   return { ok: true, data };
 }
 
-export async function testTts({ tts = synthesize } = {}) {
-  const result = await tts('早安，Claudio 在线。');
+export async function testTts({ tts = synthesize, voiceId } = {}) {
+  const opts = voiceId != null ? { voiceId } : {};
+  const result = await tts('早安，Claudio 在线。', opts);
   if (!result) return { ok: false, error: '未配置 Fish Audio API Key 或合成失败' };
   return { ok: true, url: result.url };
 }
@@ -25,7 +26,9 @@ export function mountTestRoutes(app, deps = {}) {
 
   app.post('/api/test/tts', async (req, res) => {
     try {
-      res.json(await testTts(deps));
+      const { voice_id } = req.body || {};
+      const opts = { ...deps, ...(voice_id != null ? { voiceId: voice_id } : {}) };
+      res.json(await testTts(opts));
     } catch (err) {
       res.json({ ok: false, error: err.message });
     }
