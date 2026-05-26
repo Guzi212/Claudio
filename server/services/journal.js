@@ -26,11 +26,13 @@ export function detectSignal(userMessage, recentPlays, now = new Date()) {
   }
 
   if (recentPlays.length >= 3) {
-    const top = recentPlays[0]?.title;
-    if (top) {
-      const count = recentPlays.slice(0, 8).filter(p => p.title === top).length;
-      if (count >= 3) return `循环《${top}》${count}次`;
+    const window = recentPlays.slice(0, 8);
+    const counts = {};
+    for (const p of window) {
+      if (p.title) counts[p.title] = (counts[p.title] || 0) + 1;
     }
+    const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+    if (top && top[1] >= 3) return `循环《${top[0]}》${top[1]}次`;
   }
 
   const msg = String(userMessage || '');
