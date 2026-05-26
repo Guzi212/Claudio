@@ -364,7 +364,8 @@ html, body {
 .console-main {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(220px, 0.9fr);
-  min-height: 210px;
+  height: 220px;
+  overflow: hidden;
 }
 
 .track-panel,
@@ -384,15 +385,18 @@ html, body {
 .track-panel {
   display: flex;
   flex-direction: column;
+  height: 100%;
   border-right: 1px solid rgba(255, 255, 255, 0.08);
+  overflow: hidden;
 }
 
 .track-panel .lyrics-panel {
-  height: 160px;
+  flex: 1;
+  height: 0;
   background: none;
   border-top: none;
-  padding: 70px 4px;
-  margin-top: 12px;
+  padding: 30px 12px;
+  margin-top: 4px;
 }
 
 .signal-meter {
@@ -416,20 +420,21 @@ html, body {
   text-transform: uppercase;
 }
 
-.track-panel h2 {
-  margin: 0;
-  color: #f1f4f2;
+.track-comment-text {
+  display: none;
+  flex: 1;
+  height: 0;
+  padding: 10px 0 0;
+  overflow: hidden;
+  color: rgba(232, 232, 234, 0.80);
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: clamp(26px, 5vw, 40px);
-  line-height: 1.2;
-  letter-spacing: 0.04em;
+  font-size: clamp(12px, 1.8vw, 14px);
+  line-height: 1.7;
+  letter-spacing: 0.02em;
 }
 
-.track-panel p:last-child {
-  margin: 12px 0 0;
-  color: rgba(232, 232, 234, 0.55);
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  letter-spacing: 0.08em;
+.lyrics-panel.hidden + .track-comment-text {
+  display: block;
 }
 
 .poem-panel p {
@@ -449,13 +454,14 @@ html, body {
 }
 .queue-list::-webkit-scrollbar { display: none; }
 .queue-list li {
-  padding: 5px 6px;
+  padding: 5px 6px 5px 8px;
+  border-left: 2px solid transparent;
   border-radius: 4px;
   font-size: 12px;
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   color: rgba(232, 232, 234, 0.55);
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
 }
 .queue-list li .track-row {
   display: flex;
@@ -497,6 +503,8 @@ html, body {
 }
 .queue-list li.active {
   color: var(--theme-accent);
+  background: rgba(var(--theme-accent-rgb), 0.1);
+  border-left-color: var(--theme-accent);
 }
 .queue-list.hidden { display: none; }
 
@@ -1132,9 +1140,11 @@ details.card > summary::-webkit-details-marker { display: none; }
 
   .console-main {
     grid-template-columns: 1fr;
+    height: auto;
   }
 
   .track-panel {
+    height: 200px;
     border-right: 0;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   }
