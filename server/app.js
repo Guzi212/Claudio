@@ -85,6 +85,35 @@ app.get('/api/taste', (req, res) => {
   }
 });
 
+// 快速启动：跳过 TTS 合成，直接返回完整队列
+// TTS 每次生成新 say 几乎都是 cache miss（2-5s），跳过后 boot 整体省 30-50%
+app.post('/api/boot', async (req, res) => {
+  const BOOT_MSG = '刚打开电台，请根据现在的时间和天气推荐开播曲目';
+  try {
+    const systemPrompt = await buildSystemPrompt();
+    const { say, queue: songQueue, reason, raw } = await claudeAsk(systemPrompt, BOOT_MSG);
+
+    if (songQueue.length > 0) {
+      runtime.queue = songQueue;
+      runtime.index = 0;
+      runtime.paused = false;
+      for (const q of songQueue) {
+        dbApi.addPlay({ kugouId: q.kugouId, title: q.title, artist: q.artist, reason, source: 'boot' });
+      }
+    }
+    runtime.lastSay = say;
+    dbApi.addMessage('user', BOOT_MSG);
+    dbApi.addMessage('assistant', say);
+    broadcast({ type: 'state', runtime });
+
+    const _resolveError = Array.isArray(raw?.play) && raw.play.length > 0 && songQueue.length === 0;
+    res.json({ say, queue: songQueue, reason, intent: 'boot', _resolveError });
+  } catch (err) {
+    console.error('[boot] error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/chat', async (req, res) => {
   const message = String(req.body?.message || '').trim();
   if (!message) {
