@@ -23,6 +23,8 @@
 - `feat: add Claudio identity file (性格底色)` — claudio/identity.md
 - `feat: add Claudio journal file (关系史骨架)` — claudio/journal.md
 - `feat: inject Claudio identity + journal into system prompt` — server/context.js, tests/context.test.js
+- `fix: correct google-calendar mock path in context.test.js` — tests/context.test.js
 - `feat: add journal service (signal detection + auto-append)` — server/services/journal.js, tests/journal.test.js
 - `fix: detect loop signal for any song, not just first in playlist` — server/services/journal.js, tests/journal.test.js
 - `fix: wrap writeFileSync in try/catch to match read's silent-fail contract` — server/services/journal.js
+- `feat: auto-append journal entries after each Claude response` — server/app.js
