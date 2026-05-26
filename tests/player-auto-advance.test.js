@@ -8,6 +8,26 @@ const initStart = playerJs.indexOf('export function initPlayer()');
 const initBody  = playerJs.slice(initStart);
 
 describe('audio 自动推进与错误处理', () => {
+  it('循环按钮支持列表循环、单曲循环、自动推歌三种模式', () => {
+    expect(playerJs).toContain("const LOOP_MODES = ['list', 'one', 'auto']");
+    expect(playerJs).toContain("auto: { mark: 'AI'");
+  });
+
+  it('audio.ended 根据播放模式分别列表循环、单曲循环或自动推歌', () => {
+    expect(initBody).toMatch(/state\.loopMode === 'one'[\s\S]{0,120}audio\.play/);
+    expect(initBody).toMatch(/state\.loopMode === 'list'[\s\S]{0,160}playIndex\(0\)/);
+    expect(initBody).toMatch(/state\.loopMode === 'auto'[\s\S]{0,180}requestNextBatch\(\{ playWhenReady: true \}\)/);
+  });
+
+  it('进入队列最后一首时只在自动推歌模式预取下一批', () => {
+    expect(playerJs).toMatch(/state\.loopMode === 'auto'[\s\S]{0,120}i === state\.queue\.length - 1[\s\S]{0,160}autoRecommend/);
+  });
+
+  it('自动推歌请求即使被新一代请求废弃也会释放 in-flight 状态', () => {
+    expect(playerJs).toMatch(/finally\s*\{\s*autoRecommending = false;/);
+    expect(playerJs).not.toContain('if (myGen === autoRecommendGen) autoRecommending = false');
+  });
+
   it('audio.error 有事件处理器（歌曲加载失败时不静默卡死）', () => {
     // 当歌曲 URL 无效或代理失败，audio.error 触发，需要推进到下一首或提示
     expect(initBody).toMatch(/audio\.addEventListener\(\s*['"]error['"]/);
