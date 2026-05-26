@@ -86,11 +86,17 @@ function setConsoleDialog(text) {
 }
 
 function setStudioTrack(track) {
-  const title = document.getElementById('studio-track-title');
-  const artist = document.getElementById('studio-track-artist');
-  if (!title || !artist || !track) return;
-  title.textContent = track.title || 'Claudio Radio';
-  artist.textContent = track.artist || 'Claude DJ · 私人电台';
+  if (!track) return;
+  const meta = document.getElementById('studio-track-meta');
+  const comment = document.getElementById('studio-track-comment');
+  if (meta) {
+    meta.textContent = (track.title && track.artist)
+      ? `${track.title} · ${track.artist}`
+      : (track.title || 'Now Tuning');
+  }
+  if (comment) {
+    comment.textContent = track.comment || '';
+  }
 }
 
 function normalizeStudioTheme(theme) {
@@ -283,6 +289,9 @@ function playIndex(i, { autoplay = true } = {}) {
   if (!t.isTts) {
     setStudioTrack(t);
     setConsoleDialog(`接下来播放 ${t.title} — ${t.artist}。`);
+  } else {
+    const comment = document.getElementById('studio-track-comment');
+    if (comment) comment.textContent = t.title || '';
   }
   audio.src = t.audioUrl;
   // 通知 components/lyrics.js 当前是哪首（它通过 #lyrics-panel 自动 attach）

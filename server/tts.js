@@ -81,12 +81,12 @@ async function curlTts(opts) {
  * @param {string} text
  * @returns {Promise<{hash: string, filePath: string, url: string} | null>}
  */
-export async function synthesize(text) {
+export async function synthesize(text, { voiceId: voiceIdOverride = null } = {}) {
   const trimmed = String(text ?? '').trim();
   if (!trimmed) return null;
 
   const apiKey = getSetting('fish_api_key');
-  const voiceId = getSetting('fish_voice_id') || '';
+  const voiceId = voiceIdOverride ?? getSetting('fish_voice_id') ?? '';
   if (!apiKey) {
     console.warn('[tts] FISH_API_KEY 未配置，跳过语音合成');
     return null;

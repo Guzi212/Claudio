@@ -17,3 +17,6 @@
 - `ci: 新增多会话工作流规则与 GitHub Actions CI` — .github/workflows/ci.yml, CLAUDE.md
 - `docs: 调整 merge 流程（私有仓库不支持 auto-merge）` — CLAUDE.md
 - `fix: stabilize CL flow and Kugou relogin` — .claude/agents/kugou-debug.md, .claude/hooks/block-env-write.sh, .claude/hooks/run-related-tests.sh, .claude/settings.json, .claude/skills/claudio-pr/SKILL.md, .githooks/post-commit, .gitignore, docs/competition/project-plan.md, docs/competition/project-summary.md, docs/devlog.md, docs/superpowers/plans/2026-05-25-dj-mature-host.md, docs/superpowers/plans/2026-05-25-multi-session-git-workflow.md, package.json, pwa/index.html, pwa/styles.css, pwa/views/player.js, pwa/views/settings.js, server/api/kugou-relogin.js
+
+## 2026-05-26
+- `chore: sync routines from Google Calendar (2026-04-01 to 06-30)` — user/routines.md
