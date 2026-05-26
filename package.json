@@ -9,8 +9,10 @@
   },
   "scripts": {
     "prepare": "git config core.hooksPath .githooks",
-    "dev": "node --no-warnings server/app.js",
-    "start": "node --no-warnings server/app.js",
+    "dev": "node scripts/dev.js",
+    "start": "node scripts/dev.js",
+    "dev:app": "node --no-warnings server/app.js",
+    "start:app": "node --no-warnings server/app.js",
     "music:import:kugou": "node scripts/import-kugou-data.js",
     "test": "vitest run",
     "test:watch": "vitest"

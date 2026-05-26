@@ -274,10 +274,51 @@ export function initSettings() {
     btnRelogin.addEventListener('click', startRelogin);
   }
 
-  // 占位按钮：[test] / [试听] —— 后续补
-  document.querySelectorAll('button[data-test]').forEach(b => {
-    b.addEventListener('click', () => toast('该功能尚未接入'));
-  });
+  const btnTtsTest = document.querySelector('button[data-test="tts"]');
+  if (btnTtsTest) {
+    btnTtsTest.addEventListener('click', async () => {
+      btnTtsTest.disabled = true;
+      const original = btnTtsTest.textContent;
+      btnTtsTest.textContent = '合成中…';
+      try {
+        const voiceId = nodes.ttsVoice.value.trim();
+        const r = await fetch('/api/test/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(voiceId ? { voice_id: voiceId } : {}),
+        });
+        const data = await r.json();
+        if (!data.ok) throw new Error(data.error || '合成失败');
+        new Audio(data.url).play();
+      } catch (err) {
+        showAlert(`试听失败：${err.message}`);
+      } finally {
+        btnTtsTest.textContent = original;
+        btnTtsTest.disabled = false;
+      }
+    });
+  }
+
+  const btnWeatherTest = document.querySelector('button[data-test="weather"]');
+  if (btnWeatherTest) {
+    btnWeatherTest.addEventListener('click', async () => {
+      btnWeatherTest.disabled = true;
+      const original = btnWeatherTest.textContent;
+      btnWeatherTest.textContent = '检测中…';
+      try {
+        const r = await fetch('/api/test/weather', { method: 'POST' });
+        const data = await r.json();
+        if (!data.ok) throw new Error(data.error || '请求失败');
+        const { temp, condition, city, humidity } = data.data;
+        toast(`${city} ${temp}°C · ${condition} · 湿度 ${humidity}%`);
+      } catch (err) {
+        showAlert(`天气测试失败：${err.message}`);
+      } finally {
+        btnWeatherTest.textContent = original;
+        btnWeatherTest.disabled = false;
+      }
+    });
+  }
 
   window.addEventListener('claudio:view-shown', e => {
     if (e.detail === 'settings') load();

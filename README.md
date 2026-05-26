@@ -18,16 +18,17 @@ claude --version
 ```
 若无，去 https://claude.com/claude-code 装一下（Max 订阅无需 API key）。
 
-### 2. 起一个 KuGouMusicApi 上游
+### 2. 准备 KuGouMusicApi 上游
 
-任选一个社区版 fork，例如：
+`npm run dev` 会自动和 Claudio 一起启动 KuGouMusicApi。先把社区版 fork 放在 Claudio 同级目录：
 ```powershell
 git clone https://github.com/MakcRe/KuGouMusicApi.git ../KuGouMusicApi
 cd ../KuGouMusicApi
 npm install
-npm start              # 默认监听 :3000
 ```
 回到 Claudio 目录：`cd ../Claudio`。
+
+默认上游目录是 `../KuGouMusicApi`，默认监听 `http://localhost:3000`。如果你的目录或端口不同，在 `.env` 里设置 `KUGOU_API_DIR` / `KUGOU_API_BASE`。
 
 > 不同 fork 接口路径会有差异。如果搜歌返回 404，去 `server/services/kugou.js` 顶部的 `ENDPOINTS` / `LOGIN_PATH` 改路径。
 
@@ -93,10 +94,17 @@ npm run dev
 ```
 看到：
 ```
+[dev] starting KuGouMusicApi: npm start (.../KuGouMusicApi)
+[dev] starting Claudio: ...
 [kugou-login] OK · ...
 [claudio] 8080 ready · http://localhost:8080
 ```
 浏览器打开 http://localhost:8080，跟 Claudio 说一句"来点雨天聆听的"。
+
+如果只想调试 Claudio 本体、不启动 KuGouMusicApi，可用：
+```powershell
+npm run dev:app
+```
 
 ---
 

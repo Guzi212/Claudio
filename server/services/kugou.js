@@ -8,7 +8,8 @@ const BASE = process.env.KUGOU_API_BASE || 'http://localhost:3000';
 const ENDPOINTS = {
   search:         '/search',            // ?keywords=
   songUrl:        '/song/url',           // ?hash=
-  lyric:          '/lyric',              // ?hash=
+  searchLyric:    '/search/lyric',       // ?hash= → candidates[].{id, accesskey}
+  lyric:          '/lyric',              // ?id=&accesskey=&fmt=lrc&decode=true → decodeContent
   playlistTracks: '/playlist/track/all', // ?id=<global_collection_id>&page=&pagesize=
 };
 
@@ -114,8 +115,19 @@ export async function songUrl(hash) {
 export async function lyric(hash) {
   if (!hash) return null;
   try {
-    const res = await client().get(ENDPOINTS.lyric, { params: { hash } });
-    return res.data?.lyric || res.data?.data?.lyric || null;
+    const c = client();
+    // step 1: search/lyric → candidate with id + accesskey
+    const sr = await c.get(ENDPOINTS.searchLyric, { params: { hash } });
+    const candidates = sr.data?.candidates;
+    if (!Array.isArray(candidates) || candidates.length === 0) return null;
+    const { id, accesskey } = candidates[0];
+    if (!id || !accesskey) return null;
+
+    // step 2: fetch actual LRC
+    const res = await c.get(ENDPOINTS.lyric, {
+      params: { id, accesskey, fmt: 'lrc', decode: true },
+    });
+    return res.data?.decodeContent || res.data?.content || null;
   } catch (err) {
     console.error('[kugou] lyric failed:', err.message);
     return null;
