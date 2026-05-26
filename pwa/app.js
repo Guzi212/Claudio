@@ -1,6 +1,6 @@
 // 三视图编排器：tab 切换 + URL 同步 + 全局 WS。
 // chat / audio 逻辑搬到 views/player.js；这里只负责导航和跨视图的状态推送。
-import { initPlayer, applyRuntime } from './views/player.js';
+import { initPlayer, applyRuntime, appendToQueue } from './views/player.js';
 import { initProfile } from './views/profile.js';
 import { initSettings } from './views/settings.js';
 import { setStatus, showAlert } from './views/ui.js';
@@ -62,6 +62,7 @@ function connectWs() {
     try {
       const evt = JSON.parse(ev.data);
       if (evt.type === 'state' && evt.runtime) applyRuntime(evt.runtime);
+      if (evt.type === 'queue-append' && evt.tracks) appendToQueue(evt.tracks);
     } catch { /* ignore */ }
   });
 }

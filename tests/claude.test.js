@@ -7,7 +7,6 @@ describe('parseDjJson', () => {
       say: '雨天慢一点',
       play: [{ title: '雨', artist: '老王乐队', hint: 'live' }],
       reason: 'taste',
-      segue: '',
     }));
     expect(r.say).toBe('雨天慢一点');
     expect(r.play).toHaveLength(1);
@@ -18,7 +17,7 @@ describe('parseDjJson', () => {
   it('JSON 被包在解释里也能抠出来', () => {
     const wrapped = `好的，这是我的推荐：
 \`\`\`json
-{"say":"早安","play":[{"title":"Morning","artist":"Beck"}],"reason":"a","segue":""}
+{"say":"早安","play":[{"title":"Morning","artist":"Beck"}],"reason":"a"}
 \`\`\`
 希望你喜欢。`;
     const r = parseDjJson(wrapped);
@@ -42,7 +41,7 @@ describe('parseDjJson', () => {
         { artist: '没标题', title: '' },
         { title: '又一首', artist: 'X' },
       ],
-      reason: '', segue: '',
+      reason: '',
     }));
     expect(r.play).toHaveLength(2);
     expect(r.play.map(p => p.title)).toEqual(['有效', '又一首']);
@@ -53,19 +52,17 @@ describe('parseDjJson', () => {
       say: 'hi',
       play: [{ title: 123, artist: 456 }],
       reason: null,
-      segue: undefined,
     }));
     expect(r.play[0].title).toBe('123');
     expect(r.play[0].artist).toBe('456');
     expect(r.reason).toBe('');
-    expect(r.segue).toBe('');
   });
 
   it('保留 play 里的 comment 字段', () => {
     const r = parseDjJson(JSON.stringify({
       say: '来了',
       play: [{ title: '蜉蝣', artist: '落日飞车', hint: '', comment: '给你今天慢热开场，city pop 节奏正好' }],
-      reason: '', segue: '',
+      reason: '',
     }));
     expect(r.play[0].comment).toBe('给你今天慢热开场，city pop 节奏正好');
   });
@@ -74,7 +71,7 @@ describe('parseDjJson', () => {
     const r = parseDjJson(JSON.stringify({
       say: '来了',
       play: [{ title: '晴天', artist: '周杰伦' }],
-      reason: '', segue: '',
+      reason: '',
     }));
     expect(r.play[0].comment).toBe('');
   });

@@ -13,10 +13,18 @@ function escapeHtml(str) {
 
 const $ = sel => document.querySelector(sel);
 
+const LOOP_MODES = ['list', 'one', 'auto'];
+const LOOP_MODE_META = {
+  list: { mark: '↻', label: '列表循环' },
+  one: { mark: '↺1', label: '单曲循环' },
+  auto: { mark: 'AI', label: '自动推歌' },
+};
+const NEXT_BATCH_PROMPT = '上一批歌已经播完了，请根据当前时间和氛围继续推荐下一批';
+
 const state = {
   queue: [],
   index: 0,
-  loopMode: 'list',
+  loopMode: 'auto',
 };
 
 let autoRecommending = false;
@@ -183,11 +191,7 @@ function applyStudioState(studio) {
 
 async function preFetchBoot() {
   try {
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: '刚打开电台，请根据现在的时间和天气推荐开播曲目' }),
-    });
+    const res = await fetch('/api/boot', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     bootData = await res.json();
     bootReady = true;
@@ -263,14 +267,27 @@ async function autoRecommend(prompt) {
         pendingPlayFrom = -1;
         playIndex(idx);
       }
+    } else if (pendingPlayFrom >= 0) {
+      setConsoleDialog('这次没拿到可播放歌曲，请手动输入指令');
+      pendingPlayFrom = -1;
     }
   } catch (err) {
     console.warn('[autoRecommend] failed:', err.message);
     if (pendingPlayFrom >= 0) setConsoleDialog('自动推荐失败，请手动输入指令');
     pendingPlayFrom = -1;
   } finally {
-    if (myGen === autoRecommendGen) autoRecommending = false;
+    autoRecommending = false;
   }
+}
+
+function requestNextBatch({ playWhenReady = false } = {}) {
+  if (!state.queue.length) return;
+  if (playWhenReady) pendingPlayFrom = state.queue.length;
+  if (autoRecommending) {
+    setConsoleDialog('正在准备下一批曲目…');
+    return;
+  }
+  autoRecommend(NEXT_BATCH_PROMPT);
 }
 
 function playIndex(i, { autoplay = true } = {}) {
@@ -305,8 +322,8 @@ function playIndex(i, { autoplay = true } = {}) {
   npBox.classList.remove('hidden');
   syncToServer(state.index);
   renderQueuePanel();
-  if (i === state.queue.length - 1 && !autoRecommending) {
-    autoRecommend('上一批歌已经播完了，请根据当前时间和氛围继续推荐下一批');
+  if (state.loopMode === 'auto' && i === state.queue.length - 1 && !autoRecommending) {
+    autoRecommend(NEXT_BATCH_PROMPT);
   }
 }
 
@@ -321,6 +338,14 @@ function goPrev() {
 function goNext() {
   if (state.index < state.queue.length - 1) {
     playIndex(state.index + 1);
+    return;
+  }
+  if (state.loopMode === 'list' && state.queue.length) {
+    playIndex(0);
+    return;
+  }
+  if (state.loopMode === 'auto' && state.queue.length) {
+    requestNextBatch({ playWhenReady: true });
     return;
   }
   showAlert(state.queue.length ? '已经是最后一首' : '队列还是空的');
@@ -389,13 +414,19 @@ function renderQueuePanel() {
 }
 
 function toggleLoopMode() {
-  state.loopMode = state.loopMode === 'list' ? 'one' : 'list';
-  const isOne = state.loopMode === 'one';
+  const current = LOOP_MODES.indexOf(state.loopMode);
+  state.loopMode = LOOP_MODES[(current + 1) % LOOP_MODES.length];
+  updateLoopButton();
+}
+
+function updateLoopButton() {
+  const meta = LOOP_MODE_META[state.loopMode] || LOOP_MODE_META.list;
   if (loopBtn) {
-    loopBtn.textContent = isOne ? '↺1' : '↻';
-    loopBtn.setAttribute('aria-label', isOne ? '单曲循环' : '列表循环');
-    loopBtn.setAttribute('aria-pressed', String(isOne));
-    loopBtn.classList.toggle('active', isOne);
+    loopBtn.textContent = meta.mark;
+    loopBtn.setAttribute('aria-label', meta.label);
+    loopBtn.setAttribute('title', meta.label);
+    loopBtn.setAttribute('aria-pressed', String(state.loopMode !== 'list'));
+    loopBtn.classList.toggle('active', state.loopMode !== 'list');
   }
 }
 
@@ -487,6 +518,13 @@ export function applyRuntime(runtime) {
   }
 }
 
+// boot 后台拉完追加的歌曲，通过 WS queue-append 推进来
+export function appendToQueue(tracks) {
+  if (!Array.isArray(tracks) || !tracks.length) return;
+  state.queue = [...state.queue, ...tracks];
+  renderQueuePanel();
+}
+
 const WEATHER_ICON_MAP = {
   '01': '☀', '02': '⛅', '03': '☁', '04': '☁',
   '09': '🌧', '10': '🌦', '11': '⛈', '13': '❄', '50': '🌫',
@@ -528,14 +566,12 @@ export function initPlayer() {
       audio.play().catch(() => {});
     } else if (state.index < state.queue.length - 1) {
       playIndex(state.index + 1);
+    } else if (state.loopMode === 'list' && state.queue.length) {
+      playIndex(0);
+    } else if (state.loopMode === 'auto' && state.queue.length) {
+      requestNextBatch({ playWhenReady: true });
     } else if (state.queue.length) {
-      // 队列结束：若预取已在途，等它回来；否则立即发起推荐
-      pendingPlayFrom = state.queue.length;
-      if (autoRecommending) {
-        setConsoleDialog('正在准备下一批曲目…');
-      } else {
-        autoRecommend('上一批歌已经播完了，请根据当前时间和氛围继续推荐下一批');
-      }
+      syncToServer(state.index, { paused: true });
     } else {
       npBox.classList.add('hidden');
       syncToServer(state.index, { paused: true });
@@ -567,6 +603,7 @@ export function initPlayer() {
   queueBtn = $('[data-console-control="queue"]');
   loopBtn = $('[data-console-control="loop"]');
   if (queueBtn) queueBtn.setAttribute('aria-pressed', 'false');
+  updateLoopButton();
   queueList = document.getElementById('queue-list');
   npSeek = document.getElementById('np-seek');
   npTimeCur = document.getElementById('np-time-cur');

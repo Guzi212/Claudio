@@ -28,3 +28,4 @@
 - `fix: detect loop signal for any song, not just first in playlist` — server/services/journal.js, tests/journal.test.js
 - `fix: wrap writeFileSync in try/catch to match read's silent-fail contract` — server/services/journal.js
 - `feat: auto-append journal entries after each Claude response` — server/app.js
+- `fix: stabilize player loop and auto recommendations` — pwa/index.html, pwa/views/player.js, tests/player-auto-advance.test.js
