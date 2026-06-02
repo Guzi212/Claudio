@@ -31,11 +31,28 @@ function normalizeForMatch(s) {
   return String(s || '').toLowerCase().replace(/\s+/g, '').replace(/[【】\[\]()（）·・\-_,，.。!！?？'"]/g, '');
 }
 
+// DJ 版硬排除标记：目标没有指定时直接返回 0 分
+const DJ_MARKERS = ['dj', 'dj版', 'dj mix', 'djmix'];
+
+// 非原版变体标记：目标没有指定时扣分
+const VERSION_MARKERS = ['现场', '演唱会', 'concert', 'live', 'remix', '混音', '钢琴', 'piano', 'cover', '翻唱', '演奏版', '纯音乐', 'instrumental', 'acoustic', 'unplugged', '清唱', '无伴奏', '伴奏版'];
+
+function hasDjMarker(normalizedTitle) {
+  return DJ_MARKERS.some(kw => normalizedTitle.includes(kw));
+}
+
+function hasVersionMarker(normalizedTitle) {
+  return VERSION_MARKERS.some(kw => normalizedTitle.includes(kw));
+}
+
 function scoreCandidate(target, cand) {
   const t = normalizeForMatch(target.title);
   const a = normalizeForMatch(target.artist || '');
   const ct = normalizeForMatch(cand.title);
   const ca = normalizeForMatch(cand.artist);
+
+  // 目标没有指定 DJ 版，候选是 DJ 版 → 直接 0 分
+  if (!hasDjMarker(t) && hasDjMarker(ct)) return 0;
 
   let score = 0;
   if (ct === t) score += 100;
@@ -48,6 +65,12 @@ function scoreCandidate(target, cand) {
   } else {
     score += 10;
   }
+
+  // 目标没有指定版本类型，但候选是非原版变体 → 扣分，让原版优先
+  if (!hasVersionMarker(t) && hasVersionMarker(ct)) {
+    score -= 40;
+  }
+
   return score;
 }
 
@@ -64,7 +87,7 @@ export async function search({ title, artist = '', hint = '' }) {
       || [];
 
     const list = Array.isArray(raw) ? raw : [];
-    const candidates = list.slice(0, 8).map(item => ({
+    const candidates = list.slice(0, 15).map(item => ({
       hash: item.FileHash || item.hash || item.SongHash || item.songhash || '',
       title: item.OriSongName || item.SongName || item.songname || item.name || item.title || item.FileName?.split(' - ').slice(-1)[0] || '',
       artist: item.SingerName || item.singername || item.artist || item.author_name || '',
