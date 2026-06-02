@@ -160,7 +160,7 @@ export async function lyric(hash) {
 // 给一首 Claude 想推的歌 → 解析为可播放队列项；失败返回 null 并记 unmatched
 export async function resolveTrack({ title, artist, hint = '' }) {
   const candidates = await search({ title, artist, hint });
-  const SCORE_THRESHOLD = 50;
+  const SCORE_THRESHOLD = 60;
 
   for (const c of candidates) {
     if (c.score < SCORE_THRESHOLD) break;
