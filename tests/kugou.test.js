@@ -40,6 +40,37 @@ describe('services/kugou', () => {
     expect(result).toBeNull();
   });
 
+  it('导出歌单相关函数（fetchUserPlaylists / fetchUserPlaylistTracks / fetchSharedPlaylist）', async () => {
+    const mod = await import('../server/services/kugou.js');
+    expect(typeof mod.fetchSharedPlaylist).toBe('function');
+    expect(typeof mod.fetchUserPlaylists).toBe('function');
+    expect(typeof mod.fetchUserPlaylistTracks).toBe('function');
+  });
+
+  it('导出 normalizeForMatch / parseNameField 供下游复用', async () => {
+    const mod = await import('../server/services/kugou.js');
+    expect(typeof mod.normalizeForMatch).toBe('function');
+    expect(typeof mod.parseNameField).toBe('function');
+  });
+
+  it('normalizeForMatch 去掉空格 / 大小写 / 标点', async () => {
+    const { normalizeForMatch } = await import('../server/services/kugou.js');
+    expect(normalizeForMatch('Love Story')).toBe('lovestory');
+    expect(normalizeForMatch('周杰伦 - 晴天')).toBe('周杰伦晴天');
+  });
+
+  it('parseNameField 把 "Artist - Title" 摆正为 {title, artist}', async () => {
+    const { parseNameField } = await import('../server/services/kugou.js');
+    expect(parseNameField('周杰伦 - 晴天')).toEqual({ title: '晴天', artist: '周杰伦' });
+    expect(parseNameField('无分隔')).toEqual({ title: '无分隔', artist: '' });
+    expect(parseNameField('')).toEqual({ title: '', artist: '' });
+  });
+
+  it('fetchUserPlaylistTracks 缺 id 时抛错', async () => {
+    const { fetchUserPlaylistTracks } = await import('../server/services/kugou.js');
+    await expect(fetchUserPlaylistTracks({})).rejects.toThrow();
+  });
+
   it('search 上游断开时不抛、返回空数组', async () => {
     // 临时把 KUGOU_API_BASE 指向一个肯定连不上的端口
     const orig = process.env.KUGOU_API_BASE;

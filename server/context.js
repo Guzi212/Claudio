@@ -5,6 +5,7 @@ import 'dotenv/config';
 import { dbApi } from './db.js';
 import { getCurrent as getWeather } from './services/weather.js';
 import { getTodayEvents } from './services/google-calendar.js';
+import { getPool, getPoolTracks, formatPoolForPrompt } from './services/candidate-pool.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -90,6 +91,20 @@ export async function buildSystemPrompt({ now = new Date() } = {}) {
     ? recentMsgs.map(m => `  [${m.role}] ${m.content.slice(0, 200)}`).join('\n')
     : '  (无)';
 
+  // ⑤ 候选歌单池（可选）：用户选中的酷狗歌单，Claudio 推荐时优先从这里选。
+  const pool = getPool();
+  let poolBlock = '(未设置候选歌单池——可在 Playlist 视图把某个酷狗歌单设为候选池)';
+  if (pool) {
+    const poolTracks = getPoolTracks();
+    const sampleCount = Math.min(60, poolTracks.length);
+    poolBlock = [
+      `候选歌单：《${pool.name}》（共 ${poolTracks.length} 首，下面列其中 ${sampleCount} 首）`,
+      formatPoolForPrompt(poolTracks, { limit: 60 }),
+      '',
+      '硬规则：当用户没有明确指定要听哪一首时，本次 play 至少 3 首要来自上面的候选歌单池（title / artist 尽量原样使用）；其余不限，可用 taste.md 自由发挥。用户明确点某首歌时以其为准，不受此限制。',
+    ].join('\n');
+  }
+
   // ⑤ ⑥ 在调用方拼，这里只到第 4 片
 
   return [
@@ -116,6 +131,9 @@ export async function buildSystemPrompt({ now = new Date() } = {}) {
     '',
     '=== ④ 最近对话（按时间正序）===',
     msgLines,
+    '',
+    '=== ⑤ 候选歌单池（优先选歌来源）===',
+    poolBlock,
     '',
     '=== 提醒 ===',
     '请只输出符合 schema 的 JSON 对象，不要任何额外说明。',
