@@ -843,6 +843,45 @@ details.card > summary::-webkit-details-marker { display: none; }
 
 .muted { color: var(--muted); }
 
+/* ──────────────── Playlists ──────────────── */
+.view-playlists {
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.playlist-list {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+.playlist-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+.playlist-item:first-child { border-top: none; }
+.playlist-meta {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  font-size: 14px;
+}
+.playlist-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.playlist-actions { display: flex; gap: 8px; flex: none; }
+
 /* ──────────────── Settings ──────────────── */
 .view-settings {
   overflow-y: auto;

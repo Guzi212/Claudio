@@ -23,6 +23,7 @@ import { mountKugouReloginRoutes } from './api/kugou-relogin.js';
 import { mountStudioRoutes } from './api/studio.js';
 import { mountTestRoutes } from './api/test.js';
 import { detectSignal, appendJournalEntry } from './services/journal.js';
+import { mountPlaylistRoutes } from './api/playlists.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -324,6 +325,7 @@ mountHealthRoute(app);
 mountKugouReloginRoutes(app);
 mountStudioRoutes(app, { getRuntime: () => runtime });
 mountTestRoutes(app);
+mountPlaylistRoutes(app, { runtime, broadcast });
 
 // ────────────────────────────────────────────────────────
 // HTTP server + WS upgrade
