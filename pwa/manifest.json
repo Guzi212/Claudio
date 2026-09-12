@@ -4,8 +4,8 @@
   "description": "Personal Claude-powered AI radio",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0c0c10",
-  "theme_color": "#101015",
+  "background_color": "#04070a",
+  "theme_color": "#04070a",
   "orientation": "any",
   "icons": [
     {
