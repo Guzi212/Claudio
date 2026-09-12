@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { startRelogin, checkRelogin } from '../server/api/kugou-relogin.js';
+import { startRelogin, checkRelogin, pollRelogin } from '../server/api/kugou-relogin.js';
 
 function fakeGet(handlers) {
   // handlers: { '/login/qr/key': (params) => data, ... }
@@ -137,5 +137,78 @@ describe('酷狗 API 不可达时给出用户友好错误', () => {
     const db = { setPref: vi.fn() };
     const httpGet = async () => { throw makeConnRefused(); };
     await expect(checkRelogin('K', { httpGet, db })).rejects.toThrow(/酷狗.*服务|服务未启动|无法连接/);
+  });
+});
+
+describe('缓存穿透：扫码接口必须带 timestamp', () => {
+  it('startRelogin 的 key / create 请求都带 timestamp', async () => {
+    const seen = [];
+    const httpGet = async (url, params) => {
+      seen.push({ path: new URL(url).pathname, params });
+      if (url.includes('/login/qr/key')) return { data: { qrcode: 'K' } };
+      return { data: { url: 'https://h5.kugou.com/x', base64: 'data:image/png;base64,A' } };
+    };
+    await startRelogin({ httpGet, now: () => 12345 });
+    expect(seen).toHaveLength(2);
+    expect(seen[0].path).toBe('/login/qr/key');
+    expect(seen[0].params).toMatchObject({ type: 'web', timestamp: 12345 });
+    expect(seen[1].path).toBe('/login/qr/create');
+    expect(seen[1].params).toMatchObject({ key: 'K', qrimg: true, timestamp: 12345 });
+  });
+
+  it('checkRelogin 的 check 请求带 timestamp（否则状态被上游缓存冻结）', async () => {
+    let captured;
+    const db = { setPref: vi.fn() };
+    const httpGet = async (url, params) => { captured = params; return { data: { status: 1 } }; };
+    await checkRelogin('K', { httpGet, db, now: () => 999 });
+    expect(captured).toMatchObject({ key: 'K', timestamp: 999 });
+  });
+});
+
+describe('pollRelogin', () => {
+  function clock() {
+    let t = 0;
+    return { now: () => t, sleep: async (ms) => { t += ms; } };
+  }
+
+  it('等扫码 → 等确认 → 成功：返回终态并回调各状态', async () => {
+    const seq = [
+      { status: 1, statusText: '等扫码' },
+      { status: 2, statusText: '等确认' },
+      { status: 4, statusText: '成功', savedCookie: true },
+    ];
+    let i = 0;
+    const check = vi.fn(async () => seq[Math.min(i++, seq.length - 1)]);
+    const { now, sleep } = clock();
+    const seen = [];
+    const out = await pollRelogin('K', {
+      check, sleep, now, intervalMs: 1000, timeoutMs: 10_000,
+      onStatus: (o) => seen.push(o.status),
+    });
+    expect(out.status).toBe(4);
+    expect(out.savedCookie).toBe(true);
+    expect(seen).toEqual([1, 2, 4]);
+    expect(check).toHaveBeenCalledTimes(3);
+  });
+
+  it('二维码过期 status=0 立即返回，不再 sleep', async () => {
+    const check = vi.fn(async () => ({ status: 0, statusText: '过期' }));
+    const sleep = vi.fn(async () => {});
+    const out = await pollRelogin('K', { check, sleep, now: () => 0, timeoutMs: 10_000 });
+    expect(out.status).toBe(0);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it('一直等扫码 → 超时返回 -1', async () => {
+    const check = vi.fn(async () => ({ status: 1, statusText: '等扫码' }));
+    const { now, sleep } = clock();
+    const seen = [];
+    const out = await pollRelogin('K', {
+      check, sleep, now, intervalMs: 1000, timeoutMs: 3000,
+      onStatus: (o) => seen.push(o.status),
+    });
+    expect(out).toMatchObject({ status: -1, savedCookie: false });
+    expect(check).toHaveBeenCalledTimes(3);
+    expect(seen).toEqual([1, -1]);
   });
 });

@@ -31,6 +31,21 @@ npm start              # 默认监听 :3000
 
 > 不同 fork 接口路径会有差异。如果搜歌返回 404，去 `server/services/kugou.js` 顶部的 `ENDPOINTS` / `LOGIN_PATH` 改路径。
 
+### 2.1 固定设备身份（强烈建议，避免反复掉登录 / 挤号）
+
+KuGouMusicApi 默认每次启动都生成随机设备 id。设备 id 一变，酷狗会当成新设备：旧 token 失效、需要重扫，还可能把你手机上其他已登录设备挤下线。
+
+在 `../KuGouMusicApi/.env`（该仓库已 gitignore）里固定三个值：
+
+```ini
+platform=''          # 保持默认手机版，改动会导致 token 不通用
+KUGOU_API_GUID='<uuidv4>'
+KUGOU_API_DEV='<10 位大写字符串>'
+KUGOU_API_MAC='02:00:00:00:00:00'
+```
+
+设备身份固定后，Claudio 才能在 token 过期前用 `/login/token` 稳定续期，不再每 2-3 天重扫一次。
+
 ### 3. 装 Claudio 依赖
 
 ```powershell
@@ -47,6 +62,10 @@ copy .env.example .env
 打开 `.env` 填：
 - `KUGOU_USERNAME` / `KUGOU_PASSWORD`（推荐自动登录）
 - 或者 `KUGOU_COOKIE`（手动从浏览器抓 cookie 粘贴）
+
+> 登录后的 token 默认每 12h 自动续期一次（启动时先续一次），需要在过期前刷新而不是重登。可用 `KUGOU_REFRESH_INTERVAL_HOURS` 调整间隔。若刷新仍失败，到 PWA 设置里扫码重登即可——前提是 [2.1](#21-固定设备身份强烈建议避免反复掉登录--挤号) 的设备身份已固定。
+
+> 扫码登录：终端启动失败时打印的二维码 URL 会**自动后台轮询**，扫码授权后无需重启，登录会自动写入 `state.db`；也可走 PWA → 设置 →「重扫码登录」。注意：KuGouMusicApi 有 2 分钟全局响应缓存（key = hostname + originalUrl，忽略 Cookie 头），所有 `/login/qr/*` 以及查活 `/user/detail`、续期 `/login/token` 请求都必须带 `timestamp` 穿透缓存，否则扫码状态会被冻结，表现为「扫了也不成功」。
 
 填一下 `user/taste.md` —— 至少几行"喜欢的歌手"和"一两个场景偏好"。Claudio 才不会推荐通用电台。
 
@@ -115,6 +134,8 @@ npm run dev
 - `state.db` 是 SQLite。装 [DB Browser for SQLite](https://sqlitebrowser.org/) 直接看 `messages` / `plays` / `unmatched` / `prefs` 表
 - Claude 输出 JSON 失败时，PWA 仍会显示原文（被当作 say）。检查 `dj-persona.md` 的硬约束是否被守住
 - 酷狗匹配不到的歌都在 `unmatched` 表里。可以观察自己 taste 里哪些歌酷狗版找不到
+- 日志出现 `[proxy] failed: DNS 解析到内网地址，已拦截：xxx.tx.kugou.com → 198.18.x.x`：你开了 Clash / mihomo / Surge 之类的 **TUN + fake-IP**，酷狗 CDN 被解析进 `198.18.0.0/15` 保留段，`server/util/net-guard.js` 的 SSRF 防护把它拦了。在 `.env` 里设 `PROXY_TRUST_FAKE_IP_CIDRS=198.18.0.0/15`（默认留空 = 不信任）即可放行，其余内网 / 保留地址照旧拦截
+- 日志出现 `[proxy] failed: DNS 解析到内网地址，已拦截：xxx.tx.kugou.com → 198.18.x.x`：你开了 Clash / mihomo / Surge 之类的 **TUN + fake-IP**，酷狗 CDN 被解析进 `198.18.0.0/15` 保留段，`server/util/net-guard.js` 的 SSRF 防护把它拦了。在 `.env` 里设 `PROXY_TRUST_FAKE_IP_CIDRS=198.18.0.0/15`（默认留空 = 不信任）即可放行，其余内网 / 保留地址照旧拦截
 
 ## MVP 之后
 

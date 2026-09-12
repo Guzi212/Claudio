@@ -3,7 +3,8 @@
 // 设计目标：
 //   1. 只允许 http/https；
 //   2. /api/proxy 默认只放行酷狗系域名（可用 PROXY_ALLOWED_HOSTS 追加，PROXY_ALLOW_ANY_HOST=1 关闭白名单）；
-//   3. 永远拦截指向内网 / 保留地址的请求，包括 DNS 解析后再校验（防 DNS rebinding）。
+//   3. 默认拦截指向内网 / 保留地址的请求，包括 DNS 解析后再校验（防 DNS rebinding）；
+//      仅当显式配置 PROXY_TRUST_FAKE_IP_CIDRS 时，才放行指定的保留网段。
 import net from 'node:net';
 import dns from 'node:dns';
 
@@ -47,11 +48,56 @@ function ipv4IsPrivate(ip) {
   return false;
 }
 
+// --- 可选：放行代理工具的 fake-IP 保留网段 ---
+//
+// Clash / mihomo / Surge 等开启 TUN + fake-IP 后，会把所有域名解析进自己的
+// 保留网段（默认 198.18.0.1/16）。这类地址只有经代理隧道才可达，并不是真的
+// 内网主机。默认照样拦截；只有显式配置 PROXY_TRUST_FAKE_IP_CIDRS 才放行，
+// 以免削弱开箱即用的 SSRF 防护。
+function ipv4ToInt(ip) {
+  const p = String(ip).split('.').map(Number);
+  if (p.length !== 4 || p.some(n => !Number.isInteger(n) || n < 0 || n > 255)) return null;
+  return (((p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3]) >>> 0);
+}
+
+// 解析单条 "198.18.0.0/15" 或裸地址 "198.18.0.5"（等价 /32）；非法返回 null。
+function parseTrustedCidr(entry) {
+  const raw = String(entry || '').trim();
+  if (!raw) return null;
+  const [addr, bitsRaw] = raw.split('/');
+  const base = ipv4ToInt(addr);
+  if (base === null) return null;
+  let bits = 32;
+  if (bitsRaw !== undefined) {
+    bits = Number(bitsRaw);
+    if (!Number.isInteger(bits) || bits < 0 || bits > 32) return null;
+  }
+  const mask = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0;
+  return { base: (base & mask) >>> 0, mask };
+}
+
+// 信任列表：opts.trustedCidrs 优先，否则读 env（与 PROXY_ALLOWED_HOSTS 同款约定）。
+function resolveTrustedCidrs(opts) {
+  const list = Array.isArray(opts?.trustedCidrs)
+    ? opts.trustedCidrs
+    : String(process.env.PROXY_TRUST_FAKE_IP_CIDRS || '').split(',');
+  return list.map(parseTrustedCidr).filter(Boolean);
+}
+
+// 该 IPv4 是否落在被显式信任的 fake-IP 网段内。
+export function isTrustedIp(ip, opts = {}) {
+  const value = String(ip || '').trim();
+  if (!net.isIPv4(value)) return false;
+  const n = ipv4ToInt(value);
+  if (n === null) return false;
+  return resolveTrustedCidrs(opts).some(({ base, mask }) => ((n & mask) >>> 0) === base);
+}
+
 // 未知 / 非法 IP 一律视为不安全。
-export function isPrivateIp(ip) {
+export function isPrivateIp(ip, opts = {}) {
   const value = String(ip || '').trim();
   if (!value) return true;
-  if (net.isIPv4(value)) return ipv4IsPrivate(value);
+  if (net.isIPv4(value)) return isTrustedIp(value, opts) ? false : ipv4IsPrivate(value);
   if (net.isIPv6(value)) {
     const v = value.toLowerCase();
     if (v === '::' || v === '::1') return true;
@@ -80,7 +126,7 @@ export function assertProxyHost(hostname, opts = {}) {
   const allowAny = opts.allowAny ?? process.env.PROXY_ALLOW_ANY_HOST === '1';
   const host = normalizeHost(hostname);
   if (!host) throw new Error('目标主机为空');
-  if (net.isIP(host) && isPrivateIp(host)) {
+  if (net.isIP(host) && isPrivateIp(host, opts)) {
     throw new Error(`目标地址不允许（内网 / 保留地址）：${host}`);
   }
   if (!allowAny && !hostMatches(host, resolveAllowedSuffixes(opts))) {
@@ -136,6 +182,7 @@ export { DEFAULT_ALLOWED_SUFFIXES, KUGOU_SUFFIXES };
 export default {
   hostMatches,
   isPrivateIp,
+  isTrustedIp,
   assertProxyHost,
   validateProxyUrl,
   isKugouHost,

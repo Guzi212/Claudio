@@ -13,7 +13,8 @@ const ENDPOINTS = {
 };
 
 function getCookie() {
-  return process.env.KUGOU_COOKIE || dbApi.getPref('kugou_cookie') || '';
+  // db 优先：扫码 / 续期都把最新 cookie 写进 state.db；.env 仅作首次引导。
+  return dbApi.getPref('kugou_cookie') || process.env.KUGOU_COOKIE || '';
 }
 
 function client() {
