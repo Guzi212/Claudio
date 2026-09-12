@@ -11,6 +11,7 @@ import { dbApi } from './db.js';
 import { route } from './router.js';
 import { buildSystemPrompt } from './context.js';
 import { ask as claudeAsk } from './claude.js';
+import { validateProxyUrl, assertProxyHost, safeLookup } from './util/net-guard.js';
 import { ensureLogin } from './services/kugou-login.js';
 import { start as startScheduler } from './scheduler.js';
 import { synthesize as ttsSynthesize, mountTtsRoutes } from './tts.js';
@@ -25,6 +26,9 @@ import { mountStudioRoutes } from './api/studio.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const PORT = Number(process.env.PORT) || 8080;
+// 默认只监听本机回环地址：这是一个单用户本地应用，避免同局域网他人直接访问。
+// 需要局域网访问时显式设置 HOST=0.0.0.0。
+const HOST = process.env.HOST || '127.0.0.1';
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -79,7 +83,8 @@ app.get('/api/taste', (req, res) => {
     const routines = fs.readFileSync(path.join(ROOT, 'user', 'routines.md'), 'utf8');
     res.json({ taste, routines });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('[api/taste] read failed:', err.message);
+    res.status(500).json({ error: '读取语料失败' });
   }
 });
 
@@ -148,7 +153,7 @@ app.post('/api/chat', async (req, res) => {
     res.json({ say, queue: finalQueue, reason, intent: 'chat', _raw: raw, _resolveError });
   } catch (err) {
     console.error('[chat] error:', err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: '服务暂时不可用，请稍后重试' });
   }
 });
 
@@ -195,10 +200,21 @@ function handleControl({ command, arg }) {
 
 // 音频代理：破酷狗防盗链 + 支持 Range
 // timeout 只覆盖 connect 阶段（10s），body 流式读取不限时（长歌可能 5+ min）。
+// 安全：只允许 http/https + 白名单域名 + 非内网 IP（含 DNS 解析后二次校验），防 SSRF。
 app.get('/api/proxy', async (req, res) => {
-  const url = req.query.u;
-  if (!url) {
+  const raw = req.query.u;
+  if (!raw || typeof raw !== 'string') {
     res.status(400).send('missing u');
+    return;
+  }
+
+  let target;
+  try {
+    // Express 已对 query 解码一次；claude.js 侧用 encodeURIComponent 生成，故此处无需再解。
+    target = validateProxyUrl(raw);
+  } catch (err) {
+    console.warn('[proxy] blocked target:', err.message);
+    res.status(400).send('invalid or disallowed target');
     return;
   }
 
@@ -208,7 +224,7 @@ app.get('/api/proxy', async (req, res) => {
   req.on('close', () => ac.abort());
 
   try {
-    const upstream = await axios.get(decodeURIComponent(url), {
+    const upstream = await axios.get(target.href, {
       responseType: 'stream',
       headers: {
         Referer: 'https://www.kugou.com',
@@ -218,6 +234,13 @@ app.get('/api/proxy', async (req, res) => {
       timeout: 10_000,        // connect / 首字节超时
       timeoutErrorMessage: 'upstream first-byte timeout',
       signal: ac.signal,
+      // 解析后再校验一次 IP，防止 DNS rebinding 打到内网
+      lookup: safeLookup,
+      maxRedirects: 5,
+      // 每个重定向目标都重新走一遍白名单校验
+      beforeRedirect: (options) => {
+        assertProxyHost(options?.hostname || options?.host || '');
+      },
       validateStatus: s => s >= 200 && s < 400,
     });
 
@@ -241,7 +264,7 @@ app.get('/api/proxy', async (req, res) => {
   } catch (err) {
     if (err.name === 'CanceledError' || err.code === 'ERR_CANCELED') return;
     console.error('[proxy] failed:', err.message);
-    if (!res.headersSent) res.status(502).send('upstream failed: ' + err.message);
+    if (!res.headersSent) res.status(502).send('upstream failed');
     else try { res.end(); } catch { /* */ }
   }
 });
@@ -331,10 +354,10 @@ async function start() {
   process.on('SIGINT', () => { scheduler.stop(); process.exit(0); });
   process.on('SIGTERM', () => { scheduler.stop(); process.exit(0); });
 
-  server.listen(PORT, () => {
-    console.log(`[claudio] 8080 ready · http://localhost:${PORT}`);
-    console.log(`[claudio] PWA:    http://localhost:${PORT}/`);
-    console.log(`[claudio] health: http://localhost:${PORT}/api/health`);
+  server.listen(PORT, HOST, () => {
+    console.log(`[claudio] ready · http://${HOST}:${PORT}`);
+    console.log(`[claudio] PWA:    http://${HOST}:${PORT}/`);
+    console.log(`[claudio] health: http://${HOST}:${PORT}/api/health`);
   });
 }
 

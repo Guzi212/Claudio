@@ -39,6 +39,16 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toMatch(/上午|清晨/);
   });
 
+  it('包含防注入安全边界，并把用户语料包进 USER_DATA 围栏', async () => {
+    const { buildSystemPrompt } = await import('../server/context.js');
+    const prompt = await buildSystemPrompt({ now: new Date('2026-05-18T09:00:00') });
+    expect(prompt).toContain('【安全边界】');
+    expect(prompt).toContain('仅作资料');
+    // 三处外部数据围栏成对出现（taste / routines / 对话）
+    expect(prompt.match(/<<<USER_DATA/g)?.length).toBe(3);
+    expect(prompt.match(/USER_DATA>>>/g)?.length).toBe(3);
+  });
+
   it('凌晨时段标识为 深夜', async () => {
     const { buildSystemPrompt } = await import('../server/context.js');
     const prompt = await buildSystemPrompt({ now: new Date('2026-05-18T03:30:00') });

@@ -112,6 +112,6 @@ describe('mountKugouImportApiRoute', () => {
     const res = mockRes();
     await app.routes['POST /api/kugou/import']({ body: { url: 'http://x.com' } }, res);
     expect(res.statusCode).toBe(500);
-    expect(res.body.error).toBe('net fail');
+    expect(res.body.error).toBe('导入失败，请稍后重试');
   });
 });

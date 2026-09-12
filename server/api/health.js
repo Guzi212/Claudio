@@ -25,7 +25,7 @@ async function checkKugou() {
     if (err.code === 'ECONNREFUSED') return { ok: false, detail: 'kugou api not running' };
     const code = err.response?.data?.error_code;
     if (code === 20018) return { ok: false, detail: 'token expired · 需要重新扫码登录' };
-    return { ok: false, detail: err.message };
+    return { ok: false, detail: 'request failed' };
   }
 }
 

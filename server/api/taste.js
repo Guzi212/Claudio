@@ -41,7 +41,7 @@ export function mountTasteRoutes(app, { rootDir }) {
       res.json({ ok: true });
     } catch (err) {
       console.error('[api/taste] PUT failed:', err.message);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: '保存失败' });
     }
   });
 }

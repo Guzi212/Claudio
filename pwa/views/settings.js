@@ -34,7 +34,16 @@ function renderHealth(health) {
     const msg = row.message || row.detail || (ok ? 'ok' : 'unconfigured');
     const li = document.createElement('li');
     li.className = ok ? 'ok' : 'off';
-    li.innerHTML = `<span class="mark">${ok ? '✓' : '○'}</span><span class="label">${label}</span><span class="msg">${msg}</span>`;
+    const mark = document.createElement('span');
+    mark.className = 'mark';
+    mark.textContent = ok ? '✓' : '○';
+    const labelEl = document.createElement('span');
+    labelEl.className = 'label';
+    labelEl.textContent = label;
+    const msgEl = document.createElement('span');
+    msgEl.className = 'msg';
+    msgEl.textContent = msg;
+    li.append(mark, labelEl, msgEl);
     healthList.appendChild(li);
   }
   // Kugou 状态镜像到下方
@@ -87,7 +96,12 @@ async function load(force = false) {
       fetch('/api/settings').then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))),
     ]);
     if (hRes.status === 'fulfilled') renderHealth(hRes.value);
-    else healthList.innerHTML = `<li class="off">健康检查失败：${hRes.reason.message}</li>`;
+    else {
+      const li = document.createElement('li');
+      li.className = 'off';
+      li.textContent = `健康检查失败：${hRes.reason.message}`;
+      healthList.replaceChildren(li);
+    }
 
     if (sRes.status === 'fulfilled') applySettings(sRes.value);
     else showAlert(`读取 settings 失败：${sRes.reason.message}`);
@@ -132,15 +146,48 @@ function openReloginModal({ qrImg, qrUrl, key }) {
   closeReloginModal();
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
-  backdrop.innerHTML = `
-    <div class="modal" role="dialog" aria-label="酷狗扫码登录">
-      <button class="modal-close" type="button" aria-label="关闭">×</button>
-      <h3>用手机酷狗 App 扫码</h3>
-      ${qrImg ? `<img class="qr" src="${qrImg}" alt="QR" />` : ''}
-      ${qrUrl ? `<p class="muted small">或浏览器打开：<a href="${qrUrl}" target="_blank" rel="noopener">${qrUrl}</a></p>` : ''}
-      <p class="modal-status" data-status>等扫码…</p>
-    </div>
-  `;
+  const modal = document.createElement('div');
+  modal.className = 'modal';
+  modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-label', '酷狗扫码登录');
+
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'modal-close';
+  closeBtn.type = 'button';
+  closeBtn.setAttribute('aria-label', '关闭');
+  closeBtn.textContent = '×';
+  modal.appendChild(closeBtn);
+
+  const h3 = document.createElement('h3');
+  h3.textContent = '用手机酷狗 App 扫码';
+  modal.appendChild(h3);
+
+  if (qrImg) {
+    const img = document.createElement('img');
+    img.className = 'qr';
+    img.alt = 'QR';
+    img.src = qrImg;
+    modal.appendChild(img);
+  }
+  if (qrUrl) {
+    const p = document.createElement('p');
+    p.className = 'muted small';
+    p.textContent = '或浏览器打开：';
+    const a = document.createElement('a');
+    a.target = '_blank';
+    a.rel = 'noopener';
+    // 只允许 http(s)，阻断 javascript:/data: 等危险协议
+    a.href = /^https?:\/\//i.test(qrUrl) ? qrUrl : '#';
+    a.textContent = qrUrl;
+    p.appendChild(a);
+    modal.appendChild(p);
+  }
+  const statusP = document.createElement('p');
+  statusP.className = 'modal-status';
+  statusP.setAttribute('data-status', '');
+  statusP.textContent = '等扫码…';
+  modal.appendChild(statusP);
+  backdrop.appendChild(modal);
   backdrop.addEventListener('click', e => {
     if (e.target === backdrop) closeReloginModal();
   });

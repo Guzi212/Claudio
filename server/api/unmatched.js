@@ -7,7 +7,8 @@ export function mountUnmatchedRoute(app, { db = defaultDb } = {}) {
       const items = db.recentUnmatched(limit);
       res.json({ ok: true, items });
     } catch (err) {
-      res.status(500).json({ ok: false, error: err.message });
+      console.error('[api/unmatched] failed:', err.message);
+      res.status(500).json({ ok: false, error: '读取失败' });
     }
   });
 }

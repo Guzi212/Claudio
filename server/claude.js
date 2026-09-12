@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import 'dotenv/config';
 import { dbApi } from './db.js';
 import { resolveTrack } from './services/kugou.js';
@@ -7,13 +7,38 @@ import { get as getSetting } from './services/settings.js';
 const TIMEOUT_MS = Number(process.env.CLAUDE_TIMEOUT_MS) || 60_000;
 const IS_WIN = process.platform === 'win32';
 
+// 解析 claude CLI 的绝对路径，避免 PATH 被篡改时执行到冒名可执行文件。
+// 优先用 CLAUDE_CLI_PATH 显式指定；否则用 which/where 解析一次并缓存；找不到时回退裸命令名。
+let cachedCliPath = null;
+function resolveClaudeCli() {
+  if (cachedCliPath) return cachedCliPath;
+  const override = String(process.env.CLAUDE_CLI_PATH || '').trim();
+  if (override) {
+    cachedCliPath = override;
+    return cachedCliPath;
+  }
+  try {
+    const finder = IS_WIN ? 'where' : 'which';
+    const out = execFileSync(finder, ['claude'], { encoding: 'utf8', timeout: 5_000 });
+    const first = String(out).split(/\r?\n/).map(s => s.trim()).filter(Boolean)[0];
+    if (first) {
+      cachedCliPath = first;
+      return cachedCliPath;
+    }
+  } catch {
+    // which/where 不可用或没装 claude → 回退
+  }
+  cachedCliPath = 'claude';
+  return cachedCliPath;
+}
+
 // 调用 claude CLI 子进程，返回它写在 stdout 的文本。
 // claude -p --output-format json 会把整个回答打包成 { type, subtype, result, session_id, ... }
-// Windows 上 claude 可能是 .cmd（npm 全局装）或 .exe（native install），shell:true 让 cmd.exe 走 PATH 解析。
+// Windows 上 claude 可能是 .cmd（npm 全局装）或 .exe（native install），shell:true 让 cmd.exe 能执行 .cmd。
 function runClaudeCli(prompt) {
   return new Promise((resolve, reject) => {
     const args = ['-p', '--output-format', 'json'];
-    const child = spawn('claude', args, {
+    const child = spawn(resolveClaudeCli(), args, {
       shell: IS_WIN,
       stdio: ['pipe', 'pipe', 'pipe'],
     });

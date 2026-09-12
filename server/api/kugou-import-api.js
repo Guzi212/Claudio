@@ -64,7 +64,7 @@ export function mountKugouImportApiRoute(app, {
       });
     } catch (err) {
       console.error('[kugou-import-api]', err.message);
-      res.status(500).json({ ok: false, error: err.message });
+      res.status(500).json({ ok: false, error: '导入失败，请稍后重试' });
     }
   });
 }

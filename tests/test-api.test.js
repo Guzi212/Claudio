@@ -81,6 +81,6 @@ describe('mountTestRoutes', () => {
     const res = mockRes();
     await app.routes['POST /api/test/weather']({}, res);
     expect(res.body.ok).toBe(false);
-    expect(res.body.error).toBe('boom');
+    expect(res.body.error).toBe('测试失败');
   });
 });

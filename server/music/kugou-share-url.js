@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { isKugouHost } from '../util/net-guard.js';
 
 function extractFromQuery(urlObj) {
   const sp = urlObj.searchParams;
@@ -37,7 +38,11 @@ export async function parseShareUrl(rawUrl, { axiosClient = axios } = {}) {
     throw new Error(`parseShareUrl: 无效的 URL：${rawUrl}`);
   }
 
-  if (!urlObj.hostname.endsWith('kugou.com')) {
+  if (urlObj.protocol !== 'http:' && urlObj.protocol !== 'https:') {
+    throw new Error(`parseShareUrl: 仅支持 http/https 链接：${urlObj.protocol}`);
+  }
+
+  if (!isKugouHost(urlObj.hostname)) {
     throw new Error(`parseShareUrl: 不是酷狗域名：${urlObj.hostname}`);
   }
 
@@ -53,6 +58,13 @@ export async function parseShareUrl(rawUrl, { axiosClient = axios } = {}) {
       timeout: 10_000,
       maxRedirects: 5,
       validateStatus: status => status >= 200 && status < 400,
+      // 跟随短链时逐个校验重定向目标，避免跳到非酷狗 / 内网域名
+      beforeRedirect: (options) => {
+        const host = options?.hostname || options?.host || '';
+        if (!isKugouHost(host)) {
+          throw new Error(`parseShareUrl: 重定向到非酷狗域名：${host}`);
+        }
+      },
     });
     resolvedUrl = res?.request?.res?.responseUrl || res?.config?.url || '';
   } catch (err) {
@@ -66,6 +78,14 @@ export async function parseShareUrl(rawUrl, { axiosClient = axios } = {}) {
   const resolvedObj = parseUrl(resolvedUrl);
   if (!resolvedObj) {
     throw new Error(`parseShareUrl: 重定向到无效 URL：${resolvedUrl}`);
+  }
+
+  if (!isKugouHost(resolvedObj.hostname)) {
+    throw new Error(`parseShareUrl: 重定向到非酷狗域名：${resolvedObj.hostname}`);
+  }
+
+  if (!isKugouHost(resolvedObj.hostname)) {
+    throw new Error(`parseShareUrl: 重定向到非酷狗域名：${resolvedObj.hostname}`);
   }
 
   const fromResolved = extractFromQuery(resolvedObj);

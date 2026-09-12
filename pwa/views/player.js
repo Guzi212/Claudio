@@ -9,13 +9,14 @@ const state = {
   queue: [],
   index: 0,
   loopMode: 'list',
+  queuePanelOpen: true,
 };
 
 let autoRecommending = false;
 let pendingPlayFrom = -1;
 let autoRecommendGen = 0;
 
-let chat, composer, input, submitBtn, audio, npBox, npTitle, npArtist, consolePlayBtn, consoleFavoriteBtn, loopBtn, queueList, npSeek, npTimeCur, npTimeDur, npVol;
+let chat, composer, input, submitBtn, audio, npBox, npTitle, npArtist, consolePlayBtn, consoleFavoriteBtn, loopBtn, queueBtn, queueList, npSeek, npTimeCur, npTimeDur, npVol;
 const STUDIO_THEME_KEY = 'claudio:studio-theme';
 const STUDIO_THEMES = new Set(['dark', 'poetry', 'focus']);
 
@@ -56,12 +57,35 @@ function addBubble(role, content, meta = null) {
   if (meta) {
     const m = document.createElement('div');
     m.className = 'meta';
-    m.innerHTML = meta;
+    // meta 可能是 DOM 节点（安全），也可能是纯字符串；两者都不走 HTML 解析。
+    if (meta instanceof Node) m.appendChild(meta);
+    else m.textContent = String(meta);
     div.appendChild(m);
   }
   chat.appendChild(div);
   chat.scrollTop = chat.scrollHeight;
   return div;
+}
+
+// 把 [{title, artist}] + reason 构建成安全 DOM（全程 textContent，杜绝 XSS）
+function buildMetaNode(songs, reason) {
+  if ((!songs || !songs.length) && !reason) return null;
+  const frag = document.createDocumentFragment();
+  if (songs && songs.length) {
+    const ol = document.createElement('ol');
+    for (const q of songs) {
+      const li = document.createElement('li');
+      li.textContent = `${q.title} — ${q.artist}`;
+      ol.appendChild(li);
+    }
+    frag.appendChild(ol);
+  }
+  if (reason) {
+    const reasonEl = document.createElement('div');
+    reasonEl.textContent = String(reason);
+    frag.appendChild(reasonEl);
+  }
+  return frag;
 }
 
 function setConsoleDialog(text) {
@@ -270,26 +294,31 @@ function toggleFavorite() {
 function renderQueuePanel() {
   if (!queueList) return;
   const dialogText = document.getElementById('console-dialog-text');
-  if (!state.queue.length) {
+  // 队列为空、或用户手动收起时，隐藏列表并露出欢迎/对话文案。
+  const show = state.queue.length > 0 && state.queuePanelOpen;
+  if (queueBtn) queueBtn.setAttribute('aria-pressed', String(show));
+  if (!show) {
     queueList.classList.add('hidden');
     if (dialogText) dialogText.classList.remove('hidden');
     return;
   }
-  queueList.innerHTML = state.queue.map((t, i) => {
+  queueList.textContent = '';
+  state.queue.forEach((t, i) => {
     const active = i === state.index;
-    const label = `${t.title} — ${t.artist}`;
-    return `<li class="${active ? 'active' : ''}" data-idx="${i}">${active ? '▶ ' : ''}${label}</li>`;
-  }).join('');
-  queueList.classList.remove('hidden');
-  if (dialogText) dialogText.classList.add('hidden');
-  const activeEl = queueList.querySelector('li.active');
-  if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
-  queueList.querySelectorAll('li[data-idx]').forEach(li => {
+    const li = document.createElement('li');
+    li.dataset.idx = String(i);
+    if (active) li.className = 'active';
+    li.textContent = `${active ? '▶ ' : ''}${t.title} — ${t.artist}`;
     li.addEventListener('click', () => {
       markActivated();
       playIndex(Number(li.dataset.idx));
     });
+    queueList.appendChild(li);
   });
+  queueList.classList.remove('hidden');
+  if (dialogText) dialogText.classList.add('hidden');
+  const activeEl = queueList.querySelector('li.active');
+  if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
 }
 
 function toggleLoopMode() {
@@ -303,6 +332,14 @@ function toggleLoopMode() {
   }
 }
 
+function toggleQueuePanel() {
+  state.queuePanelOpen = !state.queuePanelOpen;
+  if (state.queuePanelOpen && !state.queue.length) {
+    toast('队列还是空的，先让 Claudio 推荐几首');
+  }
+  renderQueuePanel();
+}
+
 function bindConsoleControls() {
   const controls = document.querySelectorAll('[data-console-control]');
   controls.forEach(btn => {
@@ -314,6 +351,7 @@ function bindConsoleControls() {
       if (action === 'next') goNext();
       if (action === 'favorite') toggleFavorite();
       if (action === 'loop') toggleLoopMode();
+      if (action === 'queue') toggleQueuePanel();
     });
   });
 }
@@ -336,14 +374,9 @@ async function send(message) {
     const data = await res.json();
 
     const songItems = (data.queue || []).filter(q => !q.isTts);
-    let metaHtml = '';
-    if (songItems.length) {
-      const list = songItems.map(q => `<li>${q.title} — ${q.artist}</li>`).join('');
-      metaHtml += `<ol>${list}</ol>`;
-    }
-    if (data.reason) metaHtml += `<div>${data.reason}</div>`;
+    const metaNode = buildMetaNode(songItems, data.reason);
 
-    addBubble('assistant', data.say || '(无回应)', metaHtml || null);
+    addBubble('assistant', data.say || '(无回应)', metaNode);
     setConsoleDialog(data.say || '我已经整理好这一轮电台推荐。');
 
     if (data.queue && data.queue.length) {
@@ -454,6 +487,7 @@ export function initPlayer() {
   consolePlayBtn = $('[data-console-control="play-pause"]');
   consoleFavoriteBtn = $('[data-console-control="favorite"]');
   loopBtn = $('[data-console-control="loop"]');
+  queueBtn = $('[data-console-control="queue"]');
   queueList = document.getElementById('queue-list');
   npSeek = document.getElementById('np-seek');
   npTimeCur = document.getElementById('np-time-cur');

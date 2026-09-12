@@ -19,7 +19,8 @@ export function mountTestRoutes(app, deps = {}) {
     try {
       res.json(await testWeather(deps));
     } catch (err) {
-      res.json({ ok: false, error: err.message });
+      console.error('[api/test/weather] failed:', err.message);
+      res.json({ ok: false, error: '测试失败' });
     }
   });
 
@@ -27,7 +28,8 @@ export function mountTestRoutes(app, deps = {}) {
     try {
       res.json(await testTts(deps));
     } catch (err) {
-      res.json({ ok: false, error: err.message });
+      console.error('[api/test/tts] failed:', err.message);
+      res.json({ ok: false, error: '测试失败' });
     }
   });
 }

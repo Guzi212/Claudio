@@ -79,14 +79,14 @@ async function runImport() {
 
 async function loadUnmatched() {
   if (unmatchedLoaded) return;
-  unmatchedList.innerHTML = '<li class="muted">加载中…</li>';
+  setUnmatchedHint('加载中…');
   try {
     const r = await fetch('/api/unmatched?limit=100');
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const { items } = await r.json();
     unmatchedCount.textContent = items.length ? `(${items.length})` : '';
     if (!items.length) {
-      unmatchedList.innerHTML = '<li class="muted">暂无未匹配歌曲</li>';
+      setUnmatchedHint('暂无未匹配歌曲');
     } else {
       unmatchedList.textContent = '';
       for (const i of items) {
@@ -101,8 +101,15 @@ async function loadUnmatched() {
     }
     unmatchedLoaded = true;
   } catch (err) {
-    unmatchedList.innerHTML = `<li class="muted">加载失败：${err.message}</li>`;
+    setUnmatchedHint(`加载失败：${err.message}`);
   }
+}
+
+function setUnmatchedHint(text) {
+  const li = document.createElement('li');
+  li.className = 'muted';
+  li.textContent = text;
+  unmatchedList.replaceChildren(li);
 }
 
 export function initProfile() {

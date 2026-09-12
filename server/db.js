@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
+import { encrypt, decrypt, isEncrypted } from './util/secret-box.js';
 
 // node:sqlite (Node 22.5+) — 内置，零编译。
 // 用 createRequire 引入，绕过 Vite/Vitest 的静态 SSR 解析（它的 Node 内建列表还没收录 sqlite）。
@@ -49,6 +50,19 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_plays_ts ON plays(ts DESC);
 `);
 
+// 需要在 state.db 里加密落盘的敏感 pref（API Key / cookie）。
+// 加解密统一收口在 db 层，调用方读到的仍是明文，无需改动各业务代码。
+const ENCRYPTED_PREF_KEYS = new Set([
+  'openweather_api_key',
+  'fish_api_key',
+  'deepseek_api_key',
+  'kugou_cookie',
+]);
+
+function needsEncryption(key) {
+  return ENCRYPTED_PREF_KEYS.has(key);
+}
+
 const stmts = {
   insertMessage: db.prepare(`INSERT INTO messages (role, content, ts) VALUES (?, ?, ?)`),
   recentMessages: db.prepare(`SELECT id, role, content, ts FROM messages ORDER BY ts DESC LIMIT ?`),
@@ -80,11 +94,35 @@ export const dbApi = {
 
   getPref(key) {
     const row = stmts.getPref.get(key);
-    return row ? row.value : null;
+    if (!row) return null;
+    const value = row.value;
+    if (value == null || value === '') return value ?? null;
+
+    if (!needsEncryption(key)) return value;
+    if (isEncrypted(value)) {
+      try {
+        return decrypt(value);
+      } catch {
+        console.warn(`[db] 无法解密 prefs.${key}（可能换了机器或指纹变化），按未配置处理，请在设置里重新填写`);
+        return '';
+      }
+    }
+    // 历史明文 → 首次读取时就地迁移为密文（一次性迁移）。
+    try {
+      stmts.setPref.run(key, encrypt(value));
+    } catch {
+      // 迁移失败不阻断读取，下次再试。
+    }
+    return value;
   },
 
   setPref(key, value) {
-    stmts.setPref.run(key, value == null ? null : String(value));
+    const v = value == null ? null : String(value);
+    if (v == null || v === '') {
+      stmts.setPref.run(key, v);
+      return;
+    }
+    stmts.setPref.run(key, needsEncryption(key) ? encrypt(v) : v);
   },
 
   delPref(key) {

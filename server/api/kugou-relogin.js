@@ -107,7 +107,7 @@ export function mountKugouReloginRoutes(app) {
       res.json({ ok: true, ...out });
     } catch (err) {
       console.error('[kugou-relogin] start failed:', err.message);
-      res.status(502).json({ ok: false, error: err.message });
+      res.status(502).json({ ok: false, error: '扫码登录服务异常，请稍后重试' });
     }
   });
 
@@ -122,7 +122,7 @@ export function mountKugouReloginRoutes(app) {
       res.json({ ok: true, ...out });
     } catch (err) {
       console.error('[kugou-relogin] check failed:', err.message);
-      res.status(502).json({ ok: false, error: err.message });
+      res.status(502).json({ ok: false, error: '查询登录状态失败，请稍后重试' });
     }
   });
 }
