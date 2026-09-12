@@ -12,7 +12,7 @@ import { route } from './router.js';
 import { buildSystemPrompt } from './context.js';
 import { ask as claudeAsk } from './claude.js';
 import { validateProxyUrl, assertProxyHost, safeLookup } from './util/net-guard.js';
-import { ensureLogin } from './services/kugou-login.js';
+import { ensureLogin, startAutoRefresh } from './services/kugou-login.js';
 import { start as startScheduler } from './scheduler.js';
 import { synthesize as ttsSynthesize, mountTtsRoutes } from './tts.js';
 import { mountSettingsRoutes } from './api/settings.js';
@@ -341,6 +341,9 @@ async function start() {
     console.warn('[claudio] 警告：KuGou 登录未通过，搜索 / 播放可能受限。可继续启动以便先测试 Chat。');
   }
 
+  // token 到期前自动续期（默认 12h 一次），避免每 2-3 天重新扫码。
+  const kugouAutoRefresh = startAutoRefresh();
+
   // 节律调度（07:00 早间 / 09:00 通勤 / 每小时情绪检查）
   const scheduler = startScheduler({
     runtime,
@@ -351,8 +354,8 @@ async function start() {
   });
   console.log('[claudio] scheduler 已挂 cron');
 
-  process.on('SIGINT', () => { scheduler.stop(); process.exit(0); });
-  process.on('SIGTERM', () => { scheduler.stop(); process.exit(0); });
+  process.on('SIGINT', () => { kugouAutoRefresh.stop(); scheduler.stop(); process.exit(0); });
+  process.on('SIGTERM', () => { kugouAutoRefresh.stop(); scheduler.stop(); process.exit(0); });
 
   server.listen(PORT, HOST, () => {
     console.log(`[claudio] ready · http://${HOST}:${PORT}`);
