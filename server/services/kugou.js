@@ -6,11 +6,13 @@ const BASE = process.env.KUGOU_API_BASE || 'http://localhost:3000';
 
 // KuGouMusicApi 社区版常见接口路径。不同 fork 略有差异，按需在这里改。
 const ENDPOINTS = {
-  search:         '/search',            // ?keywords=
-  songUrl:        '/song/url',           // ?hash=
-  searchLyric:    '/search/lyric',       // ?hash= → candidates[].{id, accesskey}
-  lyric:          '/lyric',              // ?id=&accesskey=&fmt=lrc&decode=true → decodeContent
-  playlistTracks: '/playlist/track/all', // ?id=<global_collection_id>&page=&pagesize=
+  search:             '/search',            // ?keywords=
+  songUrl:            '/song/url',           // ?hash=
+  searchLyric:        '/search/lyric',       // ?hash= → candidates[].{id, accesskey}
+  lyric:              '/lyric',              // ?id=&accesskey=&fmt=lrc&decode=true → decodeContent
+  playlistTracks:     '/playlist/track/all', // ?id=<global_collection_id>&page=&pagesize=
+  userPlaylists:      '/user/playlist',      // cookie 登录态下的账号歌单
+  playlistTracksNew:  '/playlist/track/all/new',  // 私密/自建歌单 ?listid=&page=&pagesize=
 };
 
 function getCookie() {
@@ -27,7 +29,7 @@ function client() {
   });
 }
 
-function normalizeForMatch(s) {
+export function normalizeForMatch(s) {
   return String(s || '').toLowerCase().replace(/\s+/g, '').replace(/[【】\[\]()（）·・\-_,，.。!！?？'"]/g, '');
 }
 
@@ -197,28 +199,41 @@ function parseNameField(name) {
 
 export { parseNameField };
 
-export async function fetchSharedPlaylist({
-  globalCollectionId,
-  pagesize = 300,
-  maxPages = 50,
-  retries = 2,
-} = {}) {
-  if (!globalCollectionId) {
-    throw new Error('fetchSharedPlaylist: 必须提供 globalCollectionId');
-  }
+// KuGouMusicApi 不同接口/不同 fork 的曲目字段名不一致，统一收口成下游要的形状。
+function normalizeSong(song = {}) {
+  const { title, artist } = parseNameField(song.name || song.filename || song.OriSongName || song.songname);
+  return {
+    title: title || song.SongName || song.songname || '',
+    artist: artist || song.SingerName || song.singername || '',
+    album: song.album_name || song.AlbumName || song.albumname || '',
+    hash: song.hash || song.FileHash || song.SongHash || song.songhash || '',
+    audioId: song.audio_id || song.audio_info?.audio_id || null,
+    duration: song.timelen || song.duration || song.time_length || 0,
+    publishDate: song.publish_date || '',
+    language: song.language || '',
+    bpm: song.bpm || null,
+  };
+}
 
+// 统一把上游分页接口的响应拆成 songs 数组（不同 fork 字段名不同）。
+function extractSongs(data = {}) {
+  if (Array.isArray(data.songs)) return data.songs;
+  if (Array.isArray(data.info)) return data.info;
+  if (Array.isArray(data.list)) return data.list;
+  return [];
+}
+
+// 通用分页拉取：pageProvider(page) 返回一页响应体，normalizer 把它转成 { songs, count }。
+async function fetchAllPages({ pageProvider, normalizer, pagesize, maxPages, retries = 2, label }) {
   const tracks = [];
   let totalCount = 0;
-  let lastError = null;
-  const httpClient = client();
 
   for (let page = 1; page <= maxPages; page += 1) {
     let response = null;
+    let lastError = null;
     for (let attempt = 0; attempt <= retries; attempt += 1) {
       try {
-        response = await httpClient.get(ENDPOINTS.playlistTracks, {
-          params: { id: globalCollectionId, page, pagesize },
-        });
+        response = await pageProvider(page);
         lastError = null;
         break;
       } catch (err) {
@@ -227,33 +242,15 @@ export async function fetchSharedPlaylist({
       }
     }
     if (!response) {
-      console.error(`[kugou] fetchSharedPlaylist page ${page} 失败：`, lastError?.message);
+      console.error(`[kugou] ${label} page ${page} 失败：`, lastError?.message);
       break;
     }
 
-    const data = response.data?.data || response.data || {};
-    if (page === 1) totalCount = Number(data.count || data.total || 0);
-    const songs = Array.isArray(data.songs) ? data.songs
-      : Array.isArray(data.info) ? data.info
-      : Array.isArray(data.list) ? data.list
-      : [];
+    const { songs, count } = normalizer(response);
+    if (page === 1) totalCount = Number(count || 0);
     if (!songs.length) break;
 
-    for (const song of songs) {
-      const { title, artist } = parseNameField(song.name || song.filename || song.OriSongName);
-      tracks.push({
-        title,
-        artist,
-        album: song.album_name || song.AlbumName || '',
-        hash: song.hash || song.FileHash || '',
-        audioId: song.audio_id || song.audio_info?.audio_id || null,
-        duration: song.timelen || song.duration || song.time_length || 0,
-        publishDate: song.publish_date || '',
-        language: song.language || '',
-        bpm: song.bpm || null,
-      });
-    }
-
+    for (const song of songs) tracks.push(normalizeSong(song));
     if (totalCount && tracks.length >= totalCount) break;
   }
 
@@ -265,4 +262,101 @@ export async function fetchSharedPlaylist({
   };
 }
 
-export default { search, songUrl, lyric, resolveTrack, fetchSharedPlaylist, parseNameField };
+export async function fetchSharedPlaylist({
+  globalCollectionId,
+  pagesize = 300,
+  maxPages = 50,
+  retries = 2,
+} = {}) {
+  if (!globalCollectionId) {
+    throw new Error('fetchSharedPlaylist: 必须提供 globalCollectionId');
+  }
+
+  const httpClient = client();
+  return fetchAllPages({
+    label: 'fetchSharedPlaylist',
+    pagesize,
+    maxPages,
+    retries,
+    pageProvider: page => httpClient.get(ENDPOINTS.playlistTracks, {
+      params: { id: globalCollectionId, page, pagesize },
+    }),
+    normalizer: response => {
+      const data = response.data?.data || response.data || {};
+      return { songs: extractSongs(data), count: data.count || data.total };
+    },
+  });
+}
+
+// 账号歌单列表（需要 cookie）。返回下游可直接用的统一结构。
+export async function fetchUserPlaylists({ page = 1, pagesize = 50 } = {}) {
+  try {
+    const res = await client().post(ENDPOINTS.userPlaylists, null, { params: { page, pagesize } });
+    const data = res.data?.data || res.data || {};
+    const list = data.info || data.list || data.playlists || data.cdlist || [];
+    return (Array.isArray(list) ? list : [])
+      .map(item => {
+        const listid = String(item.listid || item.list_id || item.specialid || '');
+        const globalCollectionId = String(
+          item.global_collection_id || item.globalCollectionId || item.global_collection?.id || '',
+        );
+        return {
+          id: globalCollectionId || listid,
+          listid,
+          globalCollectionId,
+          name: item.name || item.listname || item.list_name || item.title || '',
+          songCount: Number(item.song_count || item.songcount || item.count || item.total || 0),
+          cover: item.pic || item.img || item.cover || '',
+          isPrivate: item.is_private === 1 || item.is_private === true || item.type === 0,
+        };
+      })
+      .filter(p => p.id && p.name);
+  } catch (err) {
+    console.error('[kugou] fetchUserPlaylists failed:', err.message);
+    return [];
+  }
+}
+
+// 账号歌单曲目：公开歌单走 global_collection_id，私密/自建走 listid（all/new）。
+export async function fetchUserPlaylistTracks({
+  listid = '',
+  globalCollectionId = '',
+  pagesize = 300,
+  maxPages = 50,
+  retries = 2,
+} = {}) {
+  if (!listid && !globalCollectionId) {
+    throw new Error('fetchUserPlaylistTracks: 必须提供 listid 或 globalCollectionId');
+  }
+
+  if (globalCollectionId) {
+    return fetchSharedPlaylist({ globalCollectionId, pagesize, maxPages, retries });
+  }
+
+  const httpClient = client();
+  return fetchAllPages({
+    label: 'fetchUserPlaylistTracks',
+    pagesize,
+    maxPages,
+    retries,
+    pageProvider: page => httpClient.post(ENDPOINTS.playlistTracksNew, null, {
+      params: { listid, page, pagesize },
+    }),
+    normalizer: response => {
+      const data = response.data?.data || response.data || {};
+      return { songs: extractSongs(data), count: data.count || data.total };
+    },
+  });
+}
+
+export default {
+  search,
+  songUrl,
+  lyric,
+  resolveTrack,
+  fetchSharedPlaylist,
+  fetchUserPlaylists,
+  fetchUserPlaylistTracks,
+  parseNameField,
+  normalizeForMatch,
+};
