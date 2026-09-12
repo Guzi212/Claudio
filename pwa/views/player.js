@@ -290,7 +290,28 @@ function requestNextBatch({ playWhenReady = false } = {}) {
   autoRecommend(NEXT_BATCH_PROMPT);
 }
 
-function playIndex(i, { autoplay = true } = {}) {
+// 歌单队列只带 hash，播到这首时才向服务端换直链（避免大歌单一上来解析几百条）。
+async function resolveTrackUrl(hash) {
+  if (!hash) return null;
+  try {
+    const r = await fetch(`/api/kugou/track-url?hash=${encodeURIComponent(hash)}`);
+    if (!r.ok) return null;
+    const d = await r.json();
+    return d?.url || null;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveAudioSrc(track) {
+  if (!track) return null;
+  if (track.audioUrl) return track.audioUrl;
+  const url = await resolveTrackUrl(track.kugouId);
+  if (url) track.audioUrl = url;
+  return url;
+}
+
+async function playIndex(i, { autoplay = true } = {}) {
   if (i < 0 || i >= state.queue.length) {
     npBox.classList.add('hidden');
     audio.removeAttribute('src');
@@ -310,7 +331,17 @@ function playIndex(i, { autoplay = true } = {}) {
     const comment = document.getElementById('studio-track-comment');
     if (comment) comment.textContent = t.title || '';
   }
-  audio.src = t.audioUrl;
+
+  const src = await resolveAudioSrc(t);
+  // await 期间用户可能又点了别的曲目，确认当前目标没变再写 src
+  if (state.queue[state.index] !== t) return;
+  if (!src) {
+    if (i < state.queue.length - 1) return playIndex(i + 1, { autoplay });
+    showAlert(`无法取到《${t.title}》的播放地址`);
+    return;
+  }
+
+  audio.src = src;
   // 通知 components/lyrics.js 当前是哪首（它通过 #lyrics-panel 自动 attach）
   window.dispatchEvent(new CustomEvent('claudio:trackchange', { detail: t }));
   if (autoplay && userActivated) {
@@ -647,6 +678,16 @@ export function initPlayer() {
     });
   }
 
+  // Playlists 视图整单播放：替换本地队列并立即从第一首开始播（点击本身已解锁 autoplay）
+  window.addEventListener('claudio:queue-replace', e => {
+    const queue = Array.isArray(e.detail) ? e.detail : [];
+    if (!queue.length) return;
+    state.queue = queue;
+    state.index = 0;
+    renderQueuePanel();
+    playIndex(0);
+  });
+
   composer.addEventListener('submit', e => {
     e.preventDefault();
     const m = input.value.trim();
@@ -687,7 +728,8 @@ async function bootCurrent() {
         npArtist.textContent = t.artist;
         setStudioTrack(t);
         setConsoleDialog(`回到电台：${t.title} — ${t.artist}。`);
-        audio.src = t.audioUrl;
+        const src = await resolveAudioSrc(t);
+        if (src) audio.src = src;
         window.dispatchEvent(new CustomEvent('claudio:trackchange', { detail: t }));
         npBox.classList.remove('hidden');
       }
