@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import 'dotenv/config';
 import { dbApi } from './db.js';
 import { resolveTrack } from './services/kugou.js';
+import { getPoolTracks, ensureMinimumFromPool } from './services/candidate-pool.js';
 import { get as getSetting } from './services/settings.js';
 
 const TIMEOUT_MS = Number(process.env.CLAUDE_TIMEOUT_MS) || 60_000;
@@ -165,6 +166,14 @@ export async function ask(systemPrompt, userMessage) {
   } catch (err) {
     console.error('[claude] failure, falling back:', err.message);
     djJson = fallbackFromHistory(err.message);
+  }
+
+  // 候选池兜底：正常推荐（非解析失败 / 非历史兜底）时，保证至少 3 首来自用户选中的歌单。
+  if (!djJson._parseFailed && !djJson._fallback) {
+    const poolTracks = getPoolTracks();
+    if (poolTracks.length) {
+      djJson.play = ensureMinimumFromPool(djJson.play, poolTracks, { min: 3 });
+    }
   }
 
   // 并发解析所有曲目（比串行快 3-4 倍）
