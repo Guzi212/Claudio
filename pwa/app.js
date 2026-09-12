@@ -1,6 +1,7 @@
 // 三视图编排器：tab 切换 + URL 同步 + 全局 WS。
 // chat / audio 逻辑搬到 views/player.js；这里只负责导航和跨视图的状态推送。
 import { initPlayer, applyRuntime, appendToQueue } from './views/player.js';
+import { initPlaylists } from './views/playlists.js';
 import { initProfile } from './views/profile.js';
 import { initSettings } from './views/settings.js';
 import { setStatus, showAlert } from './views/ui.js';
@@ -10,7 +11,7 @@ import './components/env-strip.js';
 import './components/lyrics.js';
 import './components/studio-visual.js';
 
-const VIEWS = ['player', 'profile', 'settings'];
+const VIEWS = ['player', 'playlists', 'profile', 'settings'];
 const DEFAULT_VIEW = 'player';
 
 function currentViewFromUrl() {
@@ -35,12 +36,16 @@ function setView(name, { push = false } = {}) {
 
 // 各视图自己负责懒加载，初始化只挂事件
 initPlayer();
+initPlaylists();
 initProfile();
 initSettings();
 
 document.querySelectorAll('.tab').forEach(btn => {
   btn.addEventListener('click', () => setView(btn.dataset.view, { push: true }));
 });
+
+// 视图内部（如 Playlists 整单播放后）请求跳转
+window.addEventListener('claudio:navigate', e => setView(e.detail, { push: true }));
 
 window.addEventListener('popstate', () => setView(currentViewFromUrl()));
 
