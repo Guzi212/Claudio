@@ -27,6 +27,20 @@ describe('scripts/dev', () => {
     expect(config.claudio.args).toEqual(['--no-warnings', 'server/app.js']);
   });
 
+  it('spawns npm.cmd through a shell on Windows (avoids spawn EINVAL)', async () => {
+    const { buildDevConfig } = await import('../scripts/dev.js');
+    const config = buildDevConfig({ env: {}, projectRoot: 'C:\\Claudio', platform: 'win32' });
+    expect(config.kugou.command).toBe('npm.cmd');
+    expect(config.kugou.shell).toBe(true);
+    expect(config.claudio.shell).toBe(false);
+  });
+
+  it('does not use a shell for npm on non-Windows platforms', async () => {
+    const { buildDevConfig } = await import('../scripts/dev.js');
+    const config = buildDevConfig({ env: {}, projectRoot: '/tmp/Claudio', platform: 'darwin' });
+    expect(config.kugou.shell).toBe(false);
+  });
+
   it('KUGOU_API_DIR 可覆盖默认上游目录', async () => {
     const { buildDevConfig } = await import('../scripts/dev.js');
     const projectRoot = '/Users/me/workspace/Claudio';
