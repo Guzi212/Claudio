@@ -6,10 +6,10 @@
   <title>Claudio · 私人电台</title>
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/svg+xml" href="icon.svg">
-  <meta name="theme-color" content="#101015">
+  <meta name="theme-color" content="#080909">
   <link rel="stylesheet" href="styles.css">
 </head>
-<body>
+<body class="view-player">
   <header id="topbar">
     <span class="brand">◐ Claudio</span>
     <nav id="tabs" class="tabs">
@@ -27,86 +27,120 @@
   <!-- ─────────────── Player ─────────────── -->
   <section id="view-player" class="view view-player">
     <div id="boot-overlay" class="boot-overlay hidden" aria-label="电台开播">
-      <button type="button" id="boot-btn" class="boot-btn">▶ 开始电台</button>
+      <button type="button" id="boot-btn" class="boot-btn">▶ 点击开声</button>
     </div>
-    <section class="studio-stage" data-theme="focus" aria-label="Claudio 电台主持画面">
-      <canvas id="particle-field" class="particle-field" aria-hidden="true"></canvas>
-
-      <div class="radio-console" aria-label="Claudio 电台控制台">
-        <div class="console-topline">
-          <div class="console-brand">
-            <span class="brand-orb"></span>
-            <strong>Claudio</strong>
-          </div>
-          <div class="console-modes" aria-label="主题色">
-            <button type="button" data-studio-theme="dark" aria-pressed="false">DARK</button>
-            <button type="button" data-studio-theme="poetry" aria-pressed="false">POETRY</button>
-            <button type="button" class="active" data-studio-theme="focus" aria-pressed="true">FOCUS</button>
-          </div>
+    <svg class="symbols" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <defs>
+        <symbol id="pumpkin" viewBox="0 0 64 64">
+          <circle cx="32" cy="36" r="22" fill="#ff7a18"/>
+          <ellipse cx="23" cy="26" rx="8" ry="5.5" fill="#fff" opacity=".92"/>
+          <path d="M30 16c1.2-6 7.5-8.2 11-5.2" fill="none" stroke="#1a1a1a" stroke-width="3.2" stroke-linecap="round"/>
+          <circle cx="40.5" cy="12.2" r="2.1" fill="#1a1a1a"/>
+        </symbol>
+        <symbol id="sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.5" fill="none" stroke="currentColor" stroke-width="1.65"/><path fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></symbol>
+        <symbol id="prev" viewBox="0 0 24 24"><path fill="currentColor" d="M6 5h2v14H6zM18 5.8a.8.8 0 0 0-1.2-.7l-8 6.2a.9.9 0 0 0 0 1.4l8 6.2a.8.8 0 0 0 1.2-.7z"/></symbol>
+        <symbol id="next-icon" viewBox="0 0 24 24"><path fill="currentColor" d="M16 5h2v14h-2zM6 5.8a.8.8 0 0 1 1.2-.7l8 6.2a.9.9 0 0 1 0 1.4l-8 6.2a.8.8 0 0 1-1.2-.7z"/></symbol>
+        <symbol id="pause" viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor"/><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor"/></symbol>
+        <symbol id="play-icon" viewBox="0 0 24 24"><path fill="currentColor" d="M8 5.9c0-.8.9-1.2 1.5-.8l10 6.1a1 1 0 0 1 0 1.6l-10 6.1c-.6.4-1.5 0-1.5-.8z"/></symbol>
+        <symbol id="volume-icon" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.65" stroke-linejoin="round" d="M11 5 6 9H3v6h3l5 4z"/><path fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/></symbol>
+        <symbol id="like" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.65" stroke-linejoin="round" d="m7.5 20 9.8-1a2 2 0 0 0 1.8-1.5l1.5-7a1.5 1.5 0 0 0-1.5-1.8H14l.7-4.5A1.9 1.9 0 0 0 12.8 2L7.5 10zM3 10h4.5v10H3z"/></symbol>
+        <symbol id="dislike" viewBox="0 0 24 24"><g transform="rotate(180 12 12)"><path fill="none" stroke="currentColor" stroke-width="1.65" stroke-linejoin="round" d="m7.5 20 9.8-1a2 2 0 0 0 1.8-1.5l1.5-7a1.5 1.5 0 0 0-1.5-1.8H14l.7-4.5A1.9 1.9 0 0 0 12.8 2L7.5 10zM3 10h4.5v10H3z"/></g></symbol>
+        <symbol id="headphones" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.65" stroke-linejoin="round" d="M4 14v-3a8 8 0 0 1 16 0v3M4 12H3v7h4v-7zm16 0h1v7h-4v-7z"/></symbol>
+      </defs>
+    </svg>
+    <div class="shell">
+      <header class="masthead">
+        <div class="brand">
+          <svg class="brand-mark" viewBox="0 0 28 28" fill="none" aria-hidden="true"><path d="M17.5 5a10 10 0 1 0 0 18" stroke="currentColor" stroke-width="2.7" stroke-linecap="round"/><path d="M16 10a5 5 0 0 1 0 8m5-11a9 9 0 0 1 0 14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          <span class="wordmark">Claudio</span>
+          <span class="brand-caption">私人电台</span>
         </div>
-
-        <div class="clock-panel">
-          <time id="studio-clock" class="studio-clock">--:--</time>
-          <span id="studio-weekday" class="studio-weekday">Today</span>
-          <span id="studio-date" class="studio-date">-- · --- · ----</span>
-          <span class="on-air">● ON AIR</span>
-          <span id="studio-weather" class="studio-weather hidden"></span>
-          <div class="signal-meter" aria-hidden="true"></div>
-        </div>
-
-        <div class="console-main">
-          <section class="track-panel" aria-label="当前电台状态">
-            <p class="track-eyebrow" id="studio-track-meta">Now Tuning</p>
-            <div id="lyrics-panel" class="lyrics-panel hidden"></div>
-            <div id="studio-track-comment" class="track-comment-text"></div>
-          </section>
-
-          <section class="poem-panel" aria-label="AI 电台文案">
-            <span>AI RADIO</span>
-            <p id="console-dialog-text">欢迎来到 Claudio，电台已经准备好接收你的 mood。</p>
-            <ol id="queue-list" class="queue-list hidden"></ol>
-          </section>
-        </div>
-
-        <section id="now-playing" class="now-playing console-player-strip hidden" aria-label="当前播放">
-          <div class="np-meta">
-            <span class="np-title" id="np-title">—</span>
-            <span class="np-sep">·</span>
-            <span class="np-artist" id="np-artist">—</span>
+        <div class="edition" id="edition"><svg class="icon" aria-hidden="true"><use href="#sun"/></svg><span id="edition-label">傍晚场</span></div>
+      </header>
+      <main>
+        <section class="host" aria-label="主持人口播">
+          <div class="avatar" aria-hidden="true"><svg class="pumpkin"><use href="#pumpkin"/></svg></div>
+          <div class="host-body">
+            <div class="host-meta">
+              <span class="agent-name">Claudio主持人 <span class="bot-chip">Grok Bot</span></span>
+              <span id="host-time">· 在线</span>
+            </div>
+            <p class="host-line" id="host-line">我在。让我挑一首适合现在的歌。</p>
           </div>
-          <div class="np-progress">
-            <span class="np-time" id="np-time-cur">0:00</span>
-            <input type="range" id="np-seek" class="np-seek" min="0" max="100" value="0" step="0.1" aria-label="播放进度">
-            <span class="np-time" id="np-time-dur">0:00</span>
-            <input type="range" id="np-vol" class="np-vol" min="0" max="100" value="30" step="1" aria-label="音量">
+          <div class="voice" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+        </section>
+        <section class="stage" id="now-playing" aria-label="当前播放">
+          <div class="cover" id="np-cover">
+            <img id="np-cover-img" alt="" hidden>
+            <svg id="np-cover-fallback" viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <defs>
+                <linearGradient id="sky" x2=".12" y2="1"><stop stop-color="#a0b1a8"/><stop offset=".58" stop-color="#526b61"/><stop offset="1" stop-color="#1b3430"/></linearGradient>
+                <radialGradient id="halo"><stop stop-color="#eaf2df" stop-opacity=".35"/><stop offset="1" stop-color="#d5e2cc" stop-opacity="0"/></radialGradient>
+                <linearGradient id="disc" x1=".2" y1="0" x2=".7" y2="1"><stop stop-color="#fffff4"/><stop offset=".55" stop-color="#e0e7d6"/><stop offset="1" stop-color="#8ca197"/></linearGradient>
+                <linearGradient id="water" x2="0" y2="1"><stop stop-color="#2e4840"/><stop offset="1" stop-color="#0e201e"/></linearGradient>
+                <linearGradient id="reflection" x2="0" y2="1"><stop stop-color="#e4e9d1" stop-opacity=".6"/><stop offset="1" stop-color="#b5c5ae" stop-opacity="0"/></linearGradient>
+                <filter id="grain"><feTurbulence type="fractalNoise" baseFrequency=".82" numOctaves="3" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/><feComponentTransfer><feFuncA type="linear" slope=".075"/></feComponentTransfer><feBlend in="SourceGraphic" mode="soft-light"/></filter>
+                <filter id="soft"><feGaussianBlur stdDeviation="10"/></filter>
+                <clipPath id="reflection-clip"><path d="M260 250h70l45 250H210z"/></clipPath>
+              </defs>
+              <g filter="url(#grain)">
+                <path fill="url(#sky)" d="M0 0h500v500H0z"/>
+                <circle cx="304" cy="150" r="189" fill="url(#halo)"/>
+                <circle cx="304" cy="150" r="91" fill="url(#disc)"/>
+                <path d="M0 231 58 219 88 224 143 199 184 203 225 188 270 211 311 218 351 195 388 199 430 169 475 182 500 175V335H0z" fill="#4d655c"/>
+                <path d="m0 260 38-6 35-18 34 8 44-28 35 22 44-6 59 22 55-12 39 8 52-19 40 17 30-7v102H0z" fill="#314b42"/>
+                <path d="M0 276q100-7 202-1t298-2v227H0z" fill="url(#water)"/>
+                <ellipse cx="302" cy="274" rx="130" ry="10" fill="#adbba5" opacity=".24" filter="url(#soft)"/>
+                <g clip-path="url(#reflection-clip)" stroke="url(#reflection)" fill="none">
+                  <path d="M214 281h179m-160 6h140m-162 8h190m-175 8h149m-161 9h189m-180 10h170m-160 10h145m-140 12h162m-184 13h190m-170 14h150m-161 16h173m-189 18h188m-170 20h165m-182 23h190m-183 25h170" stroke-width="2"/>
+                </g>
+                <path d="M0 302q41-18 72-17 34 0 75 24 27 17 57 15 27-2 63 9-39 9-82 23-72 24-104 67-38 52-81 56z" fill="#142c26"/>
+                <path d="M500 357q-49-17-72-8-25 8-24 32 19 27 96 43z" fill="#122a25"/>
+                <path d="M0 442q90-33 152-14 58 17 97 72H0z" fill="#10231f"/>
+              </g>
+              <g fill="#f6f8ef"><text id="np-cover-title" x="35" y="55" font-size="15" letter-spacing="6">晴天</text><text id="np-cover-artist" x="35" y="465" font-size="11" letter-spacing="3" opacity=".8">周杰伦</text></g>
+              <path d="M451 446h18m-9-9v18" stroke="#f3f5ea" opacity=".7" stroke-width=".8"/>
+            </svg>
+          </div>
+          <div class="track-info">
+            <div class="playing-state"><span class="live-dot"></span><span id="playing-label">正在播放</span></div>
+            <h1 id="np-title">晴天</h1>
+            <p class="artist" id="np-artist">周杰伦</p>
+            <p class="reason" id="track-reason" hidden></p>
+          </div>
+          <div class="progress">
+            <input id="np-seek" type="range" min="0" max="100" value="0" step="0.1" aria-label="播放进度">
+            <div class="times"><span id="np-time-cur">0:00</span><span id="np-time-dur">0:00</span></div>
+          </div>
+          <div class="transport">
+            <div class="playback" aria-label="播放控制">
+              <button class="icon-button" type="button" data-console-control="prev" aria-label="上一首"><svg class="icon skip-icon" aria-hidden="true"><use href="#prev"/></svg></button>
+              <button class="icon-button main-play" type="button" data-console-control="play-pause" aria-label="暂停"><svg class="icon" aria-hidden="true"><use id="play-symbol" href="#pause"/></svg></button>
+              <button class="icon-button" type="button" data-console-control="next" aria-label="下一首"><svg class="icon skip-icon" aria-hidden="true"><use href="#next-icon"/></svg></button>
+            </div>
+            <label class="volume"><svg class="icon" aria-hidden="true"><use href="#volume-icon"/></svg><span class="sr-only">音量</span><input id="np-vol" type="range" min="0" max="100" value="30" step="1" aria-label="音量"><output id="np-vol-out" for="np-vol">30</output></label>
+          </div>
+          <div class="feedback" aria-label="歌曲反馈">
+            <button class="feedback-button" type="button" data-feedback="like" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#like"/></svg>喜欢</button>
+            <button class="feedback-button" type="button" data-feedback="dislike" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#dislike"/></svg>不喜欢</button>
           </div>
           <audio id="audio" preload="none"></audio>
         </section>
-
-        <div class="console-actions" aria-label="电台播放控制">
-          <button type="button" data-console-control="prev" aria-label="上一首">◁</button>
-          <button type="button" class="primary" data-console-control="play-pause" aria-label="暂停">Ⅱ</button>
-          <button type="button" data-console-control="next" aria-label="下一首">▷</button>
-          <button type="button" data-console-control="favorite" aria-label="收藏当前歌曲" aria-pressed="false">♡</button>
-          <button type="button" data-console-control="queue" aria-label="显示播放队列" aria-pressed="true">☰</button>
-          <button type="button" data-console-control="loop" aria-label="自动推歌" aria-pressed="true">AI</button>
-        </div>
-
-        <div class="console-chat">
-          <div class="chat-speaker">
-            <span class="brand-orb small"></span>
-            <span>Claudio · LIVE</span>
-          </div>
-          <div id="chat" class="chat" role="log" aria-live="polite"></div>
-          <form id="composer" class="composer" autocomplete="off">
-            <input id="input" name="message" placeholder="跟 Claudio 说点什么 · /skip /pause /play /queue" />
-            <button type="submit">↑</button>
-          </form>
-        </div>
-      </div>
-    </section>
-
-    <div id="env-strip" class="env-strip hidden"></div>
+        <section class="queue" aria-labelledby="queue-title">
+          <div class="queue-heading"><h2 id="queue-title">接下来</h2><span id="queue-count">0 首</span></div>
+          <ol id="queue-list"></ol>
+        </section>
+        <section class="empty-stage" aria-labelledby="empty-title">
+          <div class="waiting-art" aria-hidden="true"><div class="waiting-orbit"></div><div class="waiting-core"><svg class="pumpkin"><use href="#pumpkin"/></svg></div></div>
+          <h1 id="empty-title">等主持人点歌</h1>
+          <div class="thinking">正在挑选下一首<span class="thinking-dots" aria-hidden="true"><i></i><i></i><i></i></span></div>
+        </section>
+      </main>
+      <footer class="footer">
+        <span class="footer-left"><svg class="icon" aria-hidden="true"><use href="#headphones"/></svg>给 loic 的私人频率</span>
+        <span class="connection"><span class="live-dot"></span>主持人在线 · 页面已连接</span>
+      </footer>
+    </div>
   </section>
 
   <!-- ─────────────── Playlists ─────────────── -->

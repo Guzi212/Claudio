@@ -27,6 +27,8 @@ export function playbackStatus(runtime = {}, { listeners = 0, brain = 'external'
     listeners,
     lastSay: runtime.lastSay || '',
     reason: runtime.lastReason || '',
+    queuedAt: runtime.queuedAt || null,
+    source: runtime.queuedSource || '',
   };
 }
 

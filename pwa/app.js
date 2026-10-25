@@ -22,6 +22,7 @@ function currentViewFromUrl() {
 
 function setView(name, { push = false } = {}) {
   if (!VIEWS.includes(name)) name = DEFAULT_VIEW;
+  document.body?.classList.toggle('view-player', name === 'player');
   for (const v of VIEWS) {
     const sec = document.getElementById(`view-${v}`);
     const tab = document.querySelector(`.tab[data-view="${v}"]`);

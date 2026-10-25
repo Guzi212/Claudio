@@ -7,32 +7,34 @@ const playerJs = fs.readFileSync(path.resolve('pwa/views/player.js'), 'utf8');
 const stylesCss = fs.readFileSync(path.resolve('pwa/styles.css'), 'utf8');
 
 describe('player console controls', () => {
-  it('播放条和输入框直接合并在电台控制台内部', () => {
-    const consoleStart = indexHtml.indexOf('<div class="radio-console"');
-    const consoleEnd = indexHtml.indexOf('<div id="env-strip"', consoleStart);
-    const consoleHtml = indexHtml.slice(consoleStart, consoleEnd);
+  it('播放页使用银色电台壳，不再内嵌旧控制台和聊天框', () => {
+    const playerStart = indexHtml.indexOf('id="view-player"');
+    const playerEnd = indexHtml.indexOf('id="view-playlists"', playerStart);
+    const playerHtml = indexHtml.slice(playerStart, playerEnd);
 
-    expect(consoleHtml).toContain('id="now-playing"');
-    expect(consoleHtml).toContain('id="composer"');
+    expect(playerHtml).toContain('id="now-playing"');
+    expect(playerHtml).toContain('id="host-line"');
+    expect(playerHtml).toContain('id="queue-list"');
+    expect(playerHtml).toContain('id="np-vol"');
+    expect(playerHtml).not.toContain('id="composer"');
+    expect(playerHtml).not.toContain('class="radio-console"');
     expect(indexHtml).not.toContain('class="np-controls"');
   });
 
-  it('主题模式使用可交互按钮，并暴露主题值', () => {
-    expect(indexHtml).not.toMatch(/<div class="console-modes"[^>]*aria-hidden="true"/);
-
-    for (const mode of ['dark', 'poetry', 'focus']) {
-      expect(indexHtml).toContain(`data-studio-theme="${mode}"`);
-      expect(indexHtml).toMatch(new RegExp(`<button[^>]+data-studio-theme="${mode}"`));
-    }
+  it('主题切换不再放在播放页上', () => {
+    const playerStart = indexHtml.indexOf('id="view-player"');
+    const playerEnd = indexHtml.indexOf('id="view-playlists"', playerStart);
+    const playerHtml = indexHtml.slice(playerStart, playerEnd);
+    expect(playerHtml).not.toContain('data-studio-theme=');
   });
 
-  it('电台控制台使用可交互按钮而不是装饰性文本', () => {
-    expect(indexHtml).not.toMatch(/<div class="console-actions"[^>]*aria-hidden="true"/);
-
-    for (const control of ['prev', 'play-pause', 'next', 'favorite', 'queue']) {
+  it('播放控制是上一首、暂停和下一首', () => {
+    for (const control of ['prev', 'play-pause', 'next']) {
       expect(indexHtml).toContain(`data-console-control="${control}"`);
       expect(indexHtml).toMatch(new RegExp(`<button[^>]+data-console-control="${control}"`));
     }
+    expect(indexHtml).not.toContain('data-console-control="favorite"');
+    expect(indexHtml).not.toContain('data-console-control="queue"');
   });
 
   it('player 逻辑绑定电台控制台按钮', () => {

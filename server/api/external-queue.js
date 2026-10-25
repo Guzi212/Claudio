@@ -12,8 +12,8 @@ const TARGETS = new Set(['queue', 'kugou_playlist', 'both']);
 const QUEUE_MODES = new Set(['replace', 'append']);
 const PLAYLIST_MODES = new Set(['append', 'rewrite']);
 
-function toQueueItem(track) {
-  return {
+function toQueueItem(track, { reason = '', queuedAt = '', source = 'bot' } = {}) {
+  const item = {
     title: track.title,
     artist: track.artist,
     album: track.album || '',
@@ -23,8 +23,13 @@ function toQueueItem(track) {
       ? `/api/proxy?u=${encodeURIComponent(track.upstreamUrl)}`
       : null,
     comment: '',
-    source: 'bot',
+    source: source || 'bot',
+    queuedAt,
   };
+  if (track.cover) item.cover = track.cover;
+  const songReason = String(reason || '').trim();
+  if (songReason) item.reason = songReason;
+  return item;
 }
 
 function matchedView(want, track) {
@@ -62,6 +67,8 @@ export function mountExternalQueueRoutes(app, deps = {}) {
       : body.playlistName).trim() || DEFAULT_PLAYLIST_NAME;
     const say = String(body.say || '').trim();
     const reason = String(body.reason || '').trim();
+    const requestSource = String(body.source || '').trim() || 'bot';
+    const queuedAt = new Date().toISOString();
 
     if (!TARGETS.has(target)) {
       res.status(400).json({ ok: false, error: "target 只能是 queue、kugou_playlist 或 both" });
@@ -94,7 +101,12 @@ export function mountExternalQueueRoutes(app, deps = {}) {
         failed.push({ title: '', artist, reason: 'title required' });
         continue;
       }
-      wants.push({ title, artist, hint });
+      wants.push({
+        title,
+        artist,
+        hint,
+        reason: String(raw?.reason || '').trim(),
+      });
     }
     if (!wants.length) {
       res.status(400).json({ ok: false, error: 'tracks 里至少要有一首带 title 的歌', failed });
@@ -115,7 +127,11 @@ export function mountExternalQueueRoutes(app, deps = {}) {
         continue;
       }
       matched.push(matchedView(want, track));
-      queueItems.push(toQueueItem(track));
+      queueItems.push(toQueueItem(track, {
+        reason: want.reason,
+        queuedAt,
+        source: requestSource,
+      }));
     }
 
     const touchQueue = target === 'queue' || target === 'both';
@@ -141,7 +157,8 @@ export function mountExternalQueueRoutes(app, deps = {}) {
               kugouId: '',
               audioUrl: voice.url,
               comment: '',
-              source: 'bot',
+              source: requestSource,
+              queuedAt,
               isTts: true,
             });
           }
@@ -173,6 +190,8 @@ export function mountExternalQueueRoutes(app, deps = {}) {
       }
       if (say) runtime.lastSay = say;
       if (reason) runtime.lastReason = reason;
+      runtime.queuedAt = queuedAt;
+      runtime.queuedSource = requestSource;
       for (const item of queueItems) {
         if (item.isTts) continue;
         db.addPlay({
@@ -185,7 +204,15 @@ export function mountExternalQueueRoutes(app, deps = {}) {
       }
       // 缺省、null、空字符串都不是调音量。这个接口不写 prefs。
       if (keepSavedVolume) runtime.volume = savedVolume;
-      broadcast({ type: 'external-queue', mode, tracks: queueItems, say, reason });
+      broadcast({
+        type: 'external-queue',
+        mode,
+        tracks: queueItems,
+        say,
+        reason,
+        queuedAt,
+        source: requestSource,
+      });
       broadcast({ type: 'state', runtime });
       queueResult = { mode, added: queueItems.length, length: runtime.queue.length };
     } else if (touchQueue) {

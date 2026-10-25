@@ -299,6 +299,47 @@ describe('POST /api/queue/external', () => {
     }, badTarget);
     expect(badTarget.statusCode).toBe(400);
   });
+
+  it('记下每首歌的 reason、点歌时间和来源；没写 reason 就不带这个字段', async () => {
+    const { app, runtime, broadcast } = setup({
+      resolveTrack: async want => {
+        const track = song(want.title, want.artist || '周杰伦');
+        if (want.title === '晴天') track.cover = 'https://cdn.example/{size}/a.jpg';
+        return track;
+      },
+    });
+    const res = mockRes();
+    await app.routes['POST /api/queue/external']({
+      body: {
+        source: 'grok',
+        reason: '整轮理由',
+        tracks: [
+          { title: '晴天', artist: '周杰伦', reason: '  吉他前奏  ' },
+          { title: '七里香', artist: '周杰伦', reason: '   ' },
+        ],
+      },
+    }, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(runtime.queueSource).toBe('bot');
+    expect(runtime.queuedSource).toBe('grok');
+    expect(runtime.queuedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(runtime.lastReason).toBe('整轮理由');
+    expect(runtime.queue[0]).toMatchObject({
+      title: '晴天',
+      source: 'grok',
+      reason: '吉他前奏',
+      cover: 'https://cdn.example/{size}/a.jpg',
+      queuedAt: runtime.queuedAt,
+    });
+    expect(runtime.queue[1].reason).toBeUndefined();
+    expect(runtime.queue[1].source).toBe('grok');
+    expect(broadcast).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'external-queue',
+      queuedAt: runtime.queuedAt,
+      source: 'grok',
+    }));
+  });
 });
 
 describe('外部歌单不经过 Claude / 候选池', () => {

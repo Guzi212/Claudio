@@ -17,6 +17,15 @@ describe('services/kugou', () => {
     expect(typeof mod.songUrl).toBe('function');
     expect(typeof mod.lyric).toBe('function');
     expect(typeof mod.resolveTrack).toBe('function');
+    expect(typeof mod.coverUrlFromRaw).toBe('function');
+  });
+
+  it('封面地址把 {size} 换成 400，没有图就返回空字符串', async () => {
+    const { coverUrlFromRaw } = await import('../server/services/kugou.js');
+    expect(coverUrlFromRaw({ img: 'https://img.example/{size}/a.jpg' })).toBe('https://img.example/400/a.jpg');
+    expect(coverUrlFromRaw({ albumImg: ' https://img.example/cover.jpg ' })).toBe('https://img.example/cover.jpg');
+    expect(coverUrlFromRaw({})).toBe('');
+    expect(coverUrlFromRaw(null)).toBe('');
   });
 
   it('lyric 两步走：先 search/lyric 拿 id+accesskey，再拿 LRC', async () => {
