@@ -6,11 +6,14 @@
 //
 //   GET  /api/kugou/relogin/status?key=...
 //     · status 0 过期 · 1 等扫码 · 2 等确认 · 4 成功
-//     · 成功时后端从 KuGouMusicApi 响应里拿 token + userid，拼成
-//       "token=...; userid=..." 写入 state.db.prefs.kugou_cookie
+//     · 成功时后端把上游返回的整段登录态（token / userid / t1 / vip_*）连同
+//       /register/dev 换来的 dfid 一起写入 state.db.prefs.kugou_cookie
+//       —— 只存 token+userid 会让上游把每次请求当新设备，进而触发风控挤下线
 //     → { ok, status, statusText, savedCookie }
 import 'dotenv/config';
 import { dbApi } from '../db.js';
+import { mergeCookieMap, serializeCookie, pickIdentity } from '../services/kugou-cookie.js';
+import { ensureDfid, COOKIE_PREF, REFRESHED_AT_PREF } from '../services/kugou-login.js';
 
 const BASE = process.env.KUGOU_API_BASE || 'http://localhost:3000';
 const QR_KEY_PATH    = '/login/qr/key';
@@ -30,7 +33,11 @@ function wrapApiError(err) {
 export async function startRelogin({ httpGet = defaultGet } = {}) {
   let r1;
   try {
-    r1 = await httpGet(`${BASE}${QR_KEY_PATH}`, { type: 'web' });
+    // 不再传 type:'web'。上游 login_qr_key 里 type=web → appid=1014（Web 版），
+    // 不传 → appid=1001（App 版）；而真正发 token 的 login_qr_check 和后续
+    // /login/token 续期都走 App 版（appid=1005）。上游文档也提示
+    // 「不同版本的 token 是不通用的」，所以统一切到 App 版这条链。
+    r1 = await httpGet(`${BASE}${QR_KEY_PATH}`, {});
   } catch (err) {
     throw wrapApiError(err);
   }
@@ -42,6 +49,17 @@ export async function startRelogin({ httpGet = defaultGet } = {}) {
   const qrImg = inner.qrcode_img || inner.base64 || inner.qrimg || '';
   const qrUrl = inner.url || inner.qrurl || '';
   return { key, qrImg, qrUrl };
+}
+
+// 把扫码 / 探测拿到的登录态落库：整段 cookie（含 t1 / vip_*）+ dfid，
+// 并记录续期时间（避免启动时立刻再来一次 /login/token）。
+async function persistSession({ token, userid, extra = {}, httpGet, db }) {
+  const base = serializeCookie(pickIdentity(mergeCookieMap(extra, { token, userid })));
+  const { cookie: withDfid } = await ensureDfid(base, { httpGet, db });
+  const finalCookie = withDfid || base;
+  db.setPref(COOKIE_PREF, finalCookie);
+  db.setPref(REFRESHED_AT_PREF, String(Date.now()));
+  return finalCookie;
 }
 
 export async function checkRelogin(key, { httpGet = defaultGetFull, db = dbApi } = {}) {
@@ -69,7 +87,7 @@ export async function checkRelogin(key, { httpGet = defaultGetFull, db = dbApi }
     const userid = res?.data?.userid || res?.data?.userinfo?.userid || res?.data?.user_id || cookieMap.userid;
 
     if (token && userid) {
-      db.setPref('kugou_cookie', `token=${token}; userid=${userid}`);
+      await persistSession({ token, userid, extra: cookieMap, httpGet, db });
       return { status, statusText, savedCookie: true };
     }
 
@@ -114,12 +132,12 @@ export async function probeSession({ httpGetFull = defaultGetFull, db = dbApi } 
   const token  = body?.token  || body?.data?.token  || body?.userinfo?.token  || cookieMap.token;
 
   if (userid && token) {
-    db.setPref('kugou_cookie', `token=${token}; userid=${userid}`);
+    await persistSession({ token, userid, extra: cookieMap, httpGet: httpGetFull, db });
     return { found: true, userid };
   }
   // 部分实现只在 Set-Cookie 里有 token，userid 在 body
   if (userid && cookieMap.token) {
-    db.setPref('kugou_cookie', `token=${cookieMap.token}; userid=${userid}`);
+    await persistSession({ token: cookieMap.token, userid, extra: cookieMap, httpGet: httpGetFull, db });
     return { found: true, userid };
   }
   return { found: false };

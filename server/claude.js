@@ -176,6 +176,14 @@ export async function ask(systemPrompt, userMessage) {
     }
   }
 
+  // 候选池兜底：正常推荐（非解析失败 / 非历史兜底）时，保证至少 3 首来自用户选中的歌单。
+  if (!djJson._parseFailed && !djJson._fallback) {
+    const poolTracks = getPoolTracks();
+    if (poolTracks.length) {
+      djJson.play = ensureMinimumFromPool(djJson.play, poolTracks, { min: 3 });
+    }
+  }
+
   // 并发解析所有曲目（比串行快 3-4 倍）
   const resolved = await Promise.all(
     djJson.play.map(want => resolveTrack(want)),
