@@ -118,7 +118,7 @@ npm run dev:app
 ## 验证（end-to-end）
 
 - [ ] 控制台显示 `KuGou login OK · 8080 ready`，以及 `CLAUDIO_BRAIN=external，跳过定时推歌`
-- [ ] 浏览器加载 PWA，点一次「点击开声」解锁声音
+- [ ] 浏览器加载 PWA。允许自动播放时会直接出声；只有浏览器拒绝时才出现「点击开声」
 - [ ] `POST /api/queue/external` 点一首歌，页面开始播，串场面板显示 `say`
 - [ ] 队列最后一首结束后停下，不再自己续歌
 - [ ] 控制台 `npm test` 全绿
@@ -263,7 +263,7 @@ Content-Type: application/json
 | 聊天（external） | `POST /api/chat` | JSON：`message` | 控制命令（`/skip` `/pause` `/play` `/vol N` `/prev` `/now` `/queue`）照常执行。普通文字返回「选歌请在 Grok Bot 里找 Claudio主持人。」，不调用 Claude |
 | 开机（external） | `POST /api/boot` | 无 | 不调用 Claude。返回当前 `queue` 和 `index`，`brain: "external"`，`skipped: true` |
 
-页面在 external 模式下只出声和显示：开机遮罩用来解锁浏览器自动播放，点完播放服务器当前队列和 `index`；队列是空的就显示「等待点歌」。一首播完会放到队列里的下一首，整个队列播完就停。聊天框、自动推歌按钮和 DeepSeek 设置不显示。串场面板显示外部点歌的 `say`。
+页面在 external 模式下只出声和显示。加载时，以及主持人投下新队列时，会先直接 `play()`。成功就不出遮罩；只有浏览器返回 `NotAllowedError` 才显示「点击开声」，点一下从当前队列和进度接着放。队列是空的就显示「等待点歌」，不盖遮罩。服务器记着暂停时，打开页面不会自己播；主持人用 replace 或 append 投下新队列，或者发 play，会再直接播。一首播完会放到队列里的下一首，整个队列播完就停。聊天框、自动推歌按钮和 DeepSeek 设置不显示。串场面板显示外部点歌的 `say`。音量沿用已保存的值。
 
 ### PowerShell 示例
 

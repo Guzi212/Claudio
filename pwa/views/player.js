@@ -4,9 +4,10 @@
 import { showAlert, clearAlert, setStatus, toast } from './ui.js';
 import { planExternalPlayback } from '../external-playback.js';
 import { planBootPlayback } from '../boot-playback.js';
-import { planRuntimeSync } from '../runtime-sync.js';
-import { externalUnlockPlan } from '../player-mode.js';
+import { claimPlayLoad, isOwnEcho, planRuntimeSync } from '../runtime-sync.js';
+import { externalUnlockPlan, planExternalBoot, planPlayCommand, planPlayError } from '../player-mode.js';
 import { readLocalVolume, writeLocalVolume } from '../volume-memory.js';
+import { getClientId } from '../client-id.js';
 
 function escapeHtml(str) {
   return String(str)
@@ -68,9 +69,50 @@ function updateSeekBar(cur, dur) {
   if (npTimeDur) npTimeDur.textContent = fmtTime(dur);
 }
 
-// autoplay 在浏览器策略下需要"用户已交互过页面"才生效
+// 成功出过一次声之后就是 true。遮罩只在 play() 返回 NotAllowedError 时才盖上。
 let userActivated = false;
+let serverProgress = 0;
+let playLoadIndex = null;
+let suppressPauseSync = false;
 function markActivated() { userActivated = true; }
+
+function ensurePlaybackVolume() {
+  if (!audio) return;
+  const slider = npVol ? Number(npVol.value) : NaN;
+  const volume = Number.isFinite(slider) ? slider : readLocalVolume();
+  const clamped = Math.max(0, Math.min(100, Math.round(volume)));
+  audio.volume = clamped / 100;
+  if (npVol) {
+    npVol.value = String(clamped);
+    npVol.style.setProperty('--vol-pct', `${clamped}%`);
+  }
+}
+
+function showUnlockOverlay() {
+  if (!bootOverlay || !bootBtn || brain === 'internal') return;
+  bootBtn.textContent = '▶ 点击开声';
+  bootOverlay.classList.remove('hidden');
+}
+
+async function attemptPlay() {
+  if (!audio) return false;
+  ensurePlaybackVolume();
+  try {
+    await audio.play();
+    const outcome = planPlayError(null);
+    if (outcome.userActivated) markActivated();
+    if (!outcome.showOverlay) dismissBootOverlay();
+    return true;
+  } catch (err) {
+    const outcome = planPlayError(err);
+    if (outcome.showOverlay) showUnlockOverlay();
+    else {
+      console.warn('audio.play failed:', err?.message);
+      showAlert(`播放失败：${err?.message || '未知错误'}`);
+    }
+    return false;
+  }
+}
 
 function applyBrainChrome() {
   document.body?.classList.toggle('brain-internal', brain === 'internal');
@@ -110,16 +152,18 @@ function reportProgress(force = false) {
       volume: npVol ? Number(npVol.value) : readLocalVolume(),
       paused: Boolean(audio.paused),
       index: state.index,
+      clientId: getClientId(),
     },
   }));
 }
 
-// 把服务端的真实位置推回前端的镜像状态（避免 server / client 两边索引漂移）
+// 把服务端的真实位置推回前端的镜像状态（避免 server / client 两边索引漂移）。
+// clientId 会跟着广播回来；这份页面看到自己的 origin 就不再改播放。
 function syncToServer(index, { paused = false, ended = false } = {}) {
   fetch('/api/runtime/state', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ index, paused, ended }),
+    body: JSON.stringify({ index, paused, ended, clientId: getClientId() }),
   }).catch(() => {});
 }
 
@@ -368,50 +412,95 @@ async function resolveAudioSrc(track) {
   return url;
 }
 
-async function playIndex(i, { autoplay = true } = {}) {
+function trackKey(track) {
+  if (!track) return '';
+  if (track.kugouId) return `id:${track.kugouId}`;
+  if (track.audioUrl) return `url:${track.audioUrl}`;
+  return `t:${track.title || ''}\0${track.artist || ''}`;
+}
+
+function trackStillCurrent(track) {
+  const current = state.queue[state.index];
+  if (current === track) return true;
+  return trackKey(current) !== '' && trackKey(current) === trackKey(track);
+}
+
+function alreadyPlayingIndex(i) {
+  const track = state.queue[i];
+  if (!track || !audio || audio.paused || audio.ended) return false;
+  if (state.index !== i) return false;
+  const src = audio.getAttribute('src') || '';
+  return Boolean(track.audioUrl) && src === track.audioUrl;
+}
+
+async function playIndex(i, { autoplay = true, startAt = 0, resume = false, restart = false } = {}) {
   if (i < 0 || i >= state.queue.length) {
     npBox.classList.add('hidden');
     audio.removeAttribute('src');
     window.dispatchEvent(new CustomEvent('claudio:trackchange', { detail: null }));
     return;
   }
-  state.index = i;
-  const t = state.queue[i];
-  updateSeekBar(0, 0);
-  resetFavoriteState();
-  npTitle.textContent = t.title;
-  npArtist.textContent = t.artist;
-  if (!t.isTts) {
-    setStudioTrack(t);
-    setConsoleDialog(`接下来播放 ${t.title} — ${t.artist}。`);
-  } else {
-    const comment = document.getElementById('studio-track-comment');
-    if (comment) comment.textContent = t.title || '';
-  }
-
-  const src = await resolveAudioSrc(t);
-  // await 期间用户可能又点了别的曲目，确认当前目标没变再写 src
-  if (state.queue[state.index] !== t) return;
-  if (!src) {
-    if (i < state.queue.length - 1) return playIndex(i + 1, { autoplay });
-    showAlert(`无法取到《${t.title}》的播放地址`);
+  if (resume && audio?.getAttribute('src')) {
+    ensurePlaybackVolume();
+    if (Number.isFinite(startAt) && startAt > 0) {
+      try { audio.currentTime = startAt; } catch { /* 元数据还没到 */ }
+    }
+    if (autoplay) await attemptPlay();
     return;
   }
+  if (!restart && alreadyPlayingIndex(i)) return;
+  const claim = claimPlayLoad(playLoadIndex, i);
+  if (!claim.accept) return;
+  playLoadIndex = claim.loading;
+  const loadToken = i;
+  suppressPauseSync = true;
+  try {
+    state.index = i;
+    const t = state.queue[i];
+    updateSeekBar(0, 0);
+    resetFavoriteState();
+    npTitle.textContent = t.title;
+    npArtist.textContent = t.artist;
+    if (!t.isTts) {
+      setStudioTrack(t);
+      setConsoleDialog(`接下来播放 ${t.title} — ${t.artist}。`);
+    } else {
+      const comment = document.getElementById('studio-track-comment');
+      if (comment) comment.textContent = t.title || '';
+    }
 
-  audio.src = src;
-  // 通知 components/lyrics.js 当前是哪首（它通过 #lyrics-panel 自动 attach）
-  window.dispatchEvent(new CustomEvent('claudio:trackchange', { detail: t }));
-  if (autoplay && userActivated) {
-    audio.play().catch(err => {
-      console.warn('audio.play failed:', err.message);
-      showAlert('浏览器拦了自动播放，点一下页面上的 ▶ 按钮');
-    });
-  }
-  npBox.classList.remove('hidden');
-  syncToServer(state.index);
-  renderQueuePanel();
-  if (state.brain === 'internal' && state.loopMode === 'auto' && i === state.queue.length - 1 && !autoRecommending) {
-    autoRecommend(NEXT_BATCH_PROMPT);
+    const src = await resolveAudioSrc(t);
+    // await 期间用户可能又点了别的曲目，确认当前目标没变再写 src
+    if (playLoadIndex !== loadToken || !trackStillCurrent(t)) return;
+    if (!src) {
+      if (i < state.queue.length - 1) {
+        playLoadIndex = null;
+        suppressPauseSync = false;
+        return playIndex(i + 1, { autoplay, startAt: 0, restart: false });
+      }
+      showAlert(`无法取到《${t.title}》的播放地址`);
+      return;
+    }
+
+    audio.src = src;
+    const seekTo = restart ? 0 : (Number.isFinite(startAt) ? startAt : 0);
+    if (seekTo > 0 || restart || audio.ended) {
+      try { audio.currentTime = seekTo; } catch { /* 还不能 seek 时，play() 会从 0 开始 */ }
+    }
+    // 通知 components/lyrics.js 当前是哪首（它通过 #lyrics-panel 自动 attach）
+    window.dispatchEvent(new CustomEvent('claudio:trackchange', { detail: t }));
+    ensurePlaybackVolume();
+    // internal 仍等用户点「开始电台」。external 直接试 play()，被拒绝才盖遮罩。
+    if (autoplay && !(brain === 'internal' && !userActivated)) await attemptPlay();
+    else if (!autoplay) syncToServer(state.index, { paused: true, ended: false });
+    npBox.classList.remove('hidden');
+    renderQueuePanel();
+    if (state.brain === 'internal' && state.loopMode === 'auto' && i === state.queue.length - 1 && !autoRecommending) {
+      autoRecommend(NEXT_BATCH_PROMPT);
+    }
+  } finally {
+    if (playLoadIndex === loadToken) playLoadIndex = null;
+    suppressPauseSync = false;
   }
 }
 
@@ -607,8 +696,10 @@ async function send(message) {
 }
 
 // 服务端 WS 推 runtime 时同步进本地状态（仅当本地没有超前播放）
-export function applyRuntime(runtime) {
+export function applyRuntime(runtime, { origin } = {}) {
   if (!runtime) return;
+  // 自己刚 POST 出去的状态又广播回来时，不再 play / pause / playIndex。
+  if (isOwnEcho(origin, getClientId())) return;
   if (runtime.brain === 'internal' || runtime.brain === 'external') {
     brain = runtime.brain;
     state.brain = brain;
@@ -618,6 +709,7 @@ export function applyRuntime(runtime) {
     appliedSay = runtime.lastSay;
     setConsoleDialog(runtime.lastSay);
   }
+  if (Number.isFinite(runtime.currentTime)) serverProgress = runtime.currentTime;
   const plan = planRuntimeSync({
     queue: state.queue,
     index: state.index,
@@ -625,19 +717,34 @@ export function applyRuntime(runtime) {
     ended: Boolean(audio?.ended),
   }, runtime);
   if (Number.isFinite(plan.volume)) applyHeardVolume(plan.volume);
+  else ensurePlaybackVolume();
   if (plan.applyQueue && plan.playIndex == null) {
     state.queue = plan.queue || [];
     renderQueuePanel();
-    if (!state.queue.length && brain !== 'internal') setConsoleDialog('等待点歌');
+    if (!state.queue.length && brain !== 'internal') {
+      setConsoleDialog('等待点歌');
+      dismissBootOverlay();
+    }
   }
   if (plan.playIndex != null) {
     if (plan.applyQueue) state.queue = plan.queue;
-    playIndex(plan.playIndex);
+    const autoplay = plan.pause !== true;
+    playIndex(plan.playIndex, {
+      autoplay,
+      restart: Boolean(plan.restart),
+      startAt: plan.restart ? 0 : serverProgress,
+    });
+    if (!autoplay) dismissBootOverlay();
     return;
   }
   if (plan.pause === true && audio && !audio.paused) audio.pause();
-  else if (plan.pause === false && userActivated && audio?.paused && audio.src) {
-    audio.play().catch(() => {});
+  else if (plan.pause === false && audio?.paused && audio.src && !(brain === 'internal' && !userActivated)) {
+    const command = planPlayCommand({ queueLength: state.queue.length, userActivated });
+    if (!command.play || command.showOverlay) return;
+    if (audio.ended) {
+      try { audio.currentTime = 0; } catch { /* ended 元素有时要等 play() 自己回到开头 */ }
+    }
+    attemptPlay();
   }
 }
 
@@ -655,6 +762,8 @@ export function applyExternalQueue({ mode, tracks, say, reason } = {}) {
     queueLength: state.queue.length,
     hasSrc: Boolean(audio?.getAttribute?.('src') || audio?.src),
     ended: Boolean(audio?.ended),
+    paused: Boolean(audio?.paused),
+    index: state.index,
   }, { mode, incoming: list.length });
   if (mode === 'append') {
     state.queue = [...state.queue, ...list];
@@ -663,7 +772,12 @@ export function applyExternalQueue({ mode, tracks, say, reason } = {}) {
     state.index = 0;
   }
   renderQueuePanel();
-  if (plan.playIndex != null) playIndex(plan.playIndex);
+  if (!plan.autoplay) return;
+  if (plan.resume) {
+    playIndex(plan.playIndex ?? state.index, { autoplay: true, resume: true, startAt: audio?.currentTime || serverProgress });
+    return;
+  }
+  if (plan.playIndex != null) playIndex(plan.playIndex, { autoplay: true });
 }
 
 // boot 后台拉完追加的歌曲，通过 WS queue-append 推进来
@@ -743,8 +857,10 @@ export function initPlayer() {
     if (!state.queue[state.index]?.isTts) clearAlert();
   });
   audio.addEventListener('pause', () => {
-    syncToServer(state.index, { paused: true });
     updatePlayButtons(false);
+    // 换 src 会先冒出一次 pause。这次正在 playIndex 里，真正的暂停由 play 事件或显式 sync 报。
+    if (suppressPauseSync) return;
+    syncToServer(state.index, { paused: true, ended: Boolean(audio.ended) });
   });
 
   consolePlayBtn = $('[data-console-control="play-pause"]');
@@ -798,7 +914,10 @@ export function initPlayer() {
         dismissBootOverlay();
         const plan = externalUnlockPlan({ queue: state.queue, index: state.index });
         if (plan.dialog) setConsoleDialog(plan.dialog);
-        if (plan.playIndex != null) playIndex(plan.playIndex);
+        if (plan.playIndex != null) {
+          const resume = Boolean(audio?.getAttribute('src')) && state.index === plan.playIndex;
+          playIndex(plan.playIndex, { autoplay: true, resume, startAt: serverProgress });
+        }
         return;
       }
       if (bootReady) {
@@ -854,27 +973,28 @@ async function bootCurrent() {
     state.brain = brain;
     applyBrainChrome();
     if (Number.isFinite(data.volume)) applyHeardVolume(data.volume);
+    else ensurePlaybackVolume();
     if (brain !== 'internal') {
-      if (data.queue && data.queue.length) {
-        state.queue = data.queue;
-        state.index = data.index || 0;
-        const t = state.queue[state.index];
-        if (t) {
-          npTitle.textContent = t.title;
-          npArtist.textContent = t.artist;
-          setStudioTrack(t);
-          npBox.classList.remove('hidden');
-        }
-        renderQueuePanel();
-        if (data.lastSay) {
-          appliedSay = data.lastSay;
-          setConsoleDialog(data.lastSay);
-        }
-      } else {
-        setConsoleDialog('等待点歌');
+      serverProgress = Number(data.currentTime) || 0;
+      const plan = planExternalBoot({ queue: data.queue, paused: data.paused === true });
+      if (plan.dialog) setConsoleDialog(plan.dialog);
+      dismissBootOverlay();
+      if (!data.queue?.length) return;
+      state.queue = data.queue;
+      state.index = data.index || 0;
+      const t = state.queue[state.index];
+      if (t) {
+        npTitle.textContent = t.title;
+        npArtist.textContent = t.artist;
+        setStudioTrack(t);
+        npBox.classList.remove('hidden');
       }
-      if (bootOverlay) bootOverlay.classList.remove('hidden');
-      if (bootBtn) bootBtn.textContent = '▶ 点击开声';
+      renderQueuePanel();
+      if (data.lastSay) {
+        appliedSay = data.lastSay;
+        setConsoleDialog(data.lastSay);
+      }
+      await playIndex(state.index, { autoplay: plan.play, startAt: serverProgress });
       return;
     }
     if (data.queue && data.queue.length) {
