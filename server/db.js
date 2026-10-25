@@ -28,7 +28,7 @@ db.exec(`
     title     TEXT NOT NULL,
     artist    TEXT NOT NULL,
     reason    TEXT,
-    source    TEXT NOT NULL DEFAULT 'claude' CHECK (source IN ('claude', 'manual', 'search')),
+    source    TEXT NOT NULL DEFAULT 'claude' CHECK (source IN ('claude', 'manual', 'search', 'boot', 'bot')),
     ts        INTEGER NOT NULL
   );
 
@@ -48,6 +48,47 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_messages_ts ON messages(ts DESC);
   CREATE INDEX IF NOT EXISTS idx_plays_ts ON plays(ts DESC);
 `);
+
+// 已有库的 plays.source 约束是建表时写死的。CREATE TABLE IF NOT EXISTS 不会改它，
+// 所以这里发现旧约束里没有 bot 时重建表。boot 是 /api/boot 早就在写的值。
+export function migratePlaySources(database) {
+  const row = database.prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'plays'`).get();
+  const sql = row?.sql || '';
+  if (sql.includes("'bot'")) return;
+
+  database.exec('DROP TABLE IF EXISTS plays_migrated');
+  database.exec('BEGIN');
+  try {
+    database.exec(`
+      CREATE TABLE plays_migrated (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        kugou_id  TEXT,
+        title     TEXT NOT NULL,
+        artist    TEXT NOT NULL,
+        reason    TEXT,
+        source    TEXT NOT NULL DEFAULT 'claude' CHECK (source IN ('claude', 'manual', 'search', 'boot', 'bot')),
+        ts        INTEGER NOT NULL
+      );
+      INSERT INTO plays_migrated (id, kugou_id, title, artist, reason, source, ts)
+        SELECT id, kugou_id, title, artist, reason,
+          CASE
+            WHEN source IN ('claude', 'manual', 'search', 'boot', 'bot') THEN source
+            ELSE 'manual'
+          END,
+          ts
+        FROM plays;
+      DROP TABLE plays;
+      ALTER TABLE plays_migrated RENAME TO plays;
+      CREATE INDEX IF NOT EXISTS idx_plays_ts ON plays(ts DESC);
+    `);
+    database.exec('COMMIT');
+  } catch (err) {
+    try { database.exec('ROLLBACK'); } catch { /* already closed */ }
+    throw err;
+  }
+}
+
+migratePlaySources(db);
 
 const stmts = {
   insertMessage: db.prepare(`INSERT INTO messages (role, content, ts) VALUES (?, ?, ?)`),

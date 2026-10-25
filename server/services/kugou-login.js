@@ -1,6 +1,7 @@
 import axios from 'axios';
 import 'dotenv/config';
 import { dbApi } from '../db.js';
+import { axiosProxyOptions } from '../outbound-proxy.js';
 import {
   mergeCookieMap,
   serializeCookie,
@@ -44,8 +45,12 @@ function tickMs() {
 // ────────────────────────────────────────────────────────
 // 底层 HTTP：额外把 Set-Cookie 也带回来（dfid / t1 都只在 Set-Cookie 里）
 // ────────────────────────────────────────────────────────
+function axiosGet(url, config = {}) {
+  return axios.get(url, { ...config, ...axiosProxyOptions(url) });
+}
+
 async function httpGetFull(url, params = {}) {
-  const r = await axios.get(url, { params, timeout: 8_000 });
+  const r = await axiosGet(url, { params, timeout: 8_000 });
   return { data: r.data, cookies: cookieMapFromSetCookie(r.headers?.['set-cookie']) };
 }
 
@@ -64,7 +69,7 @@ async function httpGetFull(url, params = {}) {
 async function isCookieAlive(cookie) {
   if (!cookie) return false;
   try {
-    const res = await axios.get(`${BASE}${STATUS_PATH}`, {
+    const res = await axiosGet(`${BASE}${STATUS_PATH}`, {
       params: { cookie: serializeCookie(mergeCookieMap(cookie)) },
       timeout: 5_000,
     });
@@ -87,7 +92,7 @@ function pickCookieFromResponse(res) {
 
 async function loginByPassword(username, password) {
   try {
-    const res = await axios.get(`${BASE}${LOGIN_PATH}`, {
+    const res = await axiosGet(`${BASE}${LOGIN_PATH}`, {
       params: { mobile: username, password },
       timeout: 10_000,
     });
@@ -201,13 +206,13 @@ async function adoptFreshCookie(cookie, { httpGet, db, now }) {
 
 async function printQrHint() {
   try {
-    const r1 = await axios.get(`${BASE}${QR_KEY_PATH}`, { timeout: 5_000 });
+    const r1 = await axiosGet(`${BASE}${QR_KEY_PATH}`, { timeout: 5_000 });
     const key = r1.data?.data?.qrcode || r1.data?.qrcode || '';
     if (!key) {
       console.warn('[kugou-login] QR key 获取失败，请手动到 KuGouMusicApi 文档查 QR 流程');
       return;
     }
-    const r2 = await axios.get(`${BASE}${QR_CREATE_PATH}`, { params: { key, qrimg: true }, timeout: 5_000 });
+    const r2 = await axiosGet(`${BASE}${QR_CREATE_PATH}`, { params: { key, qrimg: true }, timeout: 5_000 });
     const qrurl = r2.data?.data?.qrurl || r2.data?.qrurl || r2.data?.data?.url || '';
     console.warn('');
     console.warn('  ┌─────────────────────────────────────────────┐');

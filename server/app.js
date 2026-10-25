@@ -24,12 +24,21 @@ import { mountStudioRoutes } from './api/studio.js';
 import { mountTestRoutes } from './api/test.js';
 import { detectSignal, appendJournalEntry } from './services/journal.js';
 import { mountPlaylistRoutes } from './api/playlists.js';
+import { mountExternalQueueRoutes } from './api/external-queue.js';
+import { authMiddleware, authorizeUpgrade } from './auth.js';
+import { hostGuard } from './host-guard.js';
+import { mountSessionRoute } from './session.js';
+import { resolveListenHost } from './listen.js';
+import { axiosProxyOptions } from './outbound-proxy.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const PORT = Number(process.env.PORT) || 8080;
+const HOST = resolveListenHost();
 
 const app = express();
+// Host 白名单放在静态文件和 JSON 解析之前，对不上直接 403。
+app.use(hostGuard);
 app.use(express.json({ limit: '1mb' }));
 
 // 简单运行时状态（in-memory）：当前 queue + 索引
@@ -57,6 +66,11 @@ function broadcast(event) {
 // 静态：PWA
 // ────────────────────────────────────────────────────────
 app.use(express.static(path.join(ROOT, 'pwa'), { extensions: ['html'] }));
+
+// 静态壳层保持公开。/api/* 与 /tts/* 走鉴权。
+// 默认回环放行；CLAUDIO_REQUIRE_TOKEN 打开后回环也要令牌或会话 cookie。
+app.use(authMiddleware);
+mountSessionRoute(app);
 
 // ────────────────────────────────────────────────────────
 // API
@@ -247,7 +261,8 @@ app.get('/api/proxy', async (req, res) => {
   req.on('close', () => ac.abort());
 
   try {
-    const upstream = await axios.get(decodeURIComponent(url), {
+    const target = decodeURIComponent(url);
+    const upstream = await axios.get(target, {
       responseType: 'stream',
       headers: {
         Referer: 'https://www.kugou.com',
@@ -258,6 +273,8 @@ app.get('/api/proxy', async (req, res) => {
       timeoutErrorMessage: 'upstream first-byte timeout',
       signal: ac.signal,
       validateStatus: s => s >= 200 && s < 400,
+      // CDN 走 KUGOU_PROXY；目标若是 127.0.0.1 / localhost 则强制直连。
+      ...axiosProxyOptions(target),
     });
 
     for (const h of ['content-type', 'content-length', 'accept-ranges', 'content-range']) {
@@ -326,6 +343,7 @@ mountKugouReloginRoutes(app);
 mountStudioRoutes(app, { getRuntime: () => runtime });
 mountTestRoutes(app);
 mountPlaylistRoutes(app, { runtime, broadcast });
+mountExternalQueueRoutes(app, { runtime, broadcast });
 
 // ────────────────────────────────────────────────────────
 // HTTP server + WS upgrade
@@ -333,19 +351,24 @@ mountPlaylistRoutes(app, { runtime, broadcast });
 const server = http.createServer(app);
 
 server.on('upgrade', (req, socket, head) => {
-  if (req.url === '/stream') {
-    wss.handleUpgrade(req, socket, head, ws => {
-      wsClients.add(ws);
-      runtime.active = true;
-      ws.send(JSON.stringify({ type: 'hello', runtime }));
-      ws.on('close', () => {
-        wsClients.delete(ws);
-        runtime.active = wsClients.size > 0;
-      });
-    });
-  } else {
+  const decision = authorizeUpgrade(req);
+  if (!decision.ok) {
+    const statusText = { 401: 'Unauthorized', 403: 'Forbidden' };
+    if (decision.status && statusText[decision.status]) {
+      socket.write(`HTTP/1.1 ${decision.status} ${statusText[decision.status]}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
+    }
     socket.destroy();
+    return;
   }
+  wss.handleUpgrade(req, socket, head, ws => {
+    wsClients.add(ws);
+    runtime.active = true;
+    ws.send(JSON.stringify({ type: 'hello', runtime }));
+    ws.on('close', () => {
+      wsClients.delete(ws);
+      runtime.active = wsClients.size > 0;
+    });
+  });
 });
 
 // ────────────────────────────────────────────────────────
@@ -376,10 +399,11 @@ async function start() {
   process.on('SIGINT', () => { stopAutoRefresh(); scheduler.stop(); process.exit(0); });
   process.on('SIGTERM', () => { stopAutoRefresh(); scheduler.stop(); process.exit(0); });
 
-  server.listen(PORT, () => {
-    console.log(`[claudio] 8080 ready · http://localhost:${PORT}`);
-    console.log(`[claudio] PWA:    http://localhost:${PORT}/`);
-    console.log(`[claudio] health: http://localhost:${PORT}/api/health`);
+  server.listen(PORT, HOST, () => {
+    const shownHost = HOST === '0.0.0.0' || HOST === '::' ? '127.0.0.1' : HOST;
+    console.log(`[claudio] listening on ${HOST}:${PORT}`);
+    console.log(`[claudio] PWA:    http://${shownHost}:${PORT}/`);
+    console.log(`[claudio] health: http://${shownHost}:${PORT}/api/health`);
   });
 }
 

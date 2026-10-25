@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { parseShareUrl } from '../server/music/kugou-share-url.js';
+
+afterEach(() => {
+  delete process.env.KUGOU_PROXY;
+});
 
 function makeAxiosClient(responseUrl) {
   return {
@@ -72,6 +76,26 @@ describe('music/kugou-share-url', () => {
 
     await expect(parseShareUrl('https://t1.kugou.com/songcode', { axiosClient }))
       .rejects.toThrow(/global_collection_id|listid|不是歌单/);
+  });
+
+  it('酷狗短链走 KUGOU_PROXY，配置项传给 axios', async () => {
+    process.env.KUGOU_PROXY = 'http://127.0.0.1:7890';
+    const finalUrl = 'http://wwwapi.kugou.com/share/zlist.html?'
+      + 'global_collection_id=collection_3_1_2_0&listid=2';
+    let seen;
+    const axiosClient = {
+      async get(_url, config) {
+        seen = config;
+        return {
+          request: { res: { responseUrl: finalUrl } },
+          config: { url: finalUrl },
+          data: '',
+        };
+      },
+    };
+
+    await parseShareUrl('https://t1.kugou.com/abc', { axiosClient });
+    expect(seen.proxy).toEqual({ protocol: 'http', host: '127.0.0.1', port: 7890 });
   });
 
   it('rejects empty / non-string input', async () => {

@@ -1,6 +1,7 @@
 import axios from 'axios';
 import 'dotenv/config';
 import { dbApi } from '../db.js';
+import { axiosProxyOptions } from '../outbound-proxy.js';
 
 const BASE = process.env.KUGOU_API_BASE || 'http://localhost:3000';
 
@@ -13,6 +14,9 @@ const ENDPOINTS = {
   playlistTracks:     '/playlist/track/all', // ?id=<global_collection_id>&page=&pagesize=
   userPlaylists:      '/user/playlist',      // cookie 登录态下的账号歌单
   playlistTracksNew:  '/playlist/track/all/new',  // 私密/自建歌单 ?listid=&page=&pagesize=
+  playlistAdd:        '/playlist/add',           // type=0 新建歌单
+  playlistTracksAdd:  '/playlist/tracks/add',    // data=歌名|hash|专辑id|mixsongid
+  playlistTracksDel:  '/playlist/tracks/del',    // fileids=歌单内 fileid
 };
 
 function getCookie() {
@@ -23,6 +27,8 @@ function client() {
   return axios.create({
     baseURL: BASE,
     timeout: 10_000,
+    // 本机 KuGouMusicApi 直连。KUGOU_PROXY 只给酷狗网关 / CDN，不给 127.0.0.1。
+    ...axiosProxyOptions(BASE),
     // ⚠️ 凭据必须走 query 参数，不能用 HTTP 的 Cookie 请求头。
     // KuGouMusicApi 只从 req.query.cookie / req.body.cookie / Authorization 读取 cookie，
     // 完全忽略 Cookie 请求头。用头传会让每次请求退化成匿名：
@@ -177,11 +183,13 @@ export async function resolveTrack({ title, artist, hint = '' }) {
         kugouId: c.hash,
         title: c.title,
         artist: c.artist,
-        album: c.album,
-        duration: c.duration,
-        upstreamUrl: url,
-        score: c.score,
-      };
+      album: c.album,
+      duration: c.duration,
+      upstreamUrl: url,
+      score: c.score,
+      albumId: c.raw?.AlbumID || c.raw?.album_id || c.raw?.albumid || '',
+      mixsongid: c.raw?.MixSongID || c.raw?.mixsongid || c.raw?.album_audio_id || '',
+    };
     }
   }
 
@@ -204,6 +212,14 @@ function parseNameField(name) {
 
 export { parseNameField };
 
+// 歌单曲目里的 fileid 是 playlist/tracks/del 的删除键，和歌曲 hash 不是同一个值。
+export function playlistFileId(song = {}) {
+  const value = song.fileid ?? song.file_id ?? song.fileId ?? '';
+  const text = String(value ?? '').trim();
+  if (!text || text === '0') return '';
+  return text;
+}
+
 // KuGouMusicApi 不同接口/不同 fork 的曲目字段名不一致，统一收口成下游要的形状。
 function normalizeSong(song = {}) {
   const { title, artist } = parseNameField(song.name || song.filename || song.OriSongName || song.songname);
@@ -212,6 +228,7 @@ function normalizeSong(song = {}) {
     artist: artist || song.SingerName || song.singername || '',
     album: song.album_name || song.AlbumName || song.albumname || '',
     hash: song.hash || song.FileHash || song.SongHash || song.songhash || '',
+    fileid: playlistFileId(song),
     audioId: song.audio_id || song.audio_info?.audio_id || null,
     duration: song.timelen || song.duration || song.time_length || 0,
     publishDate: song.publish_date || '',
@@ -293,33 +310,44 @@ export async function fetchSharedPlaylist({
   });
 }
 
+function mapUserPlaylists(payload) {
+  const data = payload?.data || payload || {};
+  const list = data.info || data.list || data.playlists || data.cdlist || [];
+  return (Array.isArray(list) ? list : [])
+    .map(item => {
+      const listid = String(item.listid || item.list_id || item.specialid || '');
+      const globalCollectionId = String(
+        item.global_collection_id || item.globalCollectionId || item.global_collection?.id || '',
+      );
+      return {
+        id: globalCollectionId || listid,
+        listid,
+        globalCollectionId,
+        name: item.name || item.listname || item.list_name || item.title || '',
+        songCount: Number(item.song_count || item.songcount || item.count || item.total || 0),
+        cover: item.pic || item.img || item.cover || '',
+        isPrivate: item.is_private === 1 || item.is_private === true || item.type === 0,
+      };
+    })
+    .filter(p => p.id && p.name);
+}
+
 // 账号歌单列表（需要 cookie）。返回下游可直接用的统一结构。
+// 列表接口失败时返回空数组，避免设置页把一次网络抖动显示成 500。
 export async function fetchUserPlaylists({ page = 1, pagesize = 50 } = {}) {
   try {
-    const res = await client().post(ENDPOINTS.userPlaylists, null, { params: { page, pagesize } });
-    const data = res.data?.data || res.data || {};
-    const list = data.info || data.list || data.playlists || data.cdlist || [];
-    return (Array.isArray(list) ? list : [])
-      .map(item => {
-        const listid = String(item.listid || item.list_id || item.specialid || '');
-        const globalCollectionId = String(
-          item.global_collection_id || item.globalCollectionId || item.global_collection?.id || '',
-        );
-        return {
-          id: globalCollectionId || listid,
-          listid,
-          globalCollectionId,
-          name: item.name || item.listname || item.list_name || item.title || '',
-          songCount: Number(item.song_count || item.songcount || item.count || item.total || 0),
-          cover: item.pic || item.img || item.cover || '',
-          isPrivate: item.is_private === 1 || item.is_private === true || item.type === 0,
-        };
-      })
-      .filter(p => p.id && p.name);
+    return await fetchUserPlaylistsStrict({ page, pagesize });
   } catch (err) {
     console.error('[kugou] fetchUserPlaylists failed:', err.message);
     return [];
   }
+}
+
+// 写歌单前必须区分「真的没有同名歌单」和「列表接口挂了」，失败要抛出去。
+export async function fetchUserPlaylistsStrict({ page = 1, pagesize = 50 } = {}) {
+  const res = await client().post(ENDPOINTS.userPlaylists, null, { params: { page, pagesize } });
+  assertKugouOk(res.data, 'user/playlist');
+  return mapUserPlaylists(res.data);
 }
 
 // 账号歌单曲目：公开歌单走 global_collection_id，私密/自建走 listid（all/new）。
@@ -354,6 +382,104 @@ export async function fetchUserPlaylistTracks({
   });
 }
 
+function assertKugouOk(data, label) {
+  const status = data?.status ?? data?.data?.status;
+  const errorCode = data?.error_code ?? data?.data?.error_code;
+  if (status === 0 || (errorCode != null && errorCode !== '' && Number(errorCode) !== 0)) {
+    const msg = data?.msg || data?.error || data?.data?.msg || data?.data?.error || `${label} failed`;
+    throw new Error(typeof msg === 'string' ? msg : `${label} failed`);
+  }
+}
+
+function firstPositiveId(payload, keys) {
+  const data = payload?.data ?? payload?.body ?? payload ?? {};
+  const info = data?.info;
+  const candidates = [
+    ...keys.map(key => data?.[key]),
+    ...keys.map(key => info && !Array.isArray(info) ? info[key] : undefined),
+    ...keys.map(key => Array.isArray(info) ? info[0]?.[key] : undefined),
+    ...keys.map(key => data?.data?.[key]),
+  ];
+  for (const value of candidates) {
+    if (value == null) continue;
+    const text = String(value).trim();
+    if (text && text !== '0') return text;
+  }
+  return '';
+}
+
+// 新建歌单。上游 playlist_add（type=0）走 cloudlist add_list。
+// 创建时 list_create_userid / list_create_listid 传 0，登录用户由 cookie 决定。
+// 这只是在账号里建歌单，不会让酷狗客户端开始播放。
+export async function createUserPlaylist({ name, isPrivate = false } = {}) {
+  const playlistName = String(name || '').trim();
+  if (!playlistName) throw new Error('createUserPlaylist: name 必填');
+  const res = await client().post(ENDPOINTS.playlistAdd, null, {
+    params: {
+      name: playlistName,
+      type: 0,
+      source: 1,
+      is_pri: isPrivate ? 1 : 0,
+      list_create_userid: 0,
+      list_create_listid: 0,
+    },
+  });
+  assertKugouOk(res.data, 'playlist/add');
+  const listid = firstPositiveId(res.data, ['listid', 'list_id']);
+  if (!listid) throw new Error('playlist/add 未返回 listid');
+  return {
+    listid,
+    globalCollectionId: firstPositiveId(res.data, ['global_collection_id', 'globalCollectionId']),
+    name: playlistName,
+  };
+}
+
+// data 格式见上游 playlist_tracks_add：歌名|hash|专辑id|mixsongid，多首逗号分隔。
+// 歌名里的 | 和 , 会打散协议，这里换成空格。
+export function formatPlaylistTrackData(tracks = []) {
+  return tracks.map(track => {
+    const name = String(track.title || 'unknown').replace(/[|,]/g, ' ').trim() || 'unknown';
+    const hash = String(track.kugouId || track.hash || '').trim();
+    const albumId = String(track.albumId || '').trim();
+    const mixsongid = String(track.mixsongid || '').trim();
+    const hasAlbum = albumId && albumId !== '0';
+    const hasMix = mixsongid && mixsongid !== '0';
+    if (hasAlbum || hasMix) {
+      return `${name}|${hash}|${hasAlbum ? albumId : '0'}|${hasMix ? mixsongid : '0'}`;
+    }
+    return `${name}|${hash}`;
+  }).join(',');
+}
+
+export async function addPlaylistTracks({ listid, tracks = [] } = {}) {
+  const id = String(listid || '').trim();
+  if (!id) throw new Error('addPlaylistTracks: listid 必填');
+  const playable = tracks.filter(track => String(track.kugouId || track.hash || '').trim());
+  if (!playable.length) return { ok: true };
+  const res = await client().post(ENDPOINTS.playlistTracksAdd, null, {
+    params: { listid: id, data: formatPlaylistTrackData(playable) },
+  });
+  assertKugouOk(res.data, 'playlist/tracks/add');
+  return res.data;
+}
+
+export async function deletePlaylistTracks({ listid, fileids = [] } = {}) {
+  const id = String(listid || '').trim();
+  const ids = fileids.map(item => String(item || '').trim()).filter(item => item && item !== '0');
+  if (!id) throw new Error('deletePlaylistTracks: listid 必填');
+  if (!ids.length) return { ok: true };
+  const res = await client().post(ENDPOINTS.playlistTracksDel, null, {
+    params: { listid: id, fileids: ids.join(',') },
+  });
+  assertKugouOk(res.data, 'playlist/tracks/del');
+  return res.data;
+}
+
+export async function listPlaylistFileIds({ listid } = {}) {
+  const { tracks } = await fetchUserPlaylistTracks({ listid });
+  return tracks.map(track => track.fileid).filter(Boolean);
+}
+
 export default {
   search,
   songUrl,
@@ -362,6 +488,12 @@ export default {
   fetchSharedPlaylist,
   fetchUserPlaylists,
   fetchUserPlaylistTracks,
+  createUserPlaylist,
+  addPlaylistTracks,
+  deletePlaylistTracks,
+  listPlaylistFileIds,
+  formatPlaylistTrackData,
+  playlistFileId,
   parseNameField,
   normalizeForMatch,
 };
