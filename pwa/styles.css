@@ -1011,6 +1011,13 @@ details.card > summary::-webkit-details-marker { display: none; }
 .boot-btn:active { transform: scale(0.97); }
 .boot-btn:disabled { opacity: 0.60; cursor: wait; }
 
+/* external（默认）藏起选歌对话框和自动推歌按钮。internal 才加 body.brain-internal。 */
+body:not(.brain-internal) .console-chat,
+body:not(.brain-internal) [data-console-control="loop"],
+body:not(.brain-internal) #settings-ai {
+  display: none;
+}
+
 /* ──────── Modal · 扫码登录用 ──────── */
 .modal-backdrop {
   position: fixed;

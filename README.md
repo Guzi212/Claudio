@@ -1,22 +1,26 @@
-# Claudio · 个人 Claude AI 电台
+# Claudio · 播放器壳
 
-> 个人 AI 电台 · Claudio · 读懂听歌习惯 → 规划声音 → 像 DJ 那样播报
+> 默认只负责出声和显示。选歌交给外部的 Grok Bot（Claudio主持人）。
 
-Claude 做大脑，根据你的品味语料 + 当前时间 + 历史播放，推荐 3-5 首歌；酷狗音乐负责检索 + 直链；浏览器播放。
+酷狗音乐负责检索、直链和歌单读写；浏览器 PWA 播放。`CLAUDIO_BRAIN` 默认是 `external`：不调用 Claude，不开机选歌，不定时推歌，队列播完就停。设成 `internal` 才恢复原来的 Claude 选歌（开机电台、聊天点歌、定时任务）。
 
-参考施工图复刻分层架构：`router → context → claude → state.db → services/kugou`。后续往里插 TTS / scheduler / 飞书 / 天气 / UPnP 都是顺手的事，不动核心。
+口味语料还在：`user/taste.md`、`user/music/kugou_taste_summary.md`、酷狗歌单导入脚本都保留，给 bot 读，不给 Claudio 自己拿来推歌。
 
 ---
 
 ## 启动（5 步走）
 
-### 1. 装 Claude Code CLI
+### 1. 选歌开关
 
-需要本机能运行 `claude -p`。验证：
-```powershell
-claude --version
+`.env` 里：
+
+```env
+CLAUDIO_BRAIN=external
 ```
-若无，去 https://claude.com/claude-code 装一下（Max 订阅无需 API key）。
+
+留空也是 `external`。这个模式下不用装 Claude Code CLI。
+
+只有要恢复 Claudio 自己选歌时才改成 `internal`，并保证本机能跑 `claude -p`（或配好 DeepSeek key）。`internal` 下，外部点歌还没放完时，开机电台和定时任务不会把队列换掉。
 
 ### 2. 准备 KuGouMusicApi 上游
 
@@ -113,28 +117,25 @@ npm run dev:app
 
 ## 验证（end-to-end）
 
-- [ ] 控制台显示 `KuGou login OK · 8080 ready`
-- [ ] 浏览器加载 PWA
-- [ ] chat 输入"来点雨天聆听的" → 5s 内看到 say + 3-5 首 queue
-- [ ] 第一首自动播放，能听到声音
-- [ ] 点 ⏭ 切下一首；点 ⏸ 暂停；拖进度条正常（Range 工作）
-- [ ] 重启服务 + 刷新浏览器 → 对话历史 + 播放历史还在
+- [ ] 控制台显示 `KuGou login OK · 8080 ready`，以及 `CLAUDIO_BRAIN=external，跳过定时推歌`
+- [ ] 浏览器加载 PWA，点一次「点击开声」解锁声音
+- [ ] `POST /api/queue/external` 点一首歌，页面开始播，串场面板显示 `say`
+- [ ] 队列最后一首结束后停下，不再自己续歌
 - [ ] 控制台 `npm test` 全绿
 
 ## 调试小技巧
 
-- `state.db` 是 SQLite。装 [DB Browser for SQLite](https://sqlitebrowser.org/) 直接看 `messages` / `plays` / `unmatched` / `prefs` 表
-- Claude 输出 JSON 失败时，PWA 仍会显示原文（被当作 say）。检查 `dj-persona.md` 的硬约束是否被守住
-- 酷狗匹配不到的歌都在 `unmatched` 表里。可以观察自己 taste 里哪些歌酷狗版找不到
+- `state.db` 是 SQLite。装 [DB Browser for SQLite](https://sqlitebrowser.org/) 直接看 `messages` / `plays` / `feedback` / `unmatched` / `prefs` 表
+- 酷狗匹配不到的歌都在 `unmatched` 表里
+- `CLAUDIO_BRAIN=internal` 时，Claude 输出 JSON 失败，PWA 仍会把原文当作 say。检查 `prompts/dj-persona.md`
 
-## MVP 之后
+## internal 模式才有的旧能力
 
-- `server/scheduler.js` —— cron 任务（07:00 早间规划 / 09:00 早安播报）
-- `server/tts.js` —— Fish Audio 合成 say，让 Claudio 真的"开口说话"
-- 飞书 / 天气 在 `server/context.js` 的环境注入填进去
-- UPnP（推 Naim 音响）—— 在 PWA `<audio>` 旁边并存一条输出 adapter
-
-这些在当前架构下都是"插进去就行"。
+- `POST /api/boot`：开机让 Claude 选开播曲目。外部队列还没放完时返回当前队列，`skipped: true`，`preserved: "external"`，不改 `runtime.queue` / `index`
+- `POST /api/chat`：自然语言交给 Claude 选歌，可以覆盖外部队列
+- `server/scheduler.js`：07:00 / 09:00 / 每小时。外部队列还没放完就跳过并记日志
+- 页面上的聊天框、自动推歌按钮、DeepSeek 设置。external 模式下这些不显示
+- 队列在「自动推歌」模式下播完会再向 Claude 要下一批。external 模式播完就停
 
 ## 监听地址与鉴权
 
@@ -234,15 +235,93 @@ Content-Type: application/json
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
 | `tracks` | 必填 | `{ title, artist, hint? }`，至少一首有 title |
-| `say` / `reason` | 空 | 串场和理由。`say` 在进播放队列时会变成 PWA 上的一句话 |
+| `say` / `reason` | 空 | 串场和理由。`say` 显示在串场面板。Fish Audio 已配置时，`say` 会合成成队列第一条 TTS；没配置就静默跳过，歌照常进队列 |
 | `mode` | `replace` | 播放队列：`replace` 换掉当前队列，`append` 接到队尾。一首都没匹配上时不会把正在播的队列清空 |
 | `target` | `queue` | `queue` 只进 Claudio 队列；`kugou_playlist` 只写酷狗歌单；`both` 两件都做 |
 | `playlistName` | `Claudio推荐` | 账号里同名歌单会复用，没有就新建 |
 | `playlistMode` | `append` | `append` 往歌单里加；`rewrite` 先清空再写入 |
 
-`append` 时如果 PWA 正在播，只把新歌接上，不打断当前这首。队列是空的或上一首已经结束，才从新歌开始播。`replace` 从第 0 首开始。
+`append` 时如果 PWA 正在播，只把新歌接上，不打断当前这首。队列是空的或上一首已经结束，才从新歌开始播。`replace` 从第 0 首开始。TTS 音轨如果有，排在这批新歌的最前面。
 
-响应示例：
+下面这张表是给 Claudio主持人（Grok Bot）的说明书。鉴权沿用现有令牌和 Host 白名单：本机回环在 `CLAUDIO_REQUIRE_TOKEN` 关闭时不用带 token；从另一台机器调用要带 `Authorization: Bearer <token>`。
+
+## Claudio主持人工具接口
+
+| 用途 | 方法 + 路径 | 参数 | 返回 |
+| --- | --- | --- | --- |
+| 点歌 / 写歌单 | `POST /api/queue/external` | JSON：`tracks[]`（`title` 必填，`artist` / `hint` 可选），`say`，`reason`，`mode`=`replace`\|`append`，`target`=`queue`\|`kugou_playlist`\|`both`，`playlistName`（默认 `Claudio推荐`），`playlistMode`=`append`\|`rewrite` | `ok`，`matched[]`，`failed[]`，`queue`（`mode` / `added` / `length`），`playlist` |
+| 播放控制 | `POST /api/control` | JSON：`command`=`next`\|`prev`\|`pause`\|`play`\|`volume`\|`jump`，`value`（音量 0–100，或 jump 的从 0 开始的序号） | `ok`，`command`，`say`，`nowPlaying`，`queue`，`index`，`paused`，`volume`。`next` 真正切到下一首时，把刚离开的那首记成 `feedback.kind=skip` |
+| 状态 | `GET /api/status`（`GET /api/now` 相同） | 无 | `brain`，`nowPlaying`，`queue`，`index`，`paused`，`volume`（0–100），`currentTime`（秒），`duration`（秒），`active`（有没有页面连着 WebSocket），`listeners`，`lastSay`，`reason` |
+| 进度上报 | WebSocket `/stream`，客户端发 | `{ "type":"progress", "currentTime", "duration", "volume", "paused", "index" }`，页面大约每 2 秒一次 | 服务端只更新内存状态，不广播。bot 用 `GET /api/status` 读 |
+| 搜歌 | `GET /api/kugou/search` | Query：`title` 必填，`artist`，`hint` | `ok`，`tracks[]`：`hash`，`title`，`artist`，`album`，`duration`，`score` |
+| 酷狗歌单列表 | `GET /api/kugou/playlists` | Query：`page`，`pagesize` | `ok`，`playlists[]`：`id`，`listid`，`globalCollectionId`，`name`，`songCount`，`isPrivate` |
+| 歌单曲目 | `GET /api/kugou/playlists/tracks` | Query：`listid` 或 `gcid`，可选 `pagesize` | `ok`，以及曲目结果（含 `tracks`） |
+| 播放历史 | `GET /api/plays` | Query：`limit`（默认 20，最大 100） | `ok`，`plays[]`：`id`，`kugouId`，`title`，`artist`，`reason`，`source`，`ts`；`feedback[]`：`kind`（`skip` / `like` / `unlike`），`title`，`artist`，`kugouId`，`ts` |
+| 喜欢 / 不喜欢 | `POST /api/feedback` | JSON：`kind`=`like`\|`unlike`\|`skip`，`title` 或 `kugouId`，`artist` | `ok`，`id`，`kind`。页面上的 ♡ 也会写这里 |
+| 整单播放 | `POST /api/kugou/playlists/play` | JSON：`playlist`（要有 `listid` 或 `globalCollectionId`） | `ok`，`count`，`queue`。这是明确换队列 |
+| 直链 | `GET /api/kugou/track-url` | Query：`hash` | `ok`，`url`（已经是 `/api/proxy?u=...`） |
+| 聊天（external） | `POST /api/chat` | JSON：`message` | 控制命令（`/skip` `/pause` `/play` `/vol N` `/prev` `/now` `/queue`）照常执行。普通文字返回「选歌请在 Grok Bot 里找 Claudio主持人。」，不调用 Claude |
+| 开机（external） | `POST /api/boot` | 无 | 不调用 Claude。返回当前 `queue` 和 `index`，`brain: "external"`，`skipped: true` |
+
+页面在 external 模式下只出声和显示：开机遮罩用来解锁浏览器自动播放，点完播放服务器当前队列和 `index`；队列是空的就显示「等待点歌」。一首播完会放到队列里的下一首，整个队列播完就停。聊天框、自动推歌按钮和 DeepSeek 设置不显示。串场面板显示外部点歌的 `say`。
+
+### PowerShell 示例
+
+本机回环、没开 `CLAUDIO_REQUIRE_TOKEN` 时可以不带 `-Headers`。下面按 bot 在另一台 Windows 上调用来写。
+
+```powershell
+$base = 'http://127.0.0.1:8080'
+$headers = @{ Authorization = 'Bearer <token>' }
+
+function Invoke-Claudio($Method, $Path, $Body) {
+  $params = @{
+    Method = $Method
+    Uri = "$base$Path"
+    Headers = $headers
+  }
+  if ($Body) {
+    $json = $Body | ConvertTo-Json -Depth 6
+    $params.ContentType = 'application/json; charset=utf-8'
+    $params.Body = [System.Text.Encoding]::UTF8.GetBytes($json)
+  }
+  Invoke-RestMethod @params
+}
+
+# 点歌。say 会显示在串场面板；TTS 配好了会当成第一条音轨念出来
+Invoke-Claudio Post '/api/queue/external' @{
+  tracks = @(
+    @{ title = '晴天'; artist = '周杰伦' }
+  )
+  say = '今晚先听这轮'
+  reason = '雨天'
+  mode = 'replace'
+  target = 'queue'
+}
+
+# 同时写进酷狗账号里的「Claudio推荐」
+Invoke-Claudio Post '/api/queue/external' @{
+  tracks = @(@{ title = '晴天'; artist = '周杰伦' })
+  target = 'both'
+  playlistName = 'Claudio推荐'
+  playlistMode = 'append'
+}
+
+Invoke-Claudio Get '/api/status'
+Invoke-Claudio Post '/api/control' @{ command = 'pause' }
+Invoke-Claudio Post '/api/control' @{ command = 'play' }
+Invoke-Claudio Post '/api/control' @{ command = 'next' }
+Invoke-Claudio Post '/api/control' @{ command = 'prev' }
+Invoke-Claudio Post '/api/control' @{ command = 'volume'; value = 40 }
+Invoke-Claudio Post '/api/control' @{ command = 'jump'; value = 0 }
+
+Invoke-Claudio Get '/api/kugou/search?title=晴天&artist=周杰伦'
+Invoke-Claudio Get '/api/kugou/playlists?page=1&pagesize=20'
+Invoke-Claudio Get '/api/kugou/playlists/tracks?listid=12'
+Invoke-Claudio Get '/api/plays?limit=20'
+Invoke-Claudio Post '/api/feedback' @{ kind = 'like'; title = '晴天'; artist = '周杰伦' }
+```
+
+点歌响应示例：
 
 ```json
 {
@@ -327,7 +406,7 @@ rules:
 │   ├── app.js                 # Express + WS + 音频代理
 │   ├── router.js              # intent 分流
 │   ├── context.js             # 6 片粘成 system prompt
-│   ├── claude.js              # spawn claude -p · 解析 DJ JSON
+│   ├── claude.js              # 仅 CLAUDIO_BRAIN=internal 时调用
 │   ├── db.js                  # better-sqlite3 包装
 │   └── services/
 │       ├── kugou.js           # search / song_url / lyric

@@ -11,6 +11,7 @@ import {
   setPool as defaultSetPool,
   clearPool as defaultClearPool,
 } from '../services/candidate-pool.js';
+import { markQueueSource } from '../queue-source.js';
 
 function proxyUrl(upstream) {
   return `/api/proxy?u=${encodeURIComponent(upstream)}`;
@@ -147,6 +148,7 @@ export function mountPlaylistRoutes(app, deps = {}) {
       runtime.queue = queue;
       runtime.index = 0;
       runtime.paused = false;
+      markQueueSource(runtime, 'playlist');
       runtime.lastSay = `已切到歌单《${playlist.name || '未命名'}》，共 ${queue.length} 首。`;
       broadcast({ type: 'state', runtime });
       res.json({ ok: true, count: queue.length, queue });
