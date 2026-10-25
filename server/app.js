@@ -7,13 +7,14 @@ import { WebSocketServer } from 'ws';
 import axios from 'axios';
 import 'dotenv/config';
 
-import { dbApi } from './db.js';
-import { route } from './router.js';
 import { buildSystemPrompt } from './context.js';
 import { ask as claudeAsk } from './claude.js';
+import { dbApi } from './db.js';
 import { ensureLogin, startAutoRefresh, stopAutoRefresh } from './services/kugou-login.js';
 import { start as startScheduler } from './scheduler.js';
-import { synthesize as ttsSynthesize, mountTtsRoutes } from './tts.js';
+import { brainMode, startBrainServices } from './brain.js';
+import { playbackStatus, applyProgress } from './playback-control.js';
+import { mountTtsRoutes } from './tts.js';
 import { mountSettingsRoutes } from './api/settings.js';
 import { mountLyricRoute } from './api/lyric.js';
 import { mountWeatherRoute } from './api/weather.js';
@@ -22,9 +23,14 @@ import { mountHealthRoute } from './api/health.js';
 import { mountKugouReloginRoutes } from './api/kugou-relogin.js';
 import { mountStudioRoutes } from './api/studio.js';
 import { mountTestRoutes } from './api/test.js';
-import { detectSignal, appendJournalEntry } from './services/journal.js';
 import { mountPlaylistRoutes } from './api/playlists.js';
 import { mountExternalQueueRoutes } from './api/external-queue.js';
+import { mountBootRoute } from './api/boot.js';
+import { mountChatRoute } from './api/chat.js';
+import { mountControlRoute } from './api/control.js';
+import { mountPlaysRoutes } from './api/plays.js';
+import { mountSearchRoute } from './api/search.js';
+import { applyRuntimePlayback } from './queue-source.js';
 import { authMiddleware, authorizeUpgrade } from './auth.js';
 import { hostGuard } from './host-guard.js';
 import { mountSessionRoute } from './session.js';
@@ -48,6 +54,12 @@ const runtime = {
   paused: false,
   lastSay: '',
   active: false,  // PWA 是否连着 WS（scheduler 的 hourly-mood 凭这门禁）
+  queueSource: null, // bot | boot | claude | playlist | scheduler
+  trackEnded: false, // 当前这首已自然结束；外部队列要到最后一首结束才算放完
+  volume: 100,       // 0-100，和页面音量条一致
+  currentTime: 0,
+  duration: 0,
+  lastReason: '',
 };
 
 const wss = new WebSocketServer({ noServer: true });
@@ -80,14 +92,16 @@ app.get('/api/health', (req, res) => {
   res.json({ ok: true, ts: Date.now() });
 });
 
+function statusBody() {
+  return playbackStatus(runtime, { listeners: wsClients.size, brain: brainMode() });
+}
+
 app.get('/api/now', (req, res) => {
-  res.json({
-    nowPlaying: runtime.queue[runtime.index] || null,
-    queue: runtime.queue,
-    index: runtime.index,
-    paused: runtime.paused,
-    lastSay: runtime.lastSay,
-  });
+  res.json(statusBody());
+});
+
+app.get('/api/status', (req, res) => {
+  res.json(statusBody());
 });
 
 app.get('/api/taste', (req, res) => {
@@ -100,151 +114,14 @@ app.get('/api/taste', (req, res) => {
   }
 });
 
-// 快速启动：跳过 TTS 合成，直接返回完整队列
-// TTS 每次生成新 say 几乎都是 cache miss（2-5s），跳过后 boot 整体省 30-50%
-app.post('/api/boot', async (req, res) => {
-  const BOOT_MSG = '刚打开电台，请根据现在的时间和天气推荐开播曲目';
-  try {
-    const systemPrompt = await buildSystemPrompt();
-    const { say, queue: songQueue, reason, raw } = await claudeAsk(systemPrompt, BOOT_MSG);
-
-    if (songQueue.length > 0) {
-      runtime.queue = songQueue;
-      runtime.index = 0;
-      runtime.paused = false;
-      for (const q of songQueue) {
-        dbApi.addPlay({ kugouId: q.kugouId, title: q.title, artist: q.artist, reason, source: 'boot' });
-      }
-    }
-    runtime.lastSay = say;
-    dbApi.addMessage('user', BOOT_MSG);
-    dbApi.addMessage('assistant', say);
-    broadcast({ type: 'state', runtime });
-
-    const _resolveError = Array.isArray(raw?.play) && raw.play.length > 0 && songQueue.length === 0;
-    res.json({ say, queue: songQueue, reason, intent: 'boot', _resolveError });
-  } catch (err) {
-    console.error('[boot] error:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/chat', async (req, res) => {
-  const message = String(req.body?.message || '').trim();
-  if (!message) {
-    res.status(400).json({ error: 'message required' });
-    return;
-  }
-
-  dbApi.addMessage('user', message);
-
-  const intent = route(message);
-
-  if (intent.intent === 'control') {
-    const result = handleControl(intent);
-    dbApi.addMessage('assistant', `(control: ${intent.command}) ${result.say}`);
-    broadcast({ type: 'state', runtime });
-    res.json(result);
-    return;
-  }
-
-  if (intent.intent === 'unknown-command') {
-    const say = `不认识的命令：/${intent.command}。试试 /skip /pause /play /vol N`;
-    dbApi.addMessage('assistant', say);
-    res.json({ say, queue: [], reason: '', intent: intent.intent });
-    return;
-  }
-
-  // chat: 走 Claude 子进程
-  try {
-    const systemPrompt = await buildSystemPrompt();
-    const { say, queue: songQueue, reason, raw } = await claudeAsk(systemPrompt, message);
-
-    // fire-and-forget：信号检测 + 日志追加，不阻塞响应
-    try {
-      const recentPlays = dbApi.recentPlays(8);
-      const signal = detectSignal(message, recentPlays, new Date());
-      if (signal) appendJournalEntry(signal);
-    } catch { /* 日志写入失败不影响主流程 */ }
-
-    // 把 say 合成语音放队首（Fish Audio 未配置时 synthesize 返 null，自动降级）
-    const voice = say ? await ttsSynthesize(say) : null;
-    const ttsTrack = voice ? {
-      title: '🔊 ' + say.slice(0, 40),
-      artist: 'Claudio',
-      audioUrl: voice.url,
-      isTts: true,
-      duration: 0,
-    } : null;
-
-    const finalQueue = ttsTrack ? [ttsTrack, ...songQueue] : songQueue;
-
-    if (finalQueue.length > 0) {
-      runtime.queue = finalQueue;
-      runtime.index = 0;
-      runtime.paused = false;
-      // 只把真正的歌写入历史（跳过 TTS 串场条）
-      for (const q of finalQueue) {
-        if (q.isTts) continue;
-        dbApi.addPlay({
-          kugouId: q.kugouId, title: q.title, artist: q.artist,
-          reason, source: 'claude',
-        });
-      }
-    }
-    runtime.lastSay = say;
-
-    dbApi.addMessage('assistant', say);
-    broadcast({ type: 'state', runtime });
-
-    const _resolveError = Array.isArray(raw?.play) && raw.play.length > 0 && songQueue.length === 0;
-    res.json({ say, queue: finalQueue, reason, intent: 'chat', _raw: raw, _resolveError });
-  } catch (err) {
-    console.error('[chat] error:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-function handleControl({ command, arg }) {
-  switch (command) {
-    case 'skip':
-    case 'next':
-      if (runtime.index < runtime.queue.length - 1) runtime.index += 1;
-      return { say: `▶ 下一首：${runtime.queue[runtime.index]?.title || '(队列结束)'}`, queue: runtime.queue };
-    case 'prev':
-    case 'back':
-      if (runtime.index > 0) runtime.index -= 1;
-      return { say: `◀ 上一首：${runtime.queue[runtime.index]?.title || '(队列开始)'}`, queue: runtime.queue };
-    case 'pause':
-      runtime.paused = true;
-      return { say: '⏸ 暂停', queue: runtime.queue };
-    case 'play':
-    case 'resume':
-      runtime.paused = false;
-      return { say: '▶ 继续', queue: runtime.queue };
-    case 'now':
-      return {
-        say: runtime.queue[runtime.index]
-          ? `🎵 ${runtime.queue[runtime.index].title} — ${runtime.queue[runtime.index].artist}`
-          : '(没有正在播放)',
-        queue: runtime.queue,
-      };
-    case 'queue':
-      return {
-        say: runtime.queue.length
-          ? '当前队列：\n' + runtime.queue.map((q, i) => `${i === runtime.index ? '▶' : '  '} ${q.title} — ${q.artist}`).join('\n')
-          : '(队列空)',
-        queue: runtime.queue,
-      };
-    case 'help':
-      return {
-        say: '命令：/skip /prev /pause /play /now /queue · 或者直接跟我聊天',
-        queue: runtime.queue,
-      };
-    default:
-      return { say: `(未实现的命令：${command})`, queue: runtime.queue };
-  }
-}
+// 快速启动：跳过 TTS 合成，直接返回完整队列。
+// 外部点歌还没放完时，boot 在 Claude 返回之后放弃覆盖，见 server/api/boot.js。
+const brainDeps = { getRuntime: () => runtime, broadcast, brain: () => brainMode() };
+mountBootRoute(app, brainDeps);
+mountChatRoute(app, brainDeps);
+mountControlRoute(app, { getRuntime: () => runtime, broadcast, db: dbApi });
+mountPlaysRoutes(app);
+mountSearchRoute(app);
 
 // 音频代理：破酷狗防盗链 + 支持 Range
 // timeout 只覆盖 connect 阶段（10s），body 流式读取不限时（长歌可能 5+ min）。
@@ -309,25 +186,20 @@ app.get('/api/proxy', async (req, res) => {
 app.post('/api/runtime/advance', (req, res) => {
   const explicit = req.body?.index;
   if (typeof explicit === 'number' && Number.isFinite(explicit)) {
-    runtime.index = Math.max(0, Math.min(explicit, runtime.queue.length - 1));
+    applyRuntimePlayback(runtime, { index: explicit, ended: false });
   } else if (runtime.index < runtime.queue.length - 1) {
-    runtime.index += 1;
+    applyRuntimePlayback(runtime, { index: runtime.index + 1, ended: false });
   }
   broadcast({ type: 'state', runtime });
   res.json({ ok: true, index: runtime.index });
 });
 
-// 全量 sync：前端把 paused 等状态也推回来（按钮触发时使用）
+// 全量 sync：前端把 paused / 当前这首是否结束也推回来（按钮触发时使用）
 app.post('/api/runtime/state', (req, res) => {
-  const { index, paused } = req.body || {};
-  if (typeof index === 'number' && Number.isFinite(index)) {
-    runtime.index = Math.max(0, Math.min(index, runtime.queue.length - 1));
-  }
-  if (typeof paused === 'boolean') {
-    runtime.paused = paused;
-  }
+  const { index, paused, ended } = req.body || {};
+  const playback = applyRuntimePlayback(runtime, { index, paused, ended });
   broadcast({ type: 'state', runtime });
-  res.json({ ok: true, index: runtime.index, paused: runtime.paused });
+  res.json({ ok: true, index: playback.index, paused: playback.paused });
 });
 
 // TTS 路由（/tts/<sha1>.mp3 读 cache/tts/<sha1>.mp3）
@@ -364,6 +236,11 @@ server.on('upgrade', (req, socket, head) => {
     wsClients.add(ws);
     runtime.active = true;
     ws.send(JSON.stringify({ type: 'hello', runtime }));
+    ws.on('message', raw => {
+      let msg;
+      try { msg = JSON.parse(raw.toString()); } catch { return; }
+      if (msg?.type === 'progress') applyProgress(runtime, msg);
+    });
     ws.on('close', () => {
       wsClients.delete(ws);
       runtime.active = wsClients.size > 0;
@@ -386,15 +263,21 @@ async function start() {
   // 时才真正调 /login/token，避免「每次启动都登录」被上游风控。
   startAutoRefresh();
 
-  // 节律调度（07:00 早间 / 09:00 通勤 / 每小时情绪检查）
-  const scheduler = startScheduler({
-    runtime,
-    broadcast,
-    log: (...args) => console.log('[scheduler]', ...args),
-    ask: claudeAsk,
-    buildSystemPrompt,
+  // 定时推歌只在 CLAUDIO_BRAIN=internal 时挂上。external 不调用 Claude。
+  const scheduler = startBrainServices({
+    brain: brainMode(),
+    startScheduler,
+    schedulerOptions: {
+      runtime,
+      broadcast,
+      log: (...args) => console.log('[scheduler]', ...args),
+      ask: claudeAsk,
+      buildSystemPrompt,
+    },
   });
-  console.log('[claudio] scheduler 已挂 cron');
+  console.log(scheduler.started
+    ? '[claudio] scheduler 已挂 cron'
+    : '[claudio] CLAUDIO_BRAIN=external，跳过定时推歌');
 
   process.on('SIGINT', () => { stopAutoRefresh(); scheduler.stop(); process.exit(0); });
   process.on('SIGTERM', () => { stopAutoRefresh(); scheduler.stop(); process.exit(0); });

@@ -3,6 +3,9 @@
 // 对外：applyRuntime(runtime) — 让 app.js 把 WS 推来的 runtime 同步进来。
 import { showAlert, clearAlert, setStatus, toast } from './ui.js';
 import { planExternalPlayback } from '../external-playback.js';
+import { planBootPlayback } from '../boot-playback.js';
+import { planRuntimeSync } from '../runtime-sync.js';
+import { externalUnlockPlan } from '../player-mode.js';
 
 function escapeHtml(str) {
   return String(str)
@@ -26,6 +29,7 @@ const state = {
   queue: [],
   index: 0,
   loopMode: 'auto',
+  brain: 'external',
 };
 
 let autoRecommending = false;
@@ -37,6 +41,9 @@ let bootBtn = null;
 let bootReady = false;
 let bootData = null;
 let bootClicked = false;
+let brain = 'external';
+let appliedSay = '';
+let lastProgressAt = 0;
 let queueVisible = true;
 
 let chat, composer, input, submitBtn, audio, npBox, npTitle, npArtist, consolePlayBtn, consoleFavoriteBtn, queueBtn, loopBtn, queueList, npSeek, npTimeCur, npTimeDur, npVol;
@@ -64,12 +71,37 @@ function updateSeekBar(cur, dur) {
 let userActivated = false;
 function markActivated() { userActivated = true; }
 
+function applyBrainChrome() {
+  document.body?.classList.toggle('brain-internal', brain === 'internal');
+  const label = document.querySelector('.poem-panel > span');
+  if (label) label.textContent = brain === 'internal' ? 'AI RADIO' : '串场';
+  if (brain !== 'internal' && bootBtn && bootOverlay && !bootOverlay.classList.contains('hidden')) {
+    bootBtn.textContent = '▶ 点击开声';
+  }
+}
+
+function reportProgress(force = false) {
+  if (!audio) return;
+  const now = Date.now();
+  if (!force && now - lastProgressAt < 2000) return;
+  lastProgressAt = now;
+  window.dispatchEvent(new CustomEvent('claudio:progress', {
+    detail: {
+      currentTime: Number.isFinite(audio.currentTime) ? audio.currentTime : 0,
+      duration: Number.isFinite(audio.duration) ? audio.duration : 0,
+      volume: npVol ? Number(npVol.value) : 100,
+      paused: Boolean(audio.paused),
+      index: state.index,
+    },
+  }));
+}
+
 // 把服务端的真实位置推回前端的镜像状态（避免 server / client 两边索引漂移）
-function syncToServer(index, { paused = false } = {}) {
+function syncToServer(index, { paused = false, ended = false } = {}) {
   fetch('/api/runtime/state', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ index, paused }),
+    body: JSON.stringify({ index, paused, ended }),
   }).catch(() => {});
 }
 
@@ -234,11 +266,17 @@ function startBoot() {
   } else {
     clearAlert();
   }
-  if (data.queue && data.queue.length) {
+  const plan = planBootPlayback({
+    queue: state.queue,
+    index: state.index,
+    hasSrc: Boolean(audio?.getAttribute?.('src') || audio?.src),
+    ended: Boolean(audio?.ended),
+  }, data);
+  if (plan.applyQueue) {
     state.queue = data.queue;
-    state.index = 0;
-    playIndex(0);
+    state.index = plan.index;
   }
+  if (plan.playIndex != null) playIndex(plan.playIndex);
 }
 
 function dismissBootOverlay() {
@@ -354,7 +392,7 @@ async function playIndex(i, { autoplay = true } = {}) {
   npBox.classList.remove('hidden');
   syncToServer(state.index);
   renderQueuePanel();
-  if (state.loopMode === 'auto' && i === state.queue.length - 1 && !autoRecommending) {
+  if (state.brain === 'internal' && state.loopMode === 'auto' && i === state.queue.length - 1 && !autoRecommending) {
     autoRecommend(NEXT_BATCH_PROMPT);
   }
 }
@@ -372,11 +410,11 @@ function goNext() {
     playIndex(state.index + 1);
     return;
   }
-  if (state.loopMode === 'list' && state.queue.length) {
+  if (state.brain === 'internal' && state.loopMode === 'list' && state.queue.length) {
     playIndex(0);
     return;
   }
-  if (state.loopMode === 'auto' && state.queue.length) {
+  if (state.brain === 'internal' && state.loopMode === 'auto' && state.queue.length) {
     requestNextBatch({ playWhenReady: true });
     return;
   }
@@ -405,6 +443,16 @@ function toggleFavorite() {
   toast(next
     ? `已收藏：${track?.title || '当前电台氛围'}`
     : `已取消收藏：${track?.title || '当前电台氛围'}`);
+  fetch('/api/feedback', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      kind: next ? 'like' : 'unlike',
+      title: track?.title || '',
+      artist: track?.artist || '',
+      kugouId: track?.kugouId || '',
+    }),
+  }).catch(() => {});
 }
 
 function renderQueuePanel() {
@@ -542,21 +590,52 @@ async function send(message) {
 
 // 服务端 WS 推 runtime 时同步进本地状态（仅当本地没有超前播放）
 export function applyRuntime(runtime) {
-  if (!runtime || !runtime.queue) return;
-  if (state.queue.length === 0 && runtime.queue.length) {
-    state.queue = runtime.queue;
-    state.index = runtime.index || 0;
+  if (!runtime) return;
+  if (runtime.brain === 'internal' || runtime.brain === 'external') {
+    brain = runtime.brain;
+    state.brain = brain;
+    applyBrainChrome();
+  }
+  if (runtime.lastSay && runtime.lastSay !== appliedSay) {
+    appliedSay = runtime.lastSay;
+    setConsoleDialog(runtime.lastSay);
+  }
+  const plan = planRuntimeSync({
+    queue: state.queue,
+    index: state.index,
+    hasSrc: Boolean(audio?.getAttribute?.('src') || audio?.src),
+    ended: Boolean(audio?.ended),
+  }, runtime);
+  if (Number.isFinite(plan.volume) && npVol && audio) {
+    npVol.value = String(plan.volume);
+    audio.volume = plan.volume / 100;
+    npVol.style.setProperty('--vol-pct', `${plan.volume}%`);
+  }
+  if (plan.applyQueue && plan.playIndex == null) {
+    state.queue = plan.queue || [];
     renderQueuePanel();
+    if (!state.queue.length && brain !== 'internal') setConsoleDialog('等待点歌');
+  }
+  if (plan.playIndex != null) {
+    if (plan.applyQueue) state.queue = plan.queue;
+    playIndex(plan.playIndex);
+    return;
+  }
+  if (plan.pause === true && audio && !audio.paused) audio.pause();
+  else if (plan.pause === false && userActivated && audio?.paused && audio.src) {
+    audio.play().catch(() => {});
   }
 }
 
 // 外部 bot 推来的歌。replace 接管当前队列；append 只在没在播时开播。
-export function applyExternalQueue({ mode, tracks, say } = {}) {
+export function applyExternalQueue({ mode, tracks, say, reason } = {}) {
   const list = Array.isArray(tracks) ? tracks.filter(track => track && track.title) : [];
   if (!list.length) return;
-  if (say) {
-    setConsoleDialog(say);
-    if (chat) addBubble('assistant', say, '(外部电台)');
+  const line = say || reason || '';
+  if (line) {
+    appliedSay = line;
+    setConsoleDialog(line);
+    if (chat && brain === 'internal') addBubble('assistant', line, '(外部电台)');
   }
   const plan = planExternalPlayback({
     queueLength: state.queue.length,
@@ -616,17 +695,18 @@ export function initPlayer() {
   document.addEventListener('keydown', markActivated, { capture: true, once: true });
 
   audio.addEventListener('ended', () => {
-    if (state.loopMode === 'one') {
+    if (state.brain === 'internal' && state.loopMode === 'one') {
       audio.currentTime = 0;
       audio.play().catch(() => {});
     } else if (state.index < state.queue.length - 1) {
       playIndex(state.index + 1);
-    } else if (state.loopMode === 'list' && state.queue.length) {
+    } else if (state.brain === 'internal' && state.loopMode === 'list' && state.queue.length) {
       playIndex(0);
-    } else if (state.loopMode === 'auto' && state.queue.length) {
+    } else if (state.brain === 'internal' && state.loopMode === 'auto' && state.queue.length) {
+      syncToServer(state.index, { paused: true, ended: true });
       requestNextBatch({ playWhenReady: true });
     } else if (state.queue.length) {
-      syncToServer(state.index, { paused: true });
+      syncToServer(state.index, { paused: true, ended: true });
     } else {
       npBox.classList.add('hidden');
       syncToServer(state.index, { paused: true });
@@ -665,9 +745,13 @@ export function initPlayer() {
   npTimeDur = document.getElementById('np-time-dur');
   npVol = document.getElementById('np-vol');
 
-  audio.addEventListener('timeupdate', () => updateSeekBar(audio.currentTime, audio.duration));
+  audio.addEventListener('timeupdate', () => {
+    updateSeekBar(audio.currentTime, audio.duration);
+    reportProgress();
+  });
   audio.addEventListener('durationchange', () => updateSeekBar(audio.currentTime, audio.duration));
   audio.addEventListener('loadedmetadata', () => updateSeekBar(audio.currentTime, audio.duration));
+  audio.addEventListener('seeked', () => reportProgress(true));
 
   if (npSeek) {
     npSeek.addEventListener('input', () => {
@@ -679,6 +763,7 @@ export function initPlayer() {
     npVol.addEventListener('input', () => {
       audio.volume = npVol.value / 100;
       npVol.style.setProperty('--vol-pct', `${npVol.value}%`);
+      reportProgress(true);
     });
   }
 
@@ -693,6 +778,13 @@ export function initPlayer() {
     bootBtn.addEventListener('click', () => {
       markActivated();
       bootClicked = true;
+      if (brain !== 'internal') {
+        dismissBootOverlay();
+        const plan = externalUnlockPlan({ queue: state.queue, index: state.index });
+        if (plan.dialog) setConsoleDialog(plan.dialog);
+        if (plan.playIndex != null) playIndex(plan.playIndex);
+        return;
+      }
       if (bootReady) {
         startBoot();
       } else {
@@ -742,6 +834,37 @@ async function bootCurrent() {
     const r = await fetch('/api/now');
     if (!r.ok) return;
     const data = await r.json();
+    brain = data.brain === 'internal' ? 'internal' : 'external';
+    state.brain = brain;
+    applyBrainChrome();
+    if (Number.isFinite(data.volume) && npVol) {
+      npVol.value = String(data.volume);
+      audio.volume = data.volume / 100;
+      npVol.style.setProperty('--vol-pct', `${data.volume}%`);
+    }
+    if (brain !== 'internal') {
+      if (data.queue && data.queue.length) {
+        state.queue = data.queue;
+        state.index = data.index || 0;
+        const t = state.queue[state.index];
+        if (t) {
+          npTitle.textContent = t.title;
+          npArtist.textContent = t.artist;
+          setStudioTrack(t);
+          npBox.classList.remove('hidden');
+        }
+        renderQueuePanel();
+        if (data.lastSay) {
+          appliedSay = data.lastSay;
+          setConsoleDialog(data.lastSay);
+        }
+      } else {
+        setConsoleDialog('等待点歌');
+      }
+      if (bootOverlay) bootOverlay.classList.remove('hidden');
+      if (bootBtn) bootBtn.textContent = '▶ 点击开声';
+      return;
+    }
     if (data.queue && data.queue.length) {
       state.queue = data.queue;
       state.index = data.index || 0;
@@ -763,6 +886,7 @@ async function bootCurrent() {
       preFetchBoot();
     }
     if (data.lastSay) {
+      appliedSay = data.lastSay;
       addBubble('assistant', data.lastSay, '(上次会话)');
       setConsoleDialog(data.lastSay);
     }

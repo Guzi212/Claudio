@@ -105,6 +105,10 @@ function connectWs() {
   } catch {
     return; // WS 不可用不挡主流程
   }
+  window.addEventListener('claudio:progress', ev => {
+    if (ws.readyState !== 1) return;
+    try { ws.send(JSON.stringify({ type: 'progress', ...ev.detail })); } catch { /* ignore */ }
+  });
   ws.addEventListener('open',  () => setStatus('● 在线'));
   ws.addEventListener('close', () => setStatus('● 离线'));
   ws.addEventListener('message', ev => {

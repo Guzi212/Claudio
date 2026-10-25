@@ -1,6 +1,7 @@
 import cron from 'node-cron';
 import { ask as defaultAsk } from './claude.js';
 import { buildSystemPrompt as defaultBuildSystemPrompt } from './context.js';
+import { hasActiveExternalQueue, markQueueSource } from './queue-source.js';
 
 // 施工图第 2 层 · 节律调度
 //
@@ -63,14 +64,24 @@ export function start({
       log(`${job.name} skipped (PWA not active)`);
       return;
     }
+    // 外部点歌还没放完就不换歌。ask 要等几秒，bot 可能在等待期间写入，所以返回后还要再看一次。
+    if (hasActiveExternalQueue(runtime)) {
+      log(`${job.name} skipped (external queue active)`);
+      return;
+    }
     try {
       // buildSystemPrompt 在 main 上是 async（接入了天气/日历），await 对同步 fake 无害
       const sys = await buildSystemPrompt();
       const { say, queue, reason } = await ask(sys, job.prompt);
+      if (hasActiveExternalQueue(runtime)) {
+        log(`${job.name} skipped (external queue active)`);
+        return;
+      }
       if (Array.isArray(queue) && queue.length > 0) {
         runtime.queue = queue;
         runtime.index = 0;
         runtime.paused = false;
+        markQueueSource(runtime, 'scheduler');
       }
       runtime.lastSay = say ?? '';
       broadcast({ type: 'state', runtime, trigger: job.name, reason });
