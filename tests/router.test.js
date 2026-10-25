@@ -11,6 +11,7 @@ describe('router.route', () => {
     expect(route('/skip')).toMatchObject({ intent: 'control', command: 'skip' });
     expect(route('/pause')).toMatchObject({ intent: 'control', command: 'pause' });
     expect(route('/play')).toMatchObject({ intent: 'control', command: 'play' });
+    expect(route('/toggle')).toMatchObject({ intent: 'control', command: 'toggle' });
     expect(route('/now')).toMatchObject({ intent: 'control', command: 'now' });
     expect(route('/queue')).toMatchObject({ intent: 'control', command: 'queue' });
     expect(route('/help')).toMatchObject({ intent: 'control', command: 'help' });

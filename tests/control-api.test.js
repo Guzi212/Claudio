@@ -100,6 +100,54 @@ describe('POST /api/control', () => {
     }
   });
 
+  it('toggle 播放中暂停、暂停中继续，不改音量也不记 skip', async () => {
+    const rememberVolume = vi.fn();
+    const runtime = {
+      queue: [{ title: '晴天', artist: '周杰伦', kugouId: 'h1' }],
+      index: 0,
+      paused: false,
+      volume: 40,
+      trackEnded: true,
+    };
+    const broadcast = vi.fn();
+    const db = { addFeedback: vi.fn() };
+    const app = mockApp();
+    mountControlRoute(app, { runtime, broadcast, db, rememberVolume });
+
+    const pause = mockRes();
+    await app.routes['POST /api/control']({ body: { command: 'toggle' } }, pause);
+    expect(pause.statusCode).toBe(200);
+    expect(pause.body).toMatchObject({ ok: true, command: 'toggle', paused: true, volume: 40 });
+    expect(pause.body.say).toContain('暂停');
+    expect(runtime.paused).toBe(true);
+    expect(runtime.volume).toBe(40);
+    expect(runtime.trackEnded).toBe(true);
+    expect(rememberVolume).not.toHaveBeenCalled();
+    expect(db.addFeedback).not.toHaveBeenCalled();
+    expect(broadcast).toHaveBeenCalledWith({ type: 'state', runtime });
+    expect(broadcast.mock.calls[0][0].origin).toBeUndefined();
+
+    const play = mockRes();
+    await app.routes['POST /api/control']({ body: { command: 'Toggle' } }, play);
+    expect(play.body).toMatchObject({ ok: true, command: 'toggle', paused: false, volume: 40 });
+    expect(play.body.say).toContain('继续');
+    expect(runtime.paused).toBe(false);
+    expect(runtime.trackEnded).toBe(false);
+    expect(rememberVolume).not.toHaveBeenCalled();
+  });
+
+  it('toggle 在队列空时不开始播放', async () => {
+    const runtime = { queue: [], index: 0, paused: false, volume: 30 };
+    const app = mockApp();
+    mountControlRoute(app, { runtime, broadcast: vi.fn(), db: { addFeedback: vi.fn() }, rememberVolume: vi.fn() });
+    const res = mockRes();
+    await app.routes['POST /api/control']({ body: { command: 'toggle' } }, res);
+    expect(res.body).toMatchObject({ ok: true, command: 'toggle', paused: true, volume: 30 });
+    expect(res.body.say).toBe('队列是空的');
+    expect(runtime.paused).toBe(true);
+    expect(runtime.volume).toBe(30);
+  });
+
   it('坏音量返回 400', async () => {
     const { app } = setup();
     const res = mockRes();

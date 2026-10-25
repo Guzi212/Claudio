@@ -250,7 +250,7 @@ Content-Type: application/json
 | 用途 | 方法 + 路径 | 参数 | 返回 |
 | --- | --- | --- | --- |
 | 点歌 / 写歌单 | `POST /api/queue/external` | JSON：`tracks[]`（`title` 必填，`artist` / `hint` 可选），`say`，`reason`，`mode`=`replace`\|`append`，`target`=`queue`\|`kugou_playlist`\|`both`，`playlistName`（默认 `Claudio推荐`），`playlistMode`=`append`\|`rewrite`。不带 `volume`（缺省或 `null`）不会改已保存的音量 | `ok`，`matched[]`，`failed[]`，`queue`（`mode` / `added` / `length`），`playlist` |
-| 播放控制 | `POST /api/control` | JSON：`command`=`next`\|`prev`\|`pause`\|`play`\|`volume`\|`jump`，`value`（音量 0–100，或 jump 的从 0 开始的序号） | `ok`，`command`，`say`，`nowPlaying`，`queue`，`index`，`paused`，`volume`。`volume` 会立刻记住。`next` 真正切到下一首时，把刚离开的那首记成 `feedback.kind=skip` |
+| 播放控制 | `POST /api/control` | JSON：`command`=`next`\|`prev`\|`pause`\|`play`\|`toggle`\|`volume`\|`jump`，`value`（音量 0–100，或 jump 的从 0 开始的序号） | `ok`，`command`，`say`，`nowPlaying`，`queue`，`index`，`paused`，`volume`。`volume` 会立刻记住。`next` 真正切到下一首时，把刚离开的那首记成 `feedback.kind=skip`。`toggle` 播放中就暂停，暂停中就继续；队列是空的就停在暂停，不改音量 |
 | 状态 | `GET /api/status`（`GET /api/now` 相同） | 无 | `brain`，`nowPlaying`，`queue`，`index`，`paused`，`volume`（0–100，会记住；没存过默认 30），`currentTime`（秒），`duration`（秒），`active`（有没有页面连着 WebSocket），`listeners`，`lastSay`，`reason` |
 | 进度上报 | WebSocket `/stream`，客户端发 | `{ "type":"progress", "currentTime", "duration", "volume", "paused", "index" }`，页面大约每 2 秒一次 | 服务端更新内存里的进度，不广播。音量有变化才写入，短时间连续拖动合并成一次。bot 用 `GET /api/status` 读 |
 | 搜歌 | `GET /api/kugou/search` | Query：`title` 必填，`artist`，`hint` | `ok`，`tracks[]`：`hash`，`title`，`artist`，`album`，`duration`，`score` |
@@ -260,7 +260,7 @@ Content-Type: application/json
 | 喜欢 / 不喜欢 | `POST /api/feedback` | JSON：`kind`=`like`\|`unlike`\|`skip`，`title` 或 `kugouId`，`artist` | `ok`，`id`，`kind`。页面上的 ♡ 也会写这里 |
 | 整单播放 | `POST /api/kugou/playlists/play` | JSON：`playlist`（要有 `listid` 或 `globalCollectionId`） | `ok`，`count`，`queue`。这是明确换队列 |
 | 直链 | `GET /api/kugou/track-url` | Query：`hash` | `ok`，`url`（已经是 `/api/proxy?u=...`） |
-| 聊天（external） | `POST /api/chat` | JSON：`message` | 控制命令（`/skip` `/pause` `/play` `/vol N` `/prev` `/now` `/queue`）照常执行。普通文字返回「选歌请在 Grok Bot 里找 Claudio主持人。」，不调用 Claude |
+| 聊天（external） | `POST /api/chat` | JSON：`message` | 控制命令（`/skip` `/pause` `/play` `/toggle` `/vol N` `/prev` `/now` `/queue`）照常执行。普通文字返回「选歌请在 Grok Bot 里找 Claudio主持人。」，不调用 Claude |
 | 开机（external） | `POST /api/boot` | 无 | 不调用 Claude。返回当前 `queue` 和 `index`，`brain: "external"`，`skipped: true` |
 
 页面在 external 模式下只出声和显示。加载时，以及主持人投下新队列时，会先直接 `play()`。成功就不出遮罩；只有浏览器返回 `NotAllowedError` 才显示「点击开声」，点一下从当前队列和进度接着放。队列是空的就显示「等待点歌」，不盖遮罩。服务器记着暂停时，打开页面不会自己播；主持人用 replace 或 append 投下新队列，或者发 play，会再直接播。一首播完会放到队列里的下一首，整个队列播完就停。聊天框、自动推歌按钮和 DeepSeek 设置不显示。串场面板显示外部点歌的 `say`。音量沿用已保存的值。
@@ -309,6 +309,7 @@ Invoke-Claudio Post '/api/queue/external' @{
 Invoke-Claudio Get '/api/status'
 Invoke-Claudio Post '/api/control' @{ command = 'pause' }
 Invoke-Claudio Post '/api/control' @{ command = 'play' }
+Invoke-Claudio Post '/api/control' @{ command = 'toggle' }
 Invoke-Claudio Post '/api/control' @{ command = 'next' }
 Invoke-Claudio Post '/api/control' @{ command = 'prev' }
 Invoke-Claudio Post '/api/control' @{ command = 'volume'; value = 40 }
@@ -359,6 +360,57 @@ Invoke-Claudio Post '/api/feedback' @{ kind = 'like'; title = '晴天'; artist =
 ```
 
 `target` 不含播放队列时 `queue` 为 `null`。不含酷狗歌单时 `playlist` 为 `null`。歌单写入失败时 HTTP 仍是 200，看 `ok` 和 `playlist.ok` / `playlist.error`，避免客户端自动重试造成重复写入。
+
+## 快捷键
+
+两套都能暂停或继续，都不需要再装软件。媒体键走浏览器的 Media Session；`Ctrl+Alt+P` 走桌面快捷方式，窗口不在前台时由 Windows 直接打到本机接口。
+
+### 媒体键
+
+播放页在播放运行时注册了 `navigator.mediaSession`（不写在某个视图里，换播放页界面也不影响）。下面这些会控制 Claudio，窗口在后台时也有效，只要这个页面曾经出过声、系统还把它当成当前媒体会话：
+
+- 键盘上的播放 / 暂停、上一首、下一首
+- Windows 音量弹窗里的媒体按钮
+
+歌名、歌手和封面会写进系统的媒体信息。曲目自己带了 `cover` / `pic` / `image` 就用那张图，否则用页面的 `/icon.svg`。
+
+页面在前台时，空格切换播放 / 暂停。焦点在输入框、文本区域、下拉框，或可编辑区域（含 `role="textbox"`）里时，空格仍留给输入。后台窗口不会收到空格。
+
+这些动作都是 `POST /api/control`（`play` / `pause` / `prev` / `next`，空格是 `toggle`），不另开一条播放路径。请求不带 `clientId`，服务端广播也就没有 `origin`，页面会把它当成外部命令来播放或暂停。自己报上去的进度回声仍然会被认出来，不会把歌打断。音量沿用已经记住的值，这些命令不会改它。
+
+### Ctrl+Alt+P
+
+媒体键会被别的正在出声的程序抢走。桌面快捷方式自带的「快捷键」由 Windows 接管，不看 Claudio 窗口在不在前台。
+
+在 Claudio 目录执行（PowerShell 5 即可）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\claudio-hotkey.ps1
+```
+
+脚本会在桌面创建 `Claudio Play-Pause.lnk`，并在快捷方式的「快捷键」栏写入 `Ctrl+Alt+P`。按下之后，Windows 用隐藏窗口运行同一条脚本，向 `http://127.0.0.1:8080/api/control` 发送 `{ "command": "toggle" }`。正在播放就暂停，已经暂停就从当前这首继续。队列是空的就保持暂停，不会凭空开播。
+
+Claudio 的页面要开着，服务要在跑。快捷方式得留在桌面（开始菜单里也行）；移到别的文件夹后，系统快捷键会失效。想确认时可以右键这个快捷方式，看「快捷键」是不是 `Ctrl + Alt + P`，目标是 `powershell.exe`，并且参数里有 `-WindowStyle Hidden` 和 `-Action Toggle`。
+
+换组合键时重新执行脚本。Windows 桌面快捷方式只登记 **Ctrl+Alt 再加一个键**（字母、数字，或 F1–F12），所以只能换最后那个键，例如改成 `Ctrl+Alt+K`：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\claudio-hotkey.ps1 -Hotkey CTRL+ALT+K
+```
+
+端口不是 8080 时：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\claudio-hotkey.ps1 -BaseUrl http://127.0.0.1:9090
+```
+
+`CLAUDIO_REQUIRE_TOKEN` 关着、并且访问的是本机回环时，不要加令牌。开关打开之后，创建快捷方式时带上 `-Token`。令牌会写进快捷方式的参数里，只留在这台电脑上，不要提交，也不要发给别人：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\claudio-hotkey.ps1 -Token "你的令牌"
+```
+
+Host 白名单和原来的鉴权不变。这条命令打的是 `127.0.0.1`，和浏览器一样要过 `hostGuard`。
 
 ## Clash / 代理
 

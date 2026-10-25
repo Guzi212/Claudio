@@ -93,6 +93,19 @@ export function applyControl(runtime, { command, arg, value } = {}) {
       runtime.paused = false;
       runtime.trackEnded = false;
       return { ...base(), command: 'play', say: '▶ 继续', feedback: null };
+    case 'toggle': {
+      if (!queue.length) {
+        runtime.paused = true;
+        return { ...base(), command: 'toggle', say: '队列是空的', feedback: null };
+      }
+      if (runtime.paused) {
+        runtime.paused = false;
+        runtime.trackEnded = false;
+        return { ...base(), command: 'toggle', say: '▶ 继续', feedback: null };
+      }
+      runtime.paused = true;
+      return { ...base(), command: 'toggle', say: '⏸ 暂停', feedback: null };
+    }
     case 'volume':
     case 'vol': {
       const raw = value != null && value !== '' ? value : arg;
@@ -146,7 +159,7 @@ export function applyControl(runtime, { command, arg, value } = {}) {
         ...base(),
         command: 'help',
         feedback: null,
-        say: '命令：/skip /prev /pause /play /vol N /now /queue',
+        say: '命令：/skip /prev /pause /play /toggle /vol N /now /queue',
       };
     default:
       return { ok: false, status: 400, error: `未知命令：${cmd}`, command: cmd };

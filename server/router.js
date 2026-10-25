@@ -16,6 +16,7 @@ const KNOWN_COMMANDS = new Set([
   'prev', 'back',
   'pause',
   'play', 'resume',
+  'toggle',
   'stop',
   'vol', 'volume',
   'mute',
