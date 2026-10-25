@@ -34,11 +34,14 @@ export function buildDevConfig({
       command: npmCommand(platform),
       args: ['start'],
       cwd: kugouApiDir,
+      // Node >= 18.20 / 20.12 refuses to spawn .cmd/.bat without a shell on Windows (EINVAL).
+      shell: platform === 'win32',
     },
     claudio: {
       command: process.execPath,
       args: ['--no-warnings', 'server/app.js'],
       cwd: projectRoot,
+      shell: false,
     },
   };
 }
@@ -77,11 +80,16 @@ export async function waitForHttp(url, {
   return false;
 }
 
-function spawnChild({ command, args, cwd, env, spawnProcess, log, label }) {
+function spawnChild({ command, args, cwd, shell = false, env, spawnProcess, log, label }) {
   log(`[dev] starting ${label}: ${command} ${args.join(' ')} (${cwd})`);
+  // With shell: true, pass one command string (static, no user input) to avoid Node's DEP0190 warning.
+  if (shell) {
+    return spawnProcess([command, ...args].join(' '), [], { cwd, env, shell, stdio: 'inherit' });
+  }
   return spawnProcess(command, args, {
     cwd,
     env,
+    shell,
     stdio: 'inherit',
   });
 }
