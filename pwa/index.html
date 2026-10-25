@@ -133,6 +133,30 @@
     </section>
   </section>
 
+  <!-- ─────────────── Playlists ─────────────── -->
+  <section id="view-playlists" class="view view-playlists hidden">
+    <header class="view-head">
+      <h2>Playlists</h2>
+      <div class="view-actions">
+        <button id="playlists-refresh" type="button" class="btn">刷新</button>
+      </div>
+    </header>
+
+    <section class="card">
+      <h3>当前候选池</h3>
+      <p id="pool-status" class="field-hint">加载中…</p>
+      <button id="pool-clear" type="button" class="btn ghost hidden">清除候选池</button>
+    </section>
+
+    <section class="card">
+      <h3>我的酷狗歌单</h3>
+      <p class="field-hint">设为候选池后，Claudio 推荐时至少 3 首会从该歌单选；点“整单播放”直接替换当前队列。</p>
+      <ul id="playlist-list" class="playlist-list">
+        <li class="muted">加载中…</li>
+      </ul>
+    </section>
+  </section>
+
   <!-- ─────────────── Profile ─────────────── -->
   <section id="view-profile" class="view view-profile hidden">
     <header class="view-head">

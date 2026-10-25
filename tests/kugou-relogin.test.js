@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { startRelogin, checkRelogin } from '../server/api/kugou-relogin.js';
+import { startRelogin, checkRelogin, probeSession } from '../server/api/kugou-relogin.js';
 
 function fakeGet(handlers) {
   // handlers: { '/login/qr/key': (params) => data, ... }
@@ -83,7 +83,7 @@ describe('checkRelogin', () => {
     });
     const out = await checkRelogin('K', { httpGet, db });
     expect(out).toMatchObject({ status: 4, statusText: '成功', savedCookie: true });
-    expect(db.setPref).toHaveBeenCalledWith('kugou_cookie', 'token=TOK; userid=999');
+    expect(db.setPref).toHaveBeenCalledWith('kugou_cookie', 'token=TOK;userid=999');
   });
 
   it('成功 status=4 但 token 缺失 → 不写 cookie，但仍返 ok', async () => {
@@ -139,3 +139,89 @@ describe('酷狗 API 不可达时给出用户友好错误', () => {
     await expect(checkRelogin('K', { httpGet, db })).rejects.toThrow(/酷狗.*服务|服务未启动|无法连接/);
   });
 });
+
+describe('扫码登录后的设备身份（dfid / 完整登录态）', () => {
+  function fakeDb() {
+    const store = {};
+    return {
+      setPref: vi.fn((k, v) => { store[k] = v; }),
+      getPref: (k) => store[k],
+      _store: store,
+    };
+  }
+
+  it('startRelogin 不再向 qr/key 传 type=web（统一走 App 版 appid）', async () => {
+    let keyParams = null;
+    const httpGet = fakeGet({
+      '/login/qr/key': (params) => { keyParams = params; return { data: { qrcode: 'K' } }; },
+      '/login/qr/create': () => ({ data: { url: 'https://h5.kugou.com/x?qrcode=K' } }),
+    });
+    await startRelogin({ httpGet });
+    expect(keyParams).not.toHaveProperty('type');
+  });
+
+  it('status=4 时保存整段登录态（token/userid/t1/vip_*），不再只存 token+userid', async () => {
+    const db = fakeDb();
+    const httpGet = fakeGet({
+      '/login/qr/check': () => ({
+        data: { data: { status: 4 } },
+        cookies: { token: 'TOK', userid: '999', t1: 'T1', vip_type: '3', vip_token: 'VT' },
+      }),
+    });
+    const out = await checkRelogin('K', { httpGet, db });
+    expect(out).toMatchObject({ status: 4, savedCookie: true });
+
+    const saved = db._store.kugou_cookie;
+    expect(saved).toContain('token=TOK');
+    expect(saved).toContain('userid=999');
+    expect(saved).toContain('t1=T1');
+    expect(saved).toContain('vip_type=3');
+    expect(saved).toContain('vip_token=VT');
+  });
+
+  it('status=4 时会调 /register/dev 补 dfid 并一起落库', async () => {
+    const db = fakeDb();
+    const httpGet = fakeGet({
+      '/login/qr/check': () => ({ data: { data: { status: 4, token: 'TOK', userid: 999 } }, cookies: {} }),
+      '/register/dev': () => ({ data: {}, cookies: { dfid: 'DFID1' } }),
+    });
+    const out = await checkRelogin('K', { httpGet, db });
+    expect(out).toMatchObject({ status: 4, savedCookie: true });
+    expect(db._store.kugou_cookie).toBe('token=TOK;userid=999;dfid=DFID1');
+  });
+
+  it('补 dfid 失败不阻断登录：仍保存拿到的部分', async () => {
+    const db = fakeDb();
+    const httpGet = fakeGet({
+      '/login/qr/check': () => ({ data: { data: { status: 4, token: 'TOK', userid: 999 } }, cookies: {} }),
+      // 没有 /register/dev → fakeGet 抛错 → ensureDfid 静默降级
+    });
+    const out = await checkRelogin('K', { httpGet, db });
+    expect(out).toMatchObject({ status: 4, savedCookie: true });
+    expect(db._store.kugou_cookie).toBe('token=TOK;userid=999');
+  });
+
+  it('保存后会记续期时间，避免启动时立刻再调 /login/token', async () => {
+    const db = fakeDb();
+    const httpGet = fakeGet({
+      '/login/qr/check': () => ({ data: { data: { status: 4, token: 'TOK', userid: 999 } }, cookies: {} }),
+    });
+    await checkRelogin('K', { httpGet, db });
+    expect(db._store.kugou_token_refreshed_at).toBeTruthy();
+  });
+
+  it('probeSession 成功时同样保存完整登录态 + dfid', async () => {
+    const db = fakeDb();
+    const httpGetFull = fakeGet({
+      '/user/detail': () => ({
+        data: { data: { userid: '999' } },
+        cookies: { token: 'TOK', t1: 'T1' },
+      }),
+      '/register/dev': () => ({ data: {}, cookies: { dfid: 'DFID2' } }),
+    });
+    const out = await probeSession({ httpGetFull, db });
+    expect(out).toMatchObject({ found: true, userid: '999' });
+    expect(db._store.kugou_cookie).toContain('dfid=DFID2');
+  });
+});
+
