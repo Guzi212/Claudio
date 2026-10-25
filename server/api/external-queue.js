@@ -149,6 +149,10 @@ export function mountExternalQueueRoutes(app, deps = {}) {
           console.warn('[external-queue] tts skipped:', err.message);
         }
       }
+      // 点歌请求在合成语音之后才改队列。音量快照放在这段同步改动之前，
+      // 这样等待搜索/语音时用户调过的音量不会被后面的还原盖掉。
+      const savedVolume = runtime.volume;
+      const keepSavedVolume = body.volume == null || body.volume === '';
       if (mode === 'replace') {
         runtime.queue = queueItems;
         runtime.index = 0;
@@ -179,6 +183,8 @@ export function mountExternalQueueRoutes(app, deps = {}) {
           source: 'bot',
         });
       }
+      // 缺省、null、空字符串都不是调音量。这个接口不写 prefs。
+      if (keepSavedVolume) runtime.volume = savedVolume;
       broadcast({ type: 'external-queue', mode, tracks: queueItems, say, reason });
       broadcast({ type: 'state', runtime });
       queueResult = { mode, added: queueItems.length, length: runtime.queue.length };

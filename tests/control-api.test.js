@@ -76,6 +76,30 @@ describe('POST /api/control', () => {
     expect(jump.body.nowPlaying.title).toBe('第二首');
   });
 
+  it('volume 会立刻记住，其它命令不写音量', async () => {
+    const rememberVolume = vi.fn();
+    const runtime = { queue: [{ title: '第一首', artist: 'A' }], index: 0, paused: false, volume: 30 };
+    const app = mockApp();
+    mountControlRoute(app, { runtime, broadcast: vi.fn(), db: { addFeedback: vi.fn() }, rememberVolume });
+    const volume = mockRes();
+    await app.routes['POST /api/control']({ body: { command: 'volume', value: 40 } }, volume);
+    expect(rememberVolume).toHaveBeenCalledWith(40, { force: true });
+    const pause = mockRes();
+    await app.routes['POST /api/control']({ body: { command: 'pause' } }, pause);
+    expect(rememberVolume).toHaveBeenCalledTimes(1);
+  });
+
+  it('没设过音量时按默认 30', () => {
+    const previous = process.env.CLAUDIO_DEFAULT_VOLUME;
+    delete process.env.CLAUDIO_DEFAULT_VOLUME;
+    try {
+      expect(playbackStatus({}).volume).toBe(30);
+    } finally {
+      if (previous == null) delete process.env.CLAUDIO_DEFAULT_VOLUME;
+      else process.env.CLAUDIO_DEFAULT_VOLUME = previous;
+    }
+  });
+
   it('坏音量返回 400', async () => {
     const { app } = setup();
     const res = mockRes();

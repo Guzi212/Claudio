@@ -60,6 +60,28 @@ describe('POST /api/chat · CLAUDIO_BRAIN', () => {
     expect(runtime.queueSource).toBe('bot');
   });
 
+  it('external 的 /vol 会记住音量', async () => {
+    const rememberVolume = vi.fn();
+    const { app, runtime, ask } = setup('external');
+    mountChatRoute(app, {
+      runtime,
+      brain: () => 'external',
+      ask,
+      buildSystemPrompt: async () => 'SYS',
+      synthesize: async () => null,
+      detectSignal: () => null,
+      appendJournalEntry: () => {},
+      db: { addMessage: vi.fn(), addPlay: vi.fn(), addFeedback: vi.fn(), recentPlays: vi.fn(() => []) },
+      broadcast: vi.fn(),
+      rememberVolume,
+    });
+    const res = mockRes();
+    await app.routes['POST /api/chat']({ body: { message: '/vol 36' } }, res);
+    expect(ask).not.toHaveBeenCalled();
+    expect(runtime.volume).toBe(36);
+    expect(rememberVolume).toHaveBeenCalledWith(36, { force: true });
+  });
+
   it('external 仍执行 /pause', async () => {
     const { app, runtime, ask } = setup('external');
     const res = mockRes();

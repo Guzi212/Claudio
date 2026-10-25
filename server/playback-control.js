@@ -1,4 +1,5 @@
 // 播放控制与状态快照。聊天里的 /skip 和 bot 的 /api/control 共用这里。
+import { defaultVolume } from './volume-store.js';
 
 export const EXTERNAL_CHAT_HINT = '选歌请在 Grok Bot 里找 Claudio主持人。';
 
@@ -19,7 +20,7 @@ export function playbackStatus(runtime = {}, { listeners = 0, brain = 'external'
     queue,
     index: queue.length ? safeIndex : 0,
     paused: Boolean(runtime.paused),
-    volume: Number.isFinite(runtime.volume) ? runtime.volume : 100,
+    volume: Number.isFinite(runtime.volume) ? runtime.volume : defaultVolume(),
     currentTime: Number.isFinite(runtime.currentTime) ? runtime.currentTime : 0,
     duration: Number.isFinite(runtime.duration) ? runtime.duration : 0,
     active: Boolean(runtime.active),
@@ -42,7 +43,7 @@ function trackOf(queue, index) {
 export function applyControl(runtime, { command, arg, value } = {}) {
   const cmd = String(command || '').toLowerCase();
   const queue = Array.isArray(runtime.queue) ? runtime.queue : (runtime.queue = []);
-  if (!Number.isFinite(runtime.volume)) runtime.volume = 100;
+  if (!Number.isFinite(runtime.volume)) runtime.volume = defaultVolume();
 
   const base = () => playbackStatus(runtime);
 

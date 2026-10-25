@@ -7,6 +7,7 @@ export function mountControlRoute(app, deps = {}) {
   const getRuntime = typeof deps.getRuntime === 'function'
     ? deps.getRuntime
     : () => deps.runtime;
+  const rememberVolume = typeof deps.rememberVolume === 'function' ? deps.rememberVolume : () => {};
 
   app.post('/api/control', (req, res) => {
     const runtime = getRuntime();
@@ -26,6 +27,9 @@ export function mountControlRoute(app, deps = {}) {
     }
     if (result.feedback) {
       try { db.addFeedback(result.feedback); } catch { /* 反馈写失败不影响控制 */ }
+    }
+    if (result.command === 'volume') {
+      try { rememberVolume(result.volume, { force: true }); } catch { /* 音量记失败不影响这次控制 */ }
     }
     broadcast({ type: 'state', runtime });
     res.json(result);
