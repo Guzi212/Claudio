@@ -11,7 +11,7 @@ import { dbApi } from './db.js';
 import { route } from './router.js';
 import { buildSystemPrompt } from './context.js';
 import { ask as claudeAsk } from './claude.js';
-import { ensureLogin } from './services/kugou-login.js';
+import { ensureLogin, startAutoRefresh, stopAutoRefresh } from './services/kugou-login.js';
 import { start as startScheduler } from './scheduler.js';
 import { synthesize as ttsSynthesize, mountTtsRoutes } from './tts.js';
 import { mountSettingsRoutes } from './api/settings.js';
@@ -359,6 +359,10 @@ async function start() {
     console.warn('[claudio] 警告：KuGou 登录未通过，搜索 / 播放可能受限。可继续启动以便先测试 Chat。');
   }
 
+  // 后台低频续期：只有在距上次成功续期超过 KUGOU_REFRESH_INTERVAL_HOURS（默认 24h）
+  // 时才真正调 /login/token，避免「每次启动都登录」被上游风控。
+  startAutoRefresh();
+
   // 节律调度（07:00 早间 / 09:00 通勤 / 每小时情绪检查）
   const scheduler = startScheduler({
     runtime,
@@ -369,8 +373,8 @@ async function start() {
   });
   console.log('[claudio] scheduler 已挂 cron');
 
-  process.on('SIGINT', () => { scheduler.stop(); process.exit(0); });
-  process.on('SIGTERM', () => { scheduler.stop(); process.exit(0); });
+  process.on('SIGINT', () => { stopAutoRefresh(); scheduler.stop(); process.exit(0); });
+  process.on('SIGTERM', () => { stopAutoRefresh(); scheduler.stop(); process.exit(0); });
 
   server.listen(PORT, () => {
     console.log(`[claudio] 8080 ready · http://localhost:${PORT}`);
