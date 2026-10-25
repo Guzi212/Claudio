@@ -94,6 +94,12 @@ describe('媒体元数据', () => {
     expect(playbackStateFor({ queue: [], paused: false })).toBe('none');
     expect(playbackStateFor({ queue: [track], paused: true })).toBe('paused');
     expect(playbackStateFor({ queue: [track], paused: false })).toBe('playing');
+    expect(playbackStateFor({
+      queue: [{ title: '第一首', artist: 'A' }, track],
+      index: 1,
+      paused: false,
+      trackEnded: true,
+    })).toBe('paused');
   });
 });
 

@@ -19,7 +19,7 @@ export function playbackStatus(runtime = {}, { listeners = 0, brain = 'external'
     nowPlaying: queue[safeIndex] || null,
     queue,
     index: queue.length ? safeIndex : 0,
-    paused: Boolean(runtime.paused),
+    paused: Boolean(runtime.paused) || queueFinished(runtime),
     volume: Number.isFinite(runtime.volume) ? runtime.volume : defaultVolume(),
     currentTime: Number.isFinite(runtime.currentTime) ? runtime.currentTime : 0,
     duration: Number.isFinite(runtime.duration) ? runtime.duration : 0,
@@ -28,6 +28,20 @@ export function playbackStatus(runtime = {}, { listeners = 0, brain = 'external'
     lastSay: runtime.lastSay || '',
     reason: runtime.lastReason || '',
   };
+}
+
+export function queueFinished(runtime = {}) {
+  const queue = Array.isArray(runtime.queue) ? runtime.queue : [];
+  if (!queue.length || runtime.trackEnded !== true) return false;
+  const index = Number.isFinite(runtime.index) ? runtime.index : 0;
+  return index >= queue.length - 1;
+}
+
+function restartFromStart(runtime) {
+  runtime.index = 0;
+  runtime.currentTime = 0;
+  runtime.paused = false;
+  runtime.trackEnded = false;
 }
 
 function trackOf(queue, index) {
@@ -90,6 +104,10 @@ export function applyControl(runtime, { command, arg, value } = {}) {
       return { ...base(), command: 'pause', say: '⏸ 暂停', feedback: null };
     case 'play':
     case 'resume':
+      if (queueFinished(runtime)) {
+        restartFromStart(runtime);
+        return { ...base(), command: 'play', say: `▶ ${queue[0]?.title || ''}`, feedback: null };
+      }
       runtime.paused = false;
       runtime.trackEnded = false;
       return { ...base(), command: 'play', say: '▶ 继续', feedback: null };
@@ -97,6 +115,10 @@ export function applyControl(runtime, { command, arg, value } = {}) {
       if (!queue.length) {
         runtime.paused = true;
         return { ...base(), command: 'toggle', say: '队列是空的', feedback: null };
+      }
+      if (queueFinished(runtime)) {
+        restartFromStart(runtime);
+        return { ...base(), command: 'toggle', say: `▶ ${queue[0]?.title || ''}`, feedback: null };
       }
       if (runtime.paused) {
         runtime.paused = false;
@@ -176,10 +198,12 @@ export function applyProgress(runtime, body = {}) {
   }
   const volume = clampVolume(body.volume);
   if (volume != null && body.volume != null) runtime.volume = volume;
-  if (typeof body.paused === 'boolean') runtime.paused = body.paused;
   if (typeof body.index === 'number' && Number.isFinite(body.index) && Array.isArray(runtime.queue) && runtime.queue.length) {
     const next = Math.max(0, Math.min(Math.trunc(body.index), runtime.queue.length - 1));
     if (next !== runtime.index) runtime.trackEnded = false;
     runtime.index = next;
+  }
+  if (typeof body.paused === 'boolean') {
+    runtime.paused = body.paused === false && queueFinished(runtime) ? true : body.paused;
   }
 }

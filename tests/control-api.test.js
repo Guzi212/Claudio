@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { mountControlRoute } from '../server/api/control.js';
-import { playbackStatus, applyProgress } from '../server/playback-control.js';
+import { playbackStatus, applyProgress, queueFinished } from '../server/playback-control.js';
 
 function mockApp() {
   const routes = {};
@@ -107,7 +107,7 @@ describe('POST /api/control', () => {
       index: 0,
       paused: false,
       volume: 40,
-      trackEnded: true,
+      trackEnded: false,
     };
     const broadcast = vi.fn();
     const db = { addFeedback: vi.fn() };
@@ -121,7 +121,7 @@ describe('POST /api/control', () => {
     expect(pause.body.say).toContain('暂停');
     expect(runtime.paused).toBe(true);
     expect(runtime.volume).toBe(40);
-    expect(runtime.trackEnded).toBe(true);
+    expect(runtime.trackEnded).toBe(false);
     expect(rememberVolume).not.toHaveBeenCalled();
     expect(db.addFeedback).not.toHaveBeenCalled();
     expect(broadcast).toHaveBeenCalledWith({ type: 'state', runtime });
@@ -134,6 +134,94 @@ describe('POST /api/control', () => {
     expect(runtime.paused).toBe(false);
     expect(runtime.trackEnded).toBe(false);
     expect(rememberVolume).not.toHaveBeenCalled();
+  });
+
+  it('队列放完后 toggle 和 play 都从第一首重新开始', async () => {
+    const runtime = {
+      queue: [
+        { title: '第一首', artist: 'A', kugouId: 'a' },
+        { title: '最后一首', artist: 'B', kugouId: 'b' },
+      ],
+      index: 1,
+      paused: false,
+      trackEnded: true,
+      volume: 40,
+      currentTime: 180,
+    };
+    expect(playbackStatus(runtime)).toMatchObject({ paused: true, index: 1 });
+    const app = mockApp();
+    const rememberVolume = vi.fn();
+    mountControlRoute(app, {
+      runtime,
+      broadcast: vi.fn(),
+      db: { addFeedback: vi.fn() },
+      rememberVolume,
+    });
+    const res = mockRes();
+    await app.routes['POST /api/control']({ body: { command: 'toggle' } }, res);
+    expect(res.body).toMatchObject({
+      ok: true,
+      command: 'toggle',
+      paused: false,
+      index: 0,
+      volume: 40,
+      currentTime: 0,
+    });
+    expect(res.body.nowPlaying.title).toBe('第一首');
+    expect(runtime.trackEnded).toBe(false);
+    expect(runtime.paused).toBe(false);
+    expect(rememberVolume).not.toHaveBeenCalled();
+    expect(queueFinished({
+      queue: runtime.queue,
+      index: 1,
+      trackEnded: true,
+      paused: false,
+    })).toBe(true);
+  });
+
+  it('队列放完后媒体键 play 也从第一首开始，状态本身算暂停', async () => {
+    const runtime = {
+      queue: [
+        { title: '第一首', artist: 'A' },
+        { title: '最后一首', artist: 'B' },
+      ],
+      index: 1,
+      paused: true,
+      trackEnded: true,
+      volume: 30,
+      currentTime: 200,
+    };
+    expect(playbackStatus(runtime).paused).toBe(true);
+    expect(playbackStatus(runtime).nowPlaying.title).toBe('最后一首');
+    const app = mockApp();
+    mountControlRoute(app, { runtime, broadcast: vi.fn(), db: { addFeedback: vi.fn() }, rememberVolume: vi.fn() });
+    const res = mockRes();
+    await app.routes['POST /api/control']({ body: { command: 'play' } }, res);
+    expect(res.body).toMatchObject({
+      ok: true,
+      command: 'play',
+      paused: false,
+      index: 0,
+      currentTime: 0,
+      volume: 30,
+    });
+    expect(res.body.nowPlaying.title).toBe('第一首');
+    expect(runtime.trackEnded).toBe(false);
+  });
+
+  it('迟到的进度不能把已经放完的队列再标成播放中', () => {
+    const runtime = {
+      queue: [{ title: '最后一首', artist: 'B' }],
+      index: 0,
+      paused: true,
+      trackEnded: true,
+      volume: 30,
+      currentTime: 180,
+    };
+    applyProgress(runtime, { paused: false, currentTime: 181 });
+    expect(runtime.paused).toBe(true);
+    expect(runtime.trackEnded).toBe(true);
+    expect(playbackStatus(runtime).paused).toBe(true);
   });
 
   it('toggle 在队列空时不开始播放', async () => {

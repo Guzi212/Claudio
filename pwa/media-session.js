@@ -68,9 +68,17 @@ export function metadataFields(track, { iconUrl = '', base = '' } = {}) {
   };
 }
 
+function queueFinished(runtime) {
+  const queue = Array.isArray(runtime?.queue) ? runtime.queue : [];
+  if (!queue.length || runtime?.trackEnded !== true) return false;
+  const index = Number.isFinite(runtime.index) ? runtime.index : 0;
+  return index >= queue.length - 1;
+}
+
 export function playbackStateFor(runtime) {
   if (!currentTrack(runtime)) return 'none';
-  return runtime?.paused ? 'paused' : 'playing';
+  if (runtime?.paused || queueFinished(runtime)) return 'paused';
+  return 'playing';
 }
 
 export function shouldApplyPlaybackState(origin, clientId) {
