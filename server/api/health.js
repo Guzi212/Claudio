@@ -12,8 +12,10 @@ async function checkKugou() {
   const cookie = dbApi.getPref('kugou_cookie') || process.env.KUGOU_COOKIE || '';
   if (!cookie) return { ok: false, detail: 'cookie missing' };
   try {
+    // ⚠️ 同 services/kugou.js：KuGouMusicApi 不读 Cookie 请求头，
+    // 凭据必须作为 query 参数发送，否则永远被判为 token 过期。
     const res = await axios.get(`${KUGOU_BASE}/user/detail`, {
-      headers: { Cookie: cookie },
+      params: { cookie },
       timeout: 4_000,
     });
     const d = res.data;
@@ -25,6 +27,7 @@ async function checkKugou() {
     if (err.code === 'ECONNREFUSED') return { ok: false, detail: 'kugou api not running' };
     const code = err.response?.data?.error_code;
     if (code === 20018) return { ok: false, detail: 'token expired · 需要重新扫码登录' };
+    if (err.response?.status === 404) return { ok: false, detail: 'token expired · 需要重新扫码登录' };
     return { ok: false, detail: err.message };
   }
 }
