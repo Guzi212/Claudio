@@ -32,6 +32,7 @@ import { mountControlRoute } from './api/control.js';
 import { mountPlaysRoutes } from './api/plays.js';
 import { mountSearchRoute } from './api/search.js';
 import { applyRuntimePlayback } from './queue-source.js';
+import { stateBroadcast } from './runtime-events.js';
 import { authMiddleware, authorizeUpgrade } from './auth.js';
 import { hostGuard } from './host-guard.js';
 import { mountSessionRoute } from './session.js';
@@ -193,15 +194,16 @@ app.post('/api/runtime/advance', (req, res) => {
   } else if (runtime.index < runtime.queue.length - 1) {
     applyRuntimePlayback(runtime, { index: runtime.index + 1, ended: false });
   }
-  broadcast({ type: 'state', runtime });
+  broadcast(stateBroadcast(runtime, req.body?.clientId));
   res.json({ ok: true, index: runtime.index });
 });
 
-// 全量 sync：前端把 paused / 当前这首是否结束也推回来（按钮触发时使用）
+// 全量 sync：前端把 paused / 当前这首是否结束也推回来（按钮触发时使用）。
+// clientId 原样放进广播的 origin。页面认出是自己刚报的，就不再跟着重播或暂停。
 app.post('/api/runtime/state', (req, res) => {
-  const { index, paused, ended } = req.body || {};
+  const { index, paused, ended, clientId } = req.body || {};
   const playback = applyRuntimePlayback(runtime, { index, paused, ended });
-  broadcast({ type: 'state', runtime });
+  broadcast(stateBroadcast(runtime, clientId));
   res.json({ ok: true, index: playback.index, paused: playback.paused });
 });
 

@@ -114,7 +114,7 @@ function connectWs() {
   ws.addEventListener('message', ev => {
     try {
       const evt = JSON.parse(ev.data);
-      if (evt.type === 'state' && evt.runtime) applyRuntime(evt.runtime);
+      if (evt.type === 'state' && evt.runtime) applyRuntime(evt.runtime, { origin: evt.origin });
       if (evt.type === 'queue-append' && evt.tracks) appendToQueue(evt.tracks);
       if (evt.type === 'external-queue') applyExternalQueue(evt);
     } catch { /* ignore */ }
