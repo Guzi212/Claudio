@@ -1,7 +1,7 @@
 // 极简 service worker：只缓存壳层（HTML/CSS/JS），不缓存音频和 /api/*
-const CACHE = 'claudio-shell-v6';
+const CACHE = 'claudio-shell-v7';
 const SHELL = [
-  '/', '/index.html', '/app.js', '/styles.css', '/manifest.json', '/icon.svg',
+  '/', '/index.html', '/app.js', '/session-url.js', '/styles.css', '/manifest.json', '/icon.svg',
   '/views/ui.js', '/views/player.js', '/views/profile.js', '/views/settings.js',
   '/components/lyrics.js', '/components/env-strip.js',
 ];
@@ -22,6 +22,11 @@ self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   // /api/* 和音频代理永远不走缓存
   if (url.pathname.startsWith('/api/')) return;
+  // 一次性 ?token= 不能进缓存键，否则密钥会留在 Cache Storage 里
+  if (url.searchParams.has('token')) {
+    e.respondWith(fetch(e.request));
+    return;
+  }
   // GET 走 network-first：开发时优先拿最新壳层，离线时再回退缓存
   if (e.request.method !== 'GET') return;
 

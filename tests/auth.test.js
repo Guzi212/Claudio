@@ -1,12 +1,15 @@
 import fs from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   authMiddleware,
   authorizeRequest,
+  authorizeSessionMint,
   authorizeUpgrade,
+  loopbackRequiresToken,
   requiresCredential,
   tokenFromRequest,
 } from '../server/auth.js';
+import { createSession, resetSessions, SESSION_COOKIE } from '../server/session.js';
 
 function req({ ip = '127.0.0.1', path = '/api/health', headers = {}, query = {}, url } = {}) {
   return {
@@ -128,17 +131,174 @@ describe('authMiddleware', () => {
   });
 });
 
+describe('CLAUDIO_REQUIRE_TOKEN', () => {
+  const env = { CLAUDIO_API_TOKEN: 'secret-token', CLAUDIO_REQUIRE_TOKEN: '1' };
+
+  afterEach(() => {
+    resetSessions();
+    delete process.env.CLAUDIO_REQUIRE_TOKEN;
+    delete process.env.CLAUDIO_API_TOKEN;
+  });
+
+  it('只有 1 / true / yes / on 算打开', () => {
+    for (const value of ['1', 'true', 'TRUE', ' yes ', 'on']) {
+      expect(loopbackRequiresToken({ CLAUDIO_REQUIRE_TOKEN: value })).toBe(true);
+    }
+    for (const value of ['', '0', 'false', 'no', 'off', 'maybe', undefined]) {
+      expect(loopbackRequiresToken({ CLAUDIO_REQUIRE_TOKEN: value })).toBe(false);
+    }
+  });
+
+  it('打开后回环没有凭证会拒绝；正确令牌放行', () => {
+    expect(authorizeRequest(req({ ip: '127.0.0.1' }), env)).toMatchObject({ ok: false, via: 'rejected' });
+    expect(authorizeRequest(req({
+      ip: '::1',
+      headers: { authorization: 'Bearer secret-token' },
+    }), env)).toMatchObject({ ok: true, via: 'token' });
+  });
+
+  it('令牌还没配置就打开开关时，回环也拒绝', () => {
+    expect(authorizeRequest(req({ ip: '127.0.0.1' }), { CLAUDIO_REQUIRE_TOKEN: 'on' }))
+      .toMatchObject({ ok: false, via: 'no-token-configured' });
+  });
+
+  it('会话 cookie 可以过，但 cookie 值不能是原始令牌', () => {
+    const id = createSession();
+    expect(id).not.toBe('secret-token');
+    expect(authorizeRequest(req({
+      ip: '127.0.0.1',
+      headers: { cookie: `${SESSION_COOKIE}=${id}` },
+    }), env)).toMatchObject({ ok: true, via: 'cookie' });
+
+    expect(authorizeRequest(req({
+      ip: '127.0.0.1',
+      headers: { cookie: `${SESSION_COOKIE}=secret-token` },
+    }), env).ok).toBe(false);
+  });
+
+  it('带了错误令牌时，即使 cookie 有效也拒绝', () => {
+    const id = createSession();
+    expect(authorizeRequest(req({
+      ip: '127.0.0.1',
+      headers: {
+        authorization: 'Bearer nope',
+        cookie: `${SESSION_COOKIE}=${id}`,
+      },
+    }), env).ok).toBe(false);
+  });
+
+  it('开关关闭时非回环仍可用会话 cookie', () => {
+    const id = createSession();
+    const open = { CLAUDIO_API_TOKEN: 'secret-token' };
+    expect(authorizeRequest(req({
+      ip: '10.0.0.8',
+      headers: { cookie: `${SESSION_COOKIE}=${id}` },
+    }), open)).toMatchObject({ ok: true, via: 'cookie' });
+    expect(authorizeRequest(req({
+      ip: '10.0.0.8',
+      headers: {
+        authorization: 'Bearer nope',
+        cookie: `${SESSION_COOKIE}=${id}`,
+      },
+    }), open).ok).toBe(false);
+  });
+
+  it('换 cookie 必须带对令牌，回环免检和旧 cookie 都不行', () => {
+    const id = createSession();
+    const off = { CLAUDIO_API_TOKEN: 'secret-token' };
+    expect(authorizeSessionMint(req({ ip: '127.0.0.1' }), off).ok).toBe(false);
+    expect(authorizeSessionMint(req({
+      ip: '127.0.0.1',
+      headers: { cookie: `${SESSION_COOKIE}=${id}` },
+    }), off).ok).toBe(false);
+    expect(authorizeSessionMint(req({
+      ip: '127.0.0.1',
+      headers: { authorization: 'Bearer secret-token' },
+    }), off)).toMatchObject({ ok: true, via: 'token' });
+    expect(authorizeSessionMint(req({ ip: '127.0.0.1' }), { CLAUDIO_REQUIRE_TOKEN: '1' }).ok).toBe(false);
+  });
+
+  it('中间件在开关打开时对回环返回 401', () => {
+    process.env.CLAUDIO_REQUIRE_TOKEN = '1';
+    process.env.CLAUDIO_API_TOKEN = 'secret-token';
+    const response = res();
+    let called = false;
+    authMiddleware(req({ path: '/api/now' }), response, () => { called = true; });
+    expect(called).toBe(false);
+    expect(response.statusCode).toBe(401);
+    expect(response.body).toEqual({ ok: false, error: 'unauthorized' });
+  });
+});
+
 describe('authorizeUpgrade', () => {
   const env = { CLAUDIO_API_TOKEN: 'secret-token' };
+  const host = { host: '127.0.0.1' };
 
   it('非 /stream 拒绝', () => {
-    expect(authorizeUpgrade(req({ url: '/other' }), env)).toMatchObject({ ok: false, reason: 'not-stream' });
+    expect(authorizeUpgrade(req({ url: '/other', headers: host }), env)).toMatchObject({ ok: false, reason: 'not-stream' });
   });
 
   it('回环 /stream 放行，外网没 token 拒绝，带 query token 放行', () => {
-    expect(authorizeUpgrade(req({ url: '/stream' }), env).ok).toBe(true);
-    expect(authorizeUpgrade(req({ ip: '10.1.1.1', url: '/stream' }), env).ok).toBe(false);
-    expect(authorizeUpgrade(req({ ip: '10.1.1.1', url: '/stream?token=secret-token' }), env).ok).toBe(true);
+    expect(authorizeUpgrade(req({ url: '/stream', headers: host }), env).ok).toBe(true);
+    expect(authorizeUpgrade(req({ ip: '10.1.1.1', url: '/stream', headers: host }), env)).toMatchObject({
+      ok: false,
+      status: 401,
+    });
+    expect(authorizeUpgrade(req({
+      ip: '10.1.1.1',
+      url: '/stream?token=secret-token',
+      headers: host,
+    }), env).ok).toBe(true);
+  });
+
+  it('缺少或对不上的 Host 返回 403，默认放行带端口的回环名', () => {
+    expect(authorizeUpgrade(req({ url: '/stream' }), env)).toMatchObject({
+      ok: false,
+      reason: 'forbidden-host',
+      status: 403,
+    });
+    expect(authorizeUpgrade(req({
+      url: '/stream',
+      headers: { host: 'evil.com' },
+    }), env)).toMatchObject({ ok: false, reason: 'forbidden-host', status: 403 });
+    expect(authorizeUpgrade(req({
+      url: '/stream',
+      headers: { host: 'localhost:8080' },
+    }), env).ok).toBe(true);
+    expect(authorizeUpgrade(req({
+      url: '/stream',
+      headers: { host: '[::1]:8080' },
+    }), env).ok).toBe(true);
+  });
+
+  it('WebSocket 校验 Origin：evil.com 拒绝，缺省放行，白名单域名放行', () => {
+    expect(authorizeUpgrade(req({
+      url: '/stream',
+      headers: { host: '127.0.0.1', origin: 'http://evil.com' },
+    }), env)).toMatchObject({ ok: false, reason: 'forbidden-origin', status: 403 });
+    expect(authorizeUpgrade(req({
+      url: '/stream',
+      headers: { host: '127.0.0.1', origin: 'null' },
+    }), env)).toMatchObject({ ok: false, reason: 'forbidden-origin', status: 403 });
+    expect(authorizeUpgrade(req({
+      url: '/stream',
+      headers: { host: '127.0.0.1', origin: 'http://127.0.0.1:8080' },
+    }), env).ok).toBe(true);
+
+    const allowed = {
+      CLAUDIO_API_TOKEN: 'secret-token',
+      CLAUDIO_ALLOWED_HOSTS: 'radio.example.com',
+    };
+    expect(authorizeUpgrade(req({
+      ip: '10.1.1.1',
+      url: '/stream?token=secret-token',
+      headers: { host: 'radio.example.com', origin: 'https://radio.example.com' },
+    }), allowed).ok).toBe(true);
+    expect(authorizeUpgrade(req({
+      ip: '10.1.1.1',
+      url: '/stream?token=secret-token',
+      headers: { host: 'radio.example.com', origin: 'https://evil.com' },
+    }), allowed)).toMatchObject({ ok: false, reason: 'forbidden-origin', status: 403 });
   });
 });
 
@@ -150,5 +310,17 @@ describe('app 接线', () => {
     expect(source).toContain('resolveListenHost');
     expect(source).toMatch(/server\.listen\(PORT,\s*HOST/);
     expect(source).toContain('authorizeUpgrade');
+    expect(source).toContain('hostGuard');
+    expect(source).toContain('mountSessionRoute');
+    expect(source).toContain('403');
+    expect(source).toContain('Forbidden');
+    const hostAt = source.indexOf('app.use(hostGuard)');
+    const staticAt = source.indexOf('express.static');
+    const authAt = source.indexOf('app.use(authMiddleware)');
+    const sessionAt = source.indexOf('mountSessionRoute(app)');
+    expect(hostAt).toBeGreaterThan(-1);
+    expect(hostAt).toBeLessThan(staticAt);
+    expect(staticAt).toBeLessThan(authAt);
+    expect(authAt).toBeLessThan(sessionAt);
   });
 });

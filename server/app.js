@@ -26,6 +26,8 @@ import { detectSignal, appendJournalEntry } from './services/journal.js';
 import { mountPlaylistRoutes } from './api/playlists.js';
 import { mountExternalQueueRoutes } from './api/external-queue.js';
 import { authMiddleware, authorizeUpgrade } from './auth.js';
+import { hostGuard } from './host-guard.js';
+import { mountSessionRoute } from './session.js';
 import { resolveListenHost } from './listen.js';
 import { axiosProxyOptions } from './outbound-proxy.js';
 
@@ -35,6 +37,8 @@ const PORT = Number(process.env.PORT) || 8080;
 const HOST = resolveListenHost();
 
 const app = express();
+// Host 白名单放在静态文件和 JSON 解析之前，对不上直接 403。
+app.use(hostGuard);
 app.use(express.json({ limit: '1mb' }));
 
 // 简单运行时状态（in-memory）：当前 queue + 索引
@@ -63,8 +67,10 @@ function broadcast(event) {
 // ────────────────────────────────────────────────────────
 app.use(express.static(path.join(ROOT, 'pwa'), { extensions: ['html'] }));
 
-// 静态壳层保持公开。/api/* 与 /tts/* 走鉴权：回环来源放行，其余要 token。
+// 静态壳层保持公开。/api/* 与 /tts/* 走鉴权。
+// 默认回环放行；CLAUDIO_REQUIRE_TOKEN 打开后回环也要令牌或会话 cookie。
 app.use(authMiddleware);
+mountSessionRoute(app);
 
 // ────────────────────────────────────────────────────────
 // API
@@ -347,8 +353,9 @@ const server = http.createServer(app);
 server.on('upgrade', (req, socket, head) => {
   const decision = authorizeUpgrade(req);
   if (!decision.ok) {
-    if (decision.reason !== 'not-stream') {
-      socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+    const statusText = { 401: 'Unauthorized', 403: 'Forbidden' };
+    if (decision.status && statusText[decision.status]) {
+      socket.write(`HTTP/1.1 ${decision.status} ${statusText[decision.status]}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
     }
     socket.destroy();
     return;

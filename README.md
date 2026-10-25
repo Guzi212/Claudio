@@ -49,6 +49,7 @@ copy .env.example .env
 - `KUGOU_USERNAME` / `KUGOU_PASSWORD`（推荐自动登录）
 - 或者 `KUGOU_COOKIE`（手动从浏览器抓 cookie 粘贴）
 - 本机升级后如果要给外部 bot 用，再补 `CLAUDIO_API_TOKEN`（见下面「监听地址与鉴权」）
+- 反代或内网穿透转到本机时，打开 `CLAUDIO_REQUIRE_TOKEN`，并用 `CLAUDIO_ALLOWED_HOSTS` 放行穿透域名
 - 开着 Clash 且酷狗直连被挡时，补 `KUGOU_PROXY`（见下面「Clash / 代理」）
 
 填一下 `user/taste.md` —— 至少几行"喜欢的歌手"和"一两个场景偏好"。Claudio 才不会推荐通用电台。
@@ -137,7 +138,7 @@ npm run dev:app
 
 ## 监听地址与鉴权
 
-默认只听 `127.0.0.1`（`CLAUDIO_HOST`）。本机浏览器打开 `http://127.0.0.1:8080` 时，PWA、`<audio>` 和 WebSocket 都走回环，**不需要 token**。
+默认只听 `127.0.0.1`（`CLAUDIO_HOST`）。本机浏览器打开 `http://127.0.0.1:8080` 时，PWA、`<audio>` 和 WebSocket 都走回环。`CLAUDIO_REQUIRE_TOKEN` 默认关闭，这时回环不需要 token。
 
 `/api/*`、`/tts/*`（Fish 合成的 mp3）和 WebSocket `/stream` 对非回环来源要令牌。静态页面（HTML / JS / CSS）保持公开，里面不写密钥。
 
@@ -150,16 +151,54 @@ X-Claudio-Token: <token>
 
 `<audio>` 和部分 WebSocket 客户端加不了 Header，也可以把 `?token=` 放在 URL 上。这个值会出现在访问日志里，bot 优先用 Header。
 
-不看 `X-Forwarded-For`。前面再套一层反代、而反代本身跑在本机时，所有人都会被当成回环，等于鉴权失效。
+不看 `X-Forwarded-For`。前面再套一层反代、而反代本身跑在本机时，所有人都会被当成回环，等于鉴权失效。把外网穿透或反代转到 `127.0.0.1` 之前，先打开令牌开关：
 
-`CLAUDIO_API_TOKEN` 留空时，非回环请求一律 401。要让另一台机器上的 bot 调用：
+```env
+CLAUDIO_API_TOKEN=一段足够长的随机串
+CLAUDIO_REQUIRE_TOKEN=1
+```
+
+`1` / `true` / `on` / `yes` 都算打开，其它值（包括空）算关闭。打开后回环也要凭证。令牌还没填就打开开关的话，连本机也会 401。
+
+本机 PWA 仍然不用把密钥写进静态文件。浏览器打开一次：
+
+```text
+http://127.0.0.1:8080/?token=你的令牌
+```
+
+页面会做这几步：
+
+1. 用这个令牌 `POST /api/session`（`Authorization: Bearer`，`credentials: same-origin`）。这一下必须是令牌本身：回环免检和已经种下的 cookie 都不能签发新会话，避免开关打开之前有人先种一张以后拿来用。
+2. 服务端核过后种下 cookie：名字 `claudio_session`，`HttpOnly`、`SameSite=Strict`、`Path=/`，大约 30 天。值是随机会话 id，不是 `CLAUDIO_API_TOKEN` 本身。本机是 HTTP，所以不加强制 `Secure`；只有连接本身是 TLS 时才加。
+3. 成功后用 `history.replaceState` 把地址栏里的 `token` 去掉，`view` 之类的其它参数还在。
+4. 之后同一站点上的 `fetch`、`<audio>`、WebSocket 都会带上这个 cookie。
+
+会话记在进程内存里。Claudio 重启后要再打开一次带 `?token=` 的地址。`SameSite=Strict` 让别的网站带不走这张 cookie。不要把带 token 的地址转给别人；它只在地址栏里待到换 cookie 完成。
+
+`CLAUDIO_API_TOKEN` 留空且开关关闭时，非回环请求一律 401。要让另一台机器上的 bot 调用：
 
 ```env
 CLAUDIO_HOST=0.0.0.0
 CLAUDIO_API_TOKEN=一段足够长的随机串
 ```
 
-本机 PWA 仍然不用带这个串。手机或局域网里的浏览器不是回环，页面能打开，但接口会 401，除非请求自己带上 token。
+手机或局域网里的浏览器不是回环。开关关闭时，页面能打开，但接口会 401，除非请求自己带上 token，或者先用 `?token=` 换过 cookie。局域网或穿透域名还要写进下面的 Host 白名单，否则直接 403。
+
+### Host 白名单（DNS 重绑定）
+
+每个 HTTP 请求和每次 WebSocket 升级都会看 `Host`。默认只放行 `localhost`、`127.0.0.1`、`[::1]`，带不带端口都行。对不上返回 403 `{ "ok": false, "error": "forbidden host" }`，响应里不回显 Host。
+
+用局域网 IP 或穿透域名时：
+
+```env
+CLAUDIO_ALLOWED_HOSTS=192.168.1.20,radio.example.com
+```
+
+逗号分隔。只写主机名表示任意端口。写成 `radio.example.com:8443` 则只放行这个端口（浏览器访问默认的 80/443 时，Host 往往不带端口，这种时候只写主机名）。`0x7f.0.0.1`、带前导零的 IPv4 这类写法不会被当成 `127.0.0.1`。IPv6 带端口要写成 `[::1]:8080`，不要写成 `::1:8080`。
+
+WebSocket 还会看 `Origin`。没有 Origin（非浏览器的 bot）放行，鉴权仍然要过。`Origin: null`、解析不了、不是 `http`/`https`，或主机不在同一份白名单里，返回 403。浏览器从 `evil.com` 连本机回环的 WebSocket 会被拒绝。
+
+反代如果把 Host 改写成 `127.0.0.1`，Host 检查会把它当成本机，这时要靠 `CLAUDIO_REQUIRE_TOKEN` 挡住穿透进来的流量。反代如果原样转发外部 Host，这个名字必须在 `CLAUDIO_ALLOWED_HOSTS` 里。WebSocket 的 Origin 是页面自己的源：即使 Host 被改写，穿透域名不在白名单里，PWA 的 WebSocket 也会 403。
 
 ## 外部歌单（Bot）
 
