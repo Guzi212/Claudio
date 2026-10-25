@@ -5,7 +5,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 describe('services/kugou', () => {
   beforeEach(() => {
+    vi.doUnmock('axios');
+    vi.doUnmock('../server/db.js');
     vi.resetModules();
+    delete process.env.KUGOU_PROXY;
   });
 
   it('导出 search / songUrl / lyric / resolveTrack', async () => {
@@ -82,5 +85,117 @@ describe('services/kugou', () => {
     expect(r.length).toBe(0);
 
     process.env.KUGOU_API_BASE = orig;
+  });
+
+  it('resolveTrack 跳过未点名的 DJ 版，选中原版', async () => {
+    vi.doMock('../server/db.js', () => ({
+      dbApi: { getPref: () => '', addUnmatched: vi.fn() },
+    }));
+    const get = vi.fn(async path => {
+      if (String(path).includes('/search')) {
+        return {
+          data: {
+            data: {
+              lists: [
+                { FileHash: 'DJ1', SongName: '晴天DJ版', SingerName: '周杰伦' },
+                { FileHash: 'GOOD', OriSongName: '晴天', SingerName: '周杰伦', AlbumID: 9, MixSongID: 100 },
+              ],
+            },
+          },
+        };
+      }
+      return { data: { url: 'https://cdn.kugou.com/good.mp3' } };
+    });
+    vi.doMock('axios', () => ({ default: { create: () => ({ get, post: vi.fn() }) } }));
+    const { resolveTrack } = await import('../server/services/kugou.js');
+    const result = await resolveTrack({ title: '晴天', artist: '周杰伦' });
+    expect(result.kugouId).toBe('GOOD');
+    expect(result.albumId).toBe(9);
+    expect(result.mixsongid).toBe(100);
+    expect(result.upstreamUrl).toBe('https://cdn.kugou.com/good.mp3');
+  });
+
+  it('只有 DJ 版时记 unmatched 并返回 null', async () => {
+    const addUnmatched = vi.fn();
+    vi.doMock('../server/db.js', () => ({
+      dbApi: { getPref: () => '', addUnmatched },
+    }));
+    vi.doMock('axios', () => ({
+      default: {
+        create: () => ({
+          get: vi.fn(async () => ({
+            data: { data: { lists: [{ FileHash: 'DJ1', SongName: '晴天DJ版', SingerName: '周杰伦' }] } },
+          })),
+          post: vi.fn(),
+        }),
+      },
+    }));
+    const { resolveTrack } = await import('../server/services/kugou.js');
+    await expect(resolveTrack({ title: '晴天', artist: '周杰伦' })).resolves.toBeNull();
+    expect(addUnmatched).toHaveBeenCalledWith(expect.objectContaining({ title: '晴天', artist: '周杰伦' }));
+  });
+
+  it('本机 KuGouMusicApi 不走 KUGOU_PROXY', async () => {
+    process.env.KUGOU_PROXY = 'http://127.0.0.1:7890';
+    process.env.KUGOU_API_BASE = 'http://127.0.0.1:3000';
+    const create = vi.fn(() => ({
+      get: vi.fn(async () => ({ data: {} })),
+      post: vi.fn(),
+    }));
+    vi.doMock('axios', () => ({ default: { create } }));
+    vi.doMock('../server/db.js', () => ({ dbApi: { getPref: () => '' } }));
+    const { search } = await import('../server/services/kugou.js');
+    await search({ title: '晴天' });
+    expect(create.mock.calls[0][0].proxy).toBe(false);
+  });
+
+  it('playlist/add 用 type=0 新建歌单', async () => {
+    const post = vi.fn(async () => ({
+      data: { status: 1, data: { listid: 12, global_collection_id: 'g12' } },
+    }));
+    vi.doMock('axios', () => ({ default: { create: () => ({ post, get: vi.fn() }) } }));
+    vi.doMock('../server/db.js', () => ({ dbApi: { getPref: () => 'token=1' } }));
+    const { createUserPlaylist } = await import('../server/services/kugou.js');
+    const created = await createUserPlaylist({ name: 'Claudio推荐' });
+    expect(post).toHaveBeenCalledWith('/playlist/add', null, expect.objectContaining({
+      params: expect.objectContaining({
+        name: 'Claudio推荐',
+        type: 0,
+        source: 1,
+        list_create_userid: 0,
+        list_create_listid: 0,
+      }),
+    }));
+    expect(created).toMatchObject({ listid: '12', globalCollectionId: 'g12', name: 'Claudio推荐' });
+  });
+
+  it('playlist/tracks/add 与 del 使用上游约定的参数', async () => {
+    const post = vi.fn(async () => ({ data: { status: 1 } }));
+    vi.doMock('axios', () => ({ default: { create: () => ({ post, get: vi.fn() }) } }));
+    vi.doMock('../server/db.js', () => ({ dbApi: { getPref: () => '' } }));
+    const { addPlaylistTracks, deletePlaylistTracks, formatPlaylistTrackData } = await import('../server/services/kugou.js');
+    expect(formatPlaylistTrackData([
+      { title: '晴天,DJ', kugouId: 'HASH', albumId: '9', mixsongid: '3' },
+    ])).toBe('晴天 DJ|HASH|9|3');
+
+    await addPlaylistTracks({
+      listid: '12',
+      tracks: [{ title: '晴天', kugouId: 'HASH' }],
+    });
+    expect(post).toHaveBeenCalledWith('/playlist/tracks/add', null, {
+      params: { listid: '12', data: '晴天|HASH' },
+    });
+
+    await deletePlaylistTracks({ listid: '12', fileids: ['9', '10'] });
+    expect(post).toHaveBeenCalledWith('/playlist/tracks/del', null, {
+      params: { listid: '12', fileids: '9,10' },
+    });
+  });
+
+  it('playlistFileId 读取 fileid，忽略 0', async () => {
+    const { playlistFileId } = await import('../server/services/kugou.js');
+    expect(playlistFileId({ fileid: 42 })).toBe('42');
+    expect(playlistFileId({ file_id: '7' })).toBe('7');
+    expect(playlistFileId({ fileid: 0 })).toBe('');
   });
 });

@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { config as loadEnv } from 'dotenv';
 
 const THIS_FILE = fileURLToPath(import.meta.url);
 const PROJECT_ROOT = path.resolve(path.dirname(THIS_FILE), '..');
@@ -23,10 +24,12 @@ export function buildDevConfig({
 } = {}) {
   const kugouApiBase = env.KUGOU_API_BASE || DEFAULT_KUGOU_API_BASE;
   const kugouApiDir = path.resolve(projectRoot, env.KUGOU_API_DIR || '../KuGouMusicApi');
+  const kugouProxy = String(env.KUGOU_PROXY || '').trim();
 
   return {
     kugouApiBase,
     kugouApiDir,
+    kugouProxy,
     kugou: {
       command: npmCommand(platform),
       args: ['start'],
@@ -105,6 +108,11 @@ export async function startDev({
     ...env,
     KUGOU_API_BASE: config.kugouApiBase,
   };
+  // 上游 util/runtime.js 的 resolveProxy() 只读 KUGOU_API_PROXY，不读 HTTP(S)_PROXY。
+  // 所以这里不设置 HTTP_PROXY / HTTPS_PROXY，只把 Claudio 的 KUGOU_PROXY 抄给上游。
+  const kugouEnv = config.kugouProxy
+    ? { ...childEnv, KUGOU_API_PROXY: config.kugouProxy }
+    : childEnv;
   const children = [];
   let shuttingDown = false;
 
@@ -127,10 +135,16 @@ export async function startDev({
   let kugouStarted = false;
   if (await isApiReachable(config.kugouApiBase)) {
     log(`[dev] KuGouMusicApi already reachable at ${config.kugouApiBase}`);
+    if (config.kugouProxy) {
+      log('[dev] KUGOU_PROXY is set, but KuGouMusicApi is already running so KUGOU_API_PROXY was not applied. Restart it from this command, or export KUGOU_API_PROXY in that process.');
+    }
   } else {
+    if (config.kugouProxy) {
+      log('[dev] forwarding KUGOU_PROXY to KuGouMusicApi as KUGOU_API_PROXY');
+    }
     const kugouChild = spawnChild({
       ...config.kugou,
-      env: childEnv,
+      env: kugouEnv,
       spawnProcess,
       log,
       label: 'KuGouMusicApi',
@@ -175,6 +189,7 @@ export async function startDev({
 }
 
 if (path.resolve(process.argv[1] || '') === THIS_FILE) {
+  loadEnv();
   startDev({ manageSignals: true }).catch(err => {
     console.error(`[dev] ${err.message}`);
     process.exit(1);
