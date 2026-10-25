@@ -232,6 +232,97 @@ describe('scheduler · job 触发行为', () => {
     expect(runtime.queue[0].title).toBe('旧');
     expect(runtime.lastSay).toBe('随便聊聊');
   });
+
+  it('外部队列还没放完时跳过替换并记日志', async () => {
+    const { start } = await import('../server/scheduler.js');
+    const cronLib = fakeCronLib();
+    const runtime = fakeRuntime({
+      active: true,
+      queue: [{ title: '外部', artist: 'Bot' }, { title: '第二首', artist: 'Bot' }],
+      index: 0,
+      queueSource: 'bot',
+      trackEnded: false,
+      lastSay: '先听这个',
+    });
+    const log = vi.fn();
+    const askFn = vi.fn(async () => ({
+      say: '换掉',
+      queue: [{ title: '定时', artist: 'AI' }],
+      reason: 'hour',
+    }));
+    start({
+      runtime, broadcast: vi.fn(), log,
+      ask: askFn,
+      buildSystemPrompt: () => '',
+      cronLib,
+    });
+    const hourly = cronLib.captured.find(c => c.expr === '0 * * * *');
+    await hourly.cb();
+    expect(askFn).not.toHaveBeenCalled();
+    expect(runtime.queue[0].title).toBe('外部');
+    expect(runtime.lastSay).toBe('先听这个');
+    expect(log.mock.calls.map(c => String(c[0])).join('|')).toMatch(/skipped \(external queue active\)/);
+  });
+
+  it('ask 等待期间写入的外部队列不会被换掉', async () => {
+    const { start } = await import('../server/scheduler.js');
+    const cronLib = fakeCronLib();
+    const runtime = fakeRuntime({ active: true, queue: [], queueSource: null, trackEnded: false });
+    let release;
+    const started = new Promise(resolve => { release = resolve; });
+    const askFn = vi.fn(() => new Promise(resolve => {
+      release();
+      askFn._resolve = resolve;
+    }));
+    const log = vi.fn();
+    start({
+      runtime, broadcast: vi.fn(), log,
+      ask: askFn,
+      buildSystemPrompt: async () => '',
+      cronLib,
+    });
+    const plan = cronLib.captured.find(c => c.expr === '0 7 * * *');
+    const pending = plan.cb();
+    await started;
+    runtime.queue = [{ title: '外部', artist: 'Bot' }];
+    runtime.queueSource = 'bot';
+    runtime.index = 0;
+    runtime.trackEnded = false;
+    askFn._resolve({ say: '早', queue: [{ title: '定时', artist: 'AI' }], reason: '' });
+    await pending;
+    expect(runtime.queue[0].title).toBe('外部');
+    expect(runtime.queueSource).toBe('bot');
+    expect(log.mock.calls.map(c => String(c[0])).join('|')).toMatch(/skipped \(external queue active\)/);
+  });
+
+  it('外部队列放完后定时任务可以换歌', async () => {
+    const { start } = await import('../server/scheduler.js');
+    const cronLib = fakeCronLib();
+    const runtime = fakeRuntime({
+      queue: [{ title: '外部', artist: 'Bot' }],
+      index: 0,
+      queueSource: 'bot',
+      trackEnded: true,
+      lastSay: '',
+    });
+    const askFn = vi.fn(async () => ({
+      say: '新的早上',
+      queue: [{ title: '定时', artist: 'AI' }],
+      reason: 'morning',
+    }));
+    start({
+      runtime, broadcast: () => {}, log: () => {},
+      ask: askFn,
+      buildSystemPrompt: () => '',
+      cronLib,
+    });
+    const plan = cronLib.captured.find(c => c.expr === '0 7 * * *');
+    await plan.cb();
+    expect(runtime.queue[0].title).toBe('定时');
+    expect(runtime.queueSource).toBe('scheduler');
+    expect(runtime.index).toBe(0);
+    expect(runtime.trackEnded).toBe(false);
+  });
 });
 
 describe('scheduler · 日历 hook 预留接口', () => {

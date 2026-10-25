@@ -3,6 +3,8 @@
 import { dbApi as defaultDb } from '../db.js';
 import { resolveTrack as defaultResolveTrack } from '../services/kugou.js';
 import { writeTracksToPlaylist as defaultWriteTracks } from '../services/kugou-playlist-write.js';
+import { markQueueSource } from '../queue-source.js';
+import { synthesize as defaultSynthesize } from '../tts.js';
 
 export const DEFAULT_PLAYLIST_NAME = 'Claudio推荐';
 const MAX_TRACKS = 100;
@@ -46,6 +48,7 @@ export function mountExternalQueueRoutes(app, deps = {}) {
     ? deps.getRuntime
     : () => deps.runtime;
   const broadcast = typeof deps.broadcast === 'function' ? deps.broadcast : () => {};
+  const synthesize = deps.synthesize || defaultSynthesize;
 
   app.post('/api/queue/external', async (req, res) => {
     const body = req.body || {};
@@ -126,20 +129,48 @@ export function mountExternalQueueRoutes(app, deps = {}) {
         res.status(500).json({ ok: false, error: 'runtime 不可用' });
         return;
       }
+      if (say) {
+        try {
+          const voice = await synthesize(say);
+          if (voice?.url) {
+            queueItems.unshift({
+              title: '🔊 ' + say.slice(0, 40),
+              artist: 'Claudio',
+              album: '',
+              duration: 0,
+              kugouId: '',
+              audioUrl: voice.url,
+              comment: '',
+              source: 'bot',
+              isTts: true,
+            });
+          }
+        } catch (err) {
+          console.warn('[external-queue] tts skipped:', err.message);
+        }
+      }
       if (mode === 'replace') {
         runtime.queue = queueItems;
         runtime.index = 0;
         runtime.paused = false;
+        markQueueSource(runtime, 'bot');
       } else {
         const wasEmpty = !Array.isArray(runtime.queue) || runtime.queue.length === 0;
         runtime.queue = [...(runtime.queue || []), ...queueItems];
         if (wasEmpty) {
           runtime.index = 0;
           runtime.paused = false;
+          markQueueSource(runtime, 'bot');
+        } else {
+          // 接到正在播的队列后面：来源改成 bot，避免开机/定时任务把还没放的歌清掉。
+          // 当前这首如果已经结束，保留 trackEnded，后面的新歌仍然算没放完。
+          runtime.queueSource = 'bot';
         }
       }
       if (say) runtime.lastSay = say;
+      if (reason) runtime.lastReason = reason;
       for (const item of queueItems) {
+        if (item.isTts) continue;
         db.addPlay({
           kugouId: item.kugouId,
           title: item.title,
@@ -148,7 +179,7 @@ export function mountExternalQueueRoutes(app, deps = {}) {
           source: 'bot',
         });
       }
-      broadcast({ type: 'external-queue', mode, tracks: queueItems, say });
+      broadcast({ type: 'external-queue', mode, tracks: queueItems, say, reason });
       broadcast({ type: 'state', runtime });
       queueResult = { mode, added: queueItems.length, length: runtime.queue.length };
     } else if (touchQueue) {

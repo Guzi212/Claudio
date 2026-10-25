@@ -228,6 +228,32 @@ describe('POST /api/queue/external', () => {
     expect(runtime.queue).toHaveLength(1);
   });
 
+  it('say 能合成时插到队列第一条，合成失败就跳过', async () => {
+    const synthesize = vi.fn(async () => ({ url: '/tts/abc.mp3', hash: 'abc', filePath: '/tmp/abc.mp3' }));
+    const { app, runtime, addPlay } = setup({ synthesize });
+    const res = mockRes();
+    await app.routes['POST /api/queue/external']({
+      body: { tracks: [{ title: '晴天', artist: '周杰伦' }], say: '今晚先听这轮' },
+    }, res);
+    expect(synthesize).toHaveBeenCalledWith('今晚先听这轮');
+    expect(runtime.queue[0]).toMatchObject({ isTts: true, audioUrl: '/tts/abc.mp3' });
+    expect(runtime.queue[1].title).toBe('晴天');
+    expect(addPlay).toHaveBeenCalledTimes(1);
+    expect(runtime.lastSay).toBe('今晚先听这轮');
+
+    const silent = vi.fn(async () => null);
+    const second = setup({
+      synthesize: silent,
+      runtime: { queue: [], index: 0, paused: false, lastSay: '' },
+    });
+    const res2 = mockRes();
+    await second.app.routes['POST /api/queue/external']({
+      body: { tracks: [{ title: '晴天', artist: '周杰伦' }], say: '没声音也行' },
+    }, res2);
+    expect(second.runtime.queue).toHaveLength(1);
+    expect(second.runtime.queue[0].isTts).toBeUndefined();
+  });
+
   it('缺 tracks 或模式非法时 400', async () => {
     const { app } = setup();
     const missing = mockRes();

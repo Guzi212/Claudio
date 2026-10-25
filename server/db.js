@@ -45,8 +45,18 @@ db.exec(`
     ts     INTEGER NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS feedback (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind      TEXT NOT NULL,
+    kugou_id  TEXT,
+    title     TEXT,
+    artist    TEXT,
+    ts        INTEGER NOT NULL
+  );
+
   CREATE INDEX IF NOT EXISTS idx_messages_ts ON messages(ts DESC);
   CREATE INDEX IF NOT EXISTS idx_plays_ts ON plays(ts DESC);
+  CREATE INDEX IF NOT EXISTS idx_feedback_ts ON feedback(ts DESC);
 `);
 
 // 已有库的 plays.source 约束是建表时写死的。CREATE TABLE IF NOT EXISTS 不会改它，
@@ -100,6 +110,8 @@ const stmts = {
   delPref: db.prepare(`DELETE FROM prefs WHERE key = ?`),
   insertUnmatched: db.prepare(`INSERT INTO unmatched (title, artist, hint, ts) VALUES (?, ?, ?, ?)`),
   recentUnmatched: db.prepare(`SELECT id, title, artist, hint, ts FROM unmatched ORDER BY ts DESC LIMIT ?`),
+  insertFeedback: db.prepare(`INSERT INTO feedback (kind, kugou_id, title, artist, ts) VALUES (?, ?, ?, ?, ?)`),
+  recentFeedback: db.prepare(`SELECT id, kind, kugou_id, title, artist, ts FROM feedback ORDER BY ts DESC LIMIT ?`),
 };
 
 export const dbApi = {
@@ -138,6 +150,14 @@ export const dbApi = {
 
   recentUnmatched(n = 50) {
     return stmts.recentUnmatched.all(n);
+  },
+
+  addFeedback({ kind, kugouId = null, title = '', artist = '' }) {
+    return stmts.insertFeedback.run(kind, kugouId, title || '', artist || '', Date.now()).lastInsertRowid;
+  },
+
+  recentFeedback(n = 20) {
+    return stmts.recentFeedback.all(n);
   },
 
   raw: db,
