@@ -254,6 +254,39 @@ describe('POST /api/queue/external', () => {
     expect(second.runtime.queue[0].isTts).toBeUndefined();
   });
 
+  it('没带 volume（缺省或 null）时不改已保存的音量', async () => {
+    const prefs = { player_volume: '42' };
+    const setPref = vi.fn();
+    const runtime = { queue: [], index: 0, paused: true, lastSay: '', volume: 42 };
+    const db = {
+      addPlay: vi.fn(),
+      getPref: key => prefs[key] ?? null,
+      setPref: (key, value) => {
+        setPref(key, value);
+        prefs[key] = value == null ? null : String(value);
+      },
+    };
+    const { app } = setup({ runtime, db });
+
+    const omitted = mockRes();
+    await app.routes['POST /api/queue/external']({
+      body: { tracks: [{ title: '晴天', artist: '周杰伦' }] },
+    }, omitted);
+    expect(omitted.statusCode).toBe(200);
+    expect(runtime.volume).toBe(42);
+    expect(prefs.player_volume).toBe('42');
+    expect(setPref).not.toHaveBeenCalled();
+
+    const explicitNull = mockRes();
+    await app.routes['POST /api/queue/external']({
+      body: { tracks: [{ title: '七里香', artist: '周杰伦' }], volume: null, mode: 'append' },
+    }, explicitNull);
+    expect(explicitNull.statusCode).toBe(200);
+    expect(runtime.volume).toBe(42);
+    expect(prefs.player_volume).toBe('42');
+    expect(setPref).not.toHaveBeenCalled();
+  });
+
   it('缺 tracks 或模式非法时 400', async () => {
     const { app } = setup();
     const missing = mockRes();

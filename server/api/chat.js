@@ -24,6 +24,7 @@ export function mountChatRoute(app, deps = {}) {
   const getBrain = typeof deps.brain === 'function'
     ? deps.brain
     : () => deps.brain || brainMode();
+  const rememberVolume = typeof deps.rememberVolume === 'function' ? deps.rememberVolume : () => {};
 
   app.post('/api/chat', async (req, res) => {
     const message = String(req.body?.message || '').trim();
@@ -52,6 +53,9 @@ export function mountChatRoute(app, deps = {}) {
       }
       if (result.feedback) {
         try { db.addFeedback(result.feedback); } catch { /* 反馈写失败不影响控制 */ }
+      }
+      if (result.command === 'volume') {
+        try { rememberVolume(result.volume, { force: true }); } catch { /* 音量记失败不影响这次控制 */ }
       }
       db.addMessage('assistant', `(control: ${intent.command}) ${result.say}`);
       broadcast({ type: 'state', runtime });

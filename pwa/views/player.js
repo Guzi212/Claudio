@@ -6,6 +6,7 @@ import { planExternalPlayback } from '../external-playback.js';
 import { planBootPlayback } from '../boot-playback.js';
 import { planRuntimeSync } from '../runtime-sync.js';
 import { externalUnlockPlan } from '../player-mode.js';
+import { readLocalVolume, writeLocalVolume } from '../volume-memory.js';
 
 function escapeHtml(str) {
   return String(str)
@@ -80,6 +81,23 @@ function applyBrainChrome() {
   }
 }
 
+function paintVolume(volume) {
+  if (!npVol || !audio || !Number.isFinite(volume)) return;
+  npVol.value = String(volume);
+  audio.volume = volume / 100;
+  npVol.style.setProperty('--vol-pct', `${volume}%`);
+}
+
+function applyLocalVolume() {
+  paintVolume(readLocalVolume());
+}
+
+function applyHeardVolume(volume) {
+  const next = writeLocalVolume(volume);
+  if (next == null) return;
+  paintVolume(next);
+}
+
 function reportProgress(force = false) {
   if (!audio) return;
   const now = Date.now();
@@ -89,7 +107,7 @@ function reportProgress(force = false) {
     detail: {
       currentTime: Number.isFinite(audio.currentTime) ? audio.currentTime : 0,
       duration: Number.isFinite(audio.duration) ? audio.duration : 0,
-      volume: npVol ? Number(npVol.value) : 100,
+      volume: npVol ? Number(npVol.value) : readLocalVolume(),
       paused: Boolean(audio.paused),
       index: state.index,
     },
@@ -606,11 +624,7 @@ export function applyRuntime(runtime) {
     hasSrc: Boolean(audio?.getAttribute?.('src') || audio?.src),
     ended: Boolean(audio?.ended),
   }, runtime);
-  if (Number.isFinite(plan.volume) && npVol && audio) {
-    npVol.value = String(plan.volume);
-    audio.volume = plan.volume / 100;
-    npVol.style.setProperty('--vol-pct', `${plan.volume}%`);
-  }
+  if (Number.isFinite(plan.volume)) applyHeardVolume(plan.volume);
   if (plan.applyQueue && plan.playIndex == null) {
     state.queue = plan.queue || [];
     renderQueuePanel();
@@ -744,6 +758,7 @@ export function initPlayer() {
   npTimeCur = document.getElementById('np-time-cur');
   npTimeDur = document.getElementById('np-time-dur');
   npVol = document.getElementById('np-vol');
+  applyLocalVolume();
 
   audio.addEventListener('timeupdate', () => {
     updateSeekBar(audio.currentTime, audio.duration);
@@ -763,6 +778,7 @@ export function initPlayer() {
     npVol.addEventListener('input', () => {
       audio.volume = npVol.value / 100;
       npVol.style.setProperty('--vol-pct', `${npVol.value}%`);
+      writeLocalVolume(npVol.value);
       reportProgress(true);
     });
   }
@@ -837,11 +853,7 @@ async function bootCurrent() {
     brain = data.brain === 'internal' ? 'internal' : 'external';
     state.brain = brain;
     applyBrainChrome();
-    if (Number.isFinite(data.volume) && npVol) {
-      npVol.value = String(data.volume);
-      audio.volume = data.volume / 100;
-      npVol.style.setProperty('--vol-pct', `${data.volume}%`);
-    }
+    if (Number.isFinite(data.volume)) applyHeardVolume(data.volume);
     if (brain !== 'internal') {
       if (data.queue && data.queue.length) {
         state.queue = data.queue;
