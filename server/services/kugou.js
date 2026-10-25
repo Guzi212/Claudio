@@ -23,9 +23,14 @@ function client() {
   return axios.create({
     baseURL: BASE,
     timeout: 10_000,
-    headers: {
-      Cookie: getCookie(),
-    },
+    // ⚠️ 凭据必须走 query 参数，不能用 HTTP 的 Cookie 请求头。
+    // KuGouMusicApi 只从 req.query.cookie / req.body.cookie / Authorization 读取 cookie，
+    // 完全忽略 Cookie 请求头。用头传会让每次请求退化成匿名：
+    // 搜索/取直链拿不到登录态，还会触发 20028「本次请求需要验证」风控，
+    // 进而踢掉账号会话（手机上表现为「token 过期、要重新扫码」）。
+    // axios 会对 params 做深合并（见 axios/lib/core/mergeConfig.js 的 mergeDeepProperties），
+    // 所以在这里设默认值即可，各调用点的 params（keywords/hash/id…）会自动合并进来。
+    params: { cookie: getCookie() },
   });
 }
 
