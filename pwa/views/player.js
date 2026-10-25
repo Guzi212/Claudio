@@ -2,6 +2,7 @@
 // 入口：initPlayer() — 在 DOM 就绪后调用一次。
 // 对外：applyRuntime(runtime) — 让 app.js 把 WS 推来的 runtime 同步进来。
 import { showAlert, clearAlert, setStatus, toast } from './ui.js';
+import { planExternalPlayback } from '../external-playback.js';
 
 function escapeHtml(str) {
   return String(str)
@@ -547,6 +548,29 @@ export function applyRuntime(runtime) {
     state.index = runtime.index || 0;
     renderQueuePanel();
   }
+}
+
+// 外部 bot 推来的歌。replace 接管当前队列；append 只在没在播时开播。
+export function applyExternalQueue({ mode, tracks, say } = {}) {
+  const list = Array.isArray(tracks) ? tracks.filter(track => track && track.title) : [];
+  if (!list.length) return;
+  if (say) {
+    setConsoleDialog(say);
+    if (chat) addBubble('assistant', say, '(外部电台)');
+  }
+  const plan = planExternalPlayback({
+    queueLength: state.queue.length,
+    hasSrc: Boolean(audio?.getAttribute?.('src') || audio?.src),
+    ended: Boolean(audio?.ended),
+  }, { mode, incoming: list.length });
+  if (mode === 'append') {
+    state.queue = [...state.queue, ...list];
+  } else {
+    state.queue = list;
+    state.index = 0;
+  }
+  renderQueuePanel();
+  if (plan.playIndex != null) playIndex(plan.playIndex);
 }
 
 // boot 后台拉完追加的歌曲，通过 WS queue-append 推进来

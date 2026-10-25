@@ -15,6 +15,9 @@ Thumbs.db
 # Claude Code MCP (含本地路径和 token，不提交)
 .mcp.json
 
+# 本地 cookie 调试临时脚本
+.tmp-*.mjs
+
 # Editor
 .vscode/
 .idea/

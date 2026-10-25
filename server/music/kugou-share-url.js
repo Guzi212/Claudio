@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { axiosProxyOptions } from '../outbound-proxy.js';
 
 function extractFromQuery(urlObj) {
   const sp = urlObj.searchParams;
@@ -53,6 +54,7 @@ export async function parseShareUrl(rawUrl, { axiosClient = axios } = {}) {
       timeout: 10_000,
       maxRedirects: 5,
       validateStatus: status => status >= 200 && status < 400,
+      ...axiosProxyOptions(rawUrl),
     });
     resolvedUrl = res?.request?.res?.responseUrl || res?.config?.url || '';
   } catch (err) {

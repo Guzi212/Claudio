@@ -14,6 +14,7 @@ import 'dotenv/config';
 import { dbApi } from '../db.js';
 import { mergeCookieMap, serializeCookie, pickIdentity } from '../services/kugou-cookie.js';
 import { ensureDfid, COOKIE_PREF, REFRESHED_AT_PREF } from '../services/kugou-login.js';
+import { axiosProxyOptions } from '../outbound-proxy.js';
 
 const BASE = process.env.KUGOU_API_BASE || 'http://localhost:3000';
 const QR_KEY_PATH    = '/login/qr/key';
@@ -102,14 +103,14 @@ export async function checkRelogin(key, { httpGet = defaultGetFull, db = dbApi }
 
 async function defaultGet(url, params) {
   const { default: axios } = await import('axios');
-  const r = await axios.get(url, { params, timeout: 5_000 });
+  const r = await axios.get(url, { params, timeout: 5_000, ...axiosProxyOptions(url) });
   return r.data;
 }
 
 // checkRelogin 专用：额外捕获 Set-Cookie headers，以便 token 只出现在 cookie 里时也能提取
 async function defaultGetFull(url, params) {
   const { default: axios } = await import('axios');
-  const r = await axios.get(url, { params, timeout: 5_000 });
+  const r = await axios.get(url, { params, timeout: 5_000, ...axiosProxyOptions(url) });
   const cookies = {};
   for (const c of r.headers?.['set-cookie'] || []) {
     const [kv] = c.split(';');

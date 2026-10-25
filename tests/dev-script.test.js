@@ -89,4 +89,68 @@ describe('scripts/dev', () => {
     expect(spawnProcess.mock.calls[0][2].cwd).toBe('/Users/me/workspace/Claudio');
     expect(result.kugouStarted).toBe(false);
   });
+
+  it('把 KUGOU_PROXY 传给 KuGouMusicApi 的 KUGOU_API_PROXY，不设置 HTTP_PROXY', async () => {
+    const { startDev } = await import('../scripts/dev.js');
+    const spawnProcess = vi.fn(() => fakeChild());
+    const logs = [];
+
+    await startDev({
+      env: { KUGOU_PROXY: 'http://127.0.0.1:7890' },
+      projectRoot: '/Users/me/workspace/Claudio',
+      platform: 'darwin',
+      isApiReachable: async () => false,
+      waitForApi: async () => true,
+      spawnProcess,
+      log: message => logs.push(message),
+      error: () => {},
+    });
+
+    const kugouEnv = spawnProcess.mock.calls[0][2].env;
+    const claudioEnv = spawnProcess.mock.calls[1][2].env;
+    expect(kugouEnv.KUGOU_API_PROXY).toBe('http://127.0.0.1:7890');
+    expect(kugouEnv.KUGOU_PROXY).toBe('http://127.0.0.1:7890');
+    expect(kugouEnv.HTTP_PROXY).toBeUndefined();
+    expect(kugouEnv.HTTPS_PROXY).toBeUndefined();
+    expect(kugouEnv.http_proxy).toBeUndefined();
+    expect(claudioEnv.KUGOU_PROXY).toBe('http://127.0.0.1:7890');
+    expect(claudioEnv.KUGOU_API_PROXY).toBeUndefined();
+    expect(logs.some(line => line.includes('KUGOU_API_PROXY'))).toBe(true);
+  });
+
+  it('没填 KUGOU_PROXY 时不覆盖上游自己的 KUGOU_API_PROXY', async () => {
+    const { startDev } = await import('../scripts/dev.js');
+    const spawnProcess = vi.fn(() => fakeChild());
+
+    await startDev({
+      env: {},
+      projectRoot: '/Users/me/workspace/Claudio',
+      platform: 'darwin',
+      isApiReachable: async () => false,
+      waitForApi: async () => true,
+      spawnProcess,
+      log: () => {},
+      error: () => {},
+    });
+
+    expect(spawnProcess.mock.calls[0][2].env.KUGOU_API_PROXY).toBeUndefined();
+  });
+
+  it('上游已在跑时提醒 KUGOU_PROXY 没有注入进去', async () => {
+    const { startDev } = await import('../scripts/dev.js');
+    const logs = [];
+
+    await startDev({
+      env: { KUGOU_PROXY: 'http://127.0.0.1:7890' },
+      projectRoot: '/Users/me/workspace/Claudio',
+      platform: 'darwin',
+      isApiReachable: async () => true,
+      waitForApi: vi.fn(),
+      spawnProcess: vi.fn(() => fakeChild()),
+      log: message => logs.push(message),
+      error: () => {},
+    });
+
+    expect(logs.some(line => line.includes('already running'))).toBe(true);
+  });
 });
