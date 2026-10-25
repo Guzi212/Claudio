@@ -2,6 +2,7 @@ import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
 import axios from 'axios';
 import { dbApi } from '../db.js';
+import { axiosProxyOptions } from '../outbound-proxy.js';
 import { get as getSetting } from '../services/settings.js';
 
 const execAsync = promisify(exec);
@@ -14,9 +15,11 @@ async function checkKugou() {
   try {
     // ⚠️ 同 services/kugou.js：KuGouMusicApi 不读 Cookie 请求头，
     // 凭据必须作为 query 参数发送，否则永远被判为 token 过期。
-    const res = await axios.get(`${KUGOU_BASE}/user/detail`, {
+    const detailUrl = `${KUGOU_BASE}/user/detail`;
+    const res = await axios.get(detailUrl, {
       params: { cookie },
       timeout: 4_000,
+      ...axiosProxyOptions(detailUrl),
     });
     const d = res.data;
     if (d?.status === 1 || d?.userid || d?.data?.userid) {

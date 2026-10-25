@@ -29,3 +29,7 @@
 - `fix: wrap writeFileSync in try/catch to match read's silent-fail contract` — server/services/journal.js
 - `feat: auto-append journal entries after each Claude response` — server/app.js
 - `fix: stabilize player loop and auto recommendations` — pwa/index.html, pwa/views/player.js, tests/player-auto-advance.test.js
+
+## 2026-10-25
+- `feat: 给外部 bot 开放点歌，并加上接口鉴权与出站代理` — .env.example, .gitignore, README.md, pwa/app.js, pwa/external-playback.js, pwa/sw.js, pwa/views/player.js, scripts/dev.js, server/api/external-queue.js, server/api/health.js, server/api/kugou-relogin.js, server/app.js, server/auth.js, server/db.js, server/listen.js, server/music/kugou-share-url.js, server/outbound-proxy.js, server/services/kugou-login.js, server/services/kugou-playlist-write.js, server/services/kugou.js, tests/auth.test.js, tests/dev-script.test.js, tests/external-playback.test.js, tests/external-queue.test.js, tests/kugou-playlist-write.test.js, tests/kugou-share-url.test.js, tests/kugou.test.js, tests/listen-host.test.js, tests/outbound-proxy.test.js, tests/plays-source.test.js
+- `feat: 回环也可要求令牌，并校验 Host 防 DNS 重绑定` — .env.example, README.md, pwa/app.js, pwa/session-url.js, pwa/sw.js, server/app.js, server/auth.js, server/host-guard.js, server/session.js, tests/auth.test.js, tests/host-guard.test.js, tests/session-url.test.js, tests/session.test.js
