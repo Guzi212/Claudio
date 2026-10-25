@@ -47,6 +47,21 @@ describe('player console controls', () => {
     expect(playerJs).toContain('bindStudioThemes');
   });
 
+  it('播放页角落能打开歌单和设置', () => {
+    expect(indexHtml).toContain('id="corner-menu-btn"');
+    expect(indexHtml).toContain('data-view-jump="playlists"');
+    expect(indexHtml).toContain('data-view-jump="settings"');
+    const appJs = fs.readFileSync(path.resolve('pwa/app.js'), 'utf8');
+    expect(appJs).toContain('data-view-jump');
+    expect(appJs).toContain('bindCornerMenu');
+  });
+
+  it('DeepSeek 设置只在 external 模式隐藏', () => {
+    expect(stylesCss).toContain('body:not(.brain-internal) #settings-ai');
+    expect(stylesCss).not.toContain('#settings-ai { display: none !important; }');
+    expect(playerJs).toContain("classList.toggle('brain-internal'");
+  });
+
   it('样式定义了不同主题色', () => {
     expect(stylesCss).toContain('.studio-stage[data-theme="dark"]');
     expect(stylesCss).toContain('.studio-stage[data-theme="poetry"]');

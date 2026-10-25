@@ -1250,7 +1250,6 @@ body:not(.brain-internal) #settings-ai {
 }
 
 /* ──────── 银色晴天播放页。旧棚面样式留着，播放页不再使用。 ──────── */
-#settings-ai { display: none !important; }
 body.view-player { background: #080909; color: #f3f4f2; }
 body.view-player #topbar { display: none; }
 body.view-player #view-player {
@@ -1282,7 +1281,17 @@ body.view-player .shell .brand { display: flex; align-items: center; gap: 11px; 
 body.view-player .brand-mark { width: 26px; height: 26px; }
 body.view-player .wordmark { font-size: 26px; font-weight: 650; letter-spacing: -1.1px; }
 body.view-player .brand-caption { font-size: 12px; color: var(--muted); margin-left: 12px; border-left: 1px solid var(--line); padding-left: 20px; font-weight: 400; }
+body.view-player .masthead-tools { display: flex; align-items: center; gap: 10px; }
 body.view-player .edition { display: flex; gap: 8px; align-items: center; color: var(--secondary); font-size: 13px; }
+body.view-player .corner-menu { position: relative; }
+body.view-player .corner-button { width: 28px; height: 28px; padding: 0; display: grid; place-items: center; border-radius: 50%; border: 1px solid var(--line); background: transparent; color: var(--muted); }
+body.view-player .corner-button .icon { width: 14px; height: 14px; }
+body.view-player .corner-button:hover,
+body.view-player .corner-button[aria-expanded="true"] { color: var(--text); background: var(--hover); }
+body.view-player .corner-panel { position: absolute; top: calc(100% + 8px); right: 0; z-index: 6; min-width: 112px; padding: 6px; display: flex; flex-direction: column; gap: 2px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 16px 40px #0008; }
+body.view-player .corner-panel[hidden] { display: none; }
+body.view-player .corner-panel button { border: 0; background: none; color: var(--text); text-align: left; font-size: 13px; line-height: 20px; padding: 8px 10px; border-radius: 8px; }
+body.view-player .corner-panel button:hover { background: var(--hover); }
 body.view-player .edition .icon { width: 16px; height: 16px; color: var(--muted); }
 body.view-player .host { display: flex; align-items: flex-start; gap: 14px; padding: 16px 20px; background: var(--surface); border: 1px solid #232725; border-radius: 16px; }
 body.view-player .avatar { display: grid; place-items: center; width: 40px; height: 40px; flex: none; margin-top: 3px; }
@@ -1401,7 +1410,9 @@ body.view-player.paused .cover > img { animation-play-state: paused; }
   body.view-player .brand-mark { width: 23px; height: 23px; }
   body.view-player .wordmark { font-size: 24px; }
   body.view-player .brand-caption { display: none; }
+  body.view-player .masthead-tools { gap: 8px; }
   body.view-player .edition { font-size: 12px; gap: 6px; }
+  body.view-player .corner-button { width: 26px; height: 26px; }
   body.view-player .host { padding: 10px 13px; gap: 10px; border-radius: 14px; }
   body.view-player .avatar { width: 32px; height: 32px; margin-top: 2px; }
   body.view-player .avatar .pumpkin { width: 32px; height: 32px; }

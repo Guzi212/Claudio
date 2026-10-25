@@ -340,6 +340,31 @@ describe('POST /api/queue/external', () => {
       source: 'grok',
     }));
   });
+
+  it('reason、say、source 超长就截断，仍然 200', async () => {
+    const { app, runtime } = setup();
+    const res = mockRes();
+    await app.routes['POST /api/queue/external']({
+      body: {
+        say: `口${'播'.repeat(500)}`,
+        reason: '理'.repeat(230),
+        source: '来'.repeat(60),
+        tracks: [{ title: '晴天', artist: '周杰伦', reason: `歌${'词'.repeat(200)}` }],
+      },
+    }, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(Array.from(res.body.say)).toHaveLength(500);
+    expect(res.body.say.startsWith('口播')).toBe(true);
+    expect(Array.from(res.body.reason)).toHaveLength(200);
+    expect(runtime.lastSay).toBe(res.body.say);
+    expect(runtime.lastReason).toBe(res.body.reason);
+    expect(Array.from(runtime.queuedSource)).toHaveLength(40);
+    expect(runtime.queueSource).toBe('bot');
+    expect(Array.from(runtime.queue[0].reason)).toHaveLength(200);
+    expect(runtime.queue[0].reason.startsWith('歌词')).toBe(true);
+    expect(Array.from(runtime.queue[0].source)).toHaveLength(40);
+  });
 });
 
 describe('外部歌单不经过 Claude / 候选池', () => {

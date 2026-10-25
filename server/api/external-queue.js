@@ -8,6 +8,16 @@ import { synthesize as defaultSynthesize } from '../tts.js';
 
 export const DEFAULT_PLAYLIST_NAME = 'Claudio推荐';
 const MAX_TRACKS = 100;
+const MAX_REASON = 200;
+const MAX_SAY = 500;
+const MAX_SOURCE = 40;
+
+function clipText(value, max) {
+  const text = String(value ?? '').trim();
+  const chars = Array.from(text);
+  if (chars.length <= max) return text;
+  return chars.slice(0, max).join('');
+}
 const TARGETS = new Set(['queue', 'kugou_playlist', 'both']);
 const QUEUE_MODES = new Set(['replace', 'append']);
 const PLAYLIST_MODES = new Set(['append', 'rewrite']);
@@ -65,9 +75,9 @@ export function mountExternalQueueRoutes(app, deps = {}) {
     const playlistName = String(body.playlistName == null || body.playlistName === ''
       ? DEFAULT_PLAYLIST_NAME
       : body.playlistName).trim() || DEFAULT_PLAYLIST_NAME;
-    const say = String(body.say || '').trim();
-    const reason = String(body.reason || '').trim();
-    const requestSource = String(body.source || '').trim() || 'bot';
+    const say = clipText(body.say, MAX_SAY);
+    const reason = clipText(body.reason, MAX_REASON);
+    const requestSource = clipText(body.source, MAX_SOURCE) || 'bot';
     const queuedAt = new Date().toISOString();
 
     if (!TARGETS.has(target)) {
@@ -105,7 +115,7 @@ export function mountExternalQueueRoutes(app, deps = {}) {
         title,
         artist,
         hint,
-        reason: String(raw?.reason || '').trim(),
+        reason: clipText(raw?.reason, MAX_REASON),
       });
     }
     if (!wants.length) {

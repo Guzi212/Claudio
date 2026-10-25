@@ -46,6 +46,7 @@
         <symbol id="like" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.65" stroke-linejoin="round" d="m7.5 20 9.8-1a2 2 0 0 0 1.8-1.5l1.5-7a1.5 1.5 0 0 0-1.5-1.8H14l.7-4.5A1.9 1.9 0 0 0 12.8 2L7.5 10zM3 10h4.5v10H3z"/></symbol>
         <symbol id="dislike" viewBox="0 0 24 24"><g transform="rotate(180 12 12)"><path fill="none" stroke="currentColor" stroke-width="1.65" stroke-linejoin="round" d="m7.5 20 9.8-1a2 2 0 0 0 1.8-1.5l1.5-7a1.5 1.5 0 0 0-1.5-1.8H14l.7-4.5A1.9 1.9 0 0 0 12.8 2L7.5 10zM3 10h4.5v10H3z"/></g></symbol>
         <symbol id="headphones" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.65" stroke-linejoin="round" d="M4 14v-3a8 8 0 0 1 16 0v3M4 12H3v7h4v-7zm16 0h1v7h-4v-7z"/></symbol>
+        <symbol id="sections" viewBox="0 0 24 24"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.65"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.65"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.65"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.65"/></symbol>
       </defs>
     </svg>
     <div class="shell">
@@ -55,7 +56,16 @@
           <span class="wordmark">Claudio</span>
           <span class="brand-caption">私人电台</span>
         </div>
-        <div class="edition" id="edition"><svg class="icon" aria-hidden="true"><use href="#sun"/></svg><span id="edition-label">傍晚场</span></div>
+        <div class="masthead-tools">
+          <div class="edition" id="edition"><svg class="icon" aria-hidden="true"><use href="#sun"/></svg><span id="edition-label">傍晚场</span></div>
+          <div class="corner-menu">
+            <button type="button" class="corner-button" id="corner-menu-btn" aria-label="歌单和设置" aria-haspopup="true" aria-expanded="false" aria-controls="corner-panel"><svg class="icon" aria-hidden="true"><use href="#sections"/></svg></button>
+            <div class="corner-panel" id="corner-panel" hidden>
+              <button type="button" data-view-jump="playlists">歌单</button>
+              <button type="button" data-view-jump="settings">设置</button>
+            </div>
+          </div>
+        </div>
       </header>
       <main>
         <section class="host" aria-label="主持人口播">
