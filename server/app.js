@@ -14,6 +14,7 @@ import { ensureLogin, startAutoRefresh, stopAutoRefresh } from './services/kugou
 import { start as startScheduler } from './scheduler.js';
 import { brainMode, startBrainServices } from './brain.js';
 import { playbackStatus, applyProgress } from './playback-control.js';
+import { readSavedVolume, createVolumeSaver } from './volume-store.js';
 import { mountTtsRoutes } from './tts.js';
 import { mountSettingsRoutes } from './api/settings.js';
 import { mountLyricRoute } from './api/lyric.js';
@@ -56,7 +57,7 @@ const runtime = {
   active: false,  // PWA 是否连着 WS（scheduler 的 hourly-mood 凭这门禁）
   queueSource: null, // bot | boot | claude | playlist | scheduler
   trackEnded: false, // 当前这首已自然结束；外部队列要到最后一首结束才算放完
-  volume: 100,       // 0-100，和页面音量条一致
+  volume: readSavedVolume(dbApi), // 0-100，prefs 里的上次音量；没有则默认 30
   currentTime: 0,
   duration: 0,
   lastReason: '',
@@ -116,10 +117,12 @@ app.get('/api/taste', (req, res) => {
 
 // 快速启动：跳过 TTS 合成，直接返回完整队列。
 // 外部点歌还没放完时，boot 在 Claude 返回之后放弃覆盖，见 server/api/boot.js。
+const volumeSaver = createVolumeSaver({ db: dbApi, initial: runtime.volume });
+const rememberVolume = (value, opts) => volumeSaver.remember(value, opts);
 const brainDeps = { getRuntime: () => runtime, broadcast, brain: () => brainMode() };
 mountBootRoute(app, brainDeps);
-mountChatRoute(app, brainDeps);
-mountControlRoute(app, { getRuntime: () => runtime, broadcast, db: dbApi });
+mountChatRoute(app, { ...brainDeps, rememberVolume });
+mountControlRoute(app, { getRuntime: () => runtime, broadcast, db: dbApi, rememberVolume });
 mountPlaysRoutes(app);
 mountSearchRoute(app);
 
@@ -239,7 +242,11 @@ server.on('upgrade', (req, socket, head) => {
     ws.on('message', raw => {
       let msg;
       try { msg = JSON.parse(raw.toString()); } catch { return; }
-      if (msg?.type === 'progress') applyProgress(runtime, msg);
+      if (msg?.type === 'progress') {
+        const before = runtime.volume;
+        applyProgress(runtime, msg);
+        if (runtime.volume !== before) volumeSaver.remember(runtime.volume);
+      }
     });
     ws.on('close', () => {
       wsClients.delete(ws);
