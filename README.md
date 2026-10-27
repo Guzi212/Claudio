@@ -366,7 +366,13 @@ Invoke-Claudio Post '/api/feedback' @{ kind = 'like'; title = '晴天'; artist =
 
 ## 快捷键
 
-推荐常驻监听器：`Ctrl+Alt+K` 由 Windows 全局注册，窗口在后台也能暂停或继续。只用系统自带的 PowerShell 5 和 .NET Framework，不需要安装软件。键盘媒体键也可以继续走浏览器的 Media Session。
+默认只用常驻监听器（推荐）：`Ctrl+Alt+K` 由 Windows 全局注册，窗口在后台也能暂停或继续。只用系统自带的 PowerShell 5 和 .NET Framework，不需要安装软件。键盘媒体键也可以继续走浏览器的 Media Session。
+
+桌面快捷方式和常驻监听器对同一组合键互斥，二选一。已有 `.lnk` 热键时，先清除绑定，再使用监听器：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\claudio-hotkey.ps1 -Action Remove
+```
 
 ### 媒体键
 
@@ -395,7 +401,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\claudio-hotkey-liste
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\claudio-hotkey-listener.ps1 -Action Stop
 ```
 
-不写 `-Action` 时默认 `Start`。它启动隐藏的常驻 `powershell.exe`，短暂等待注册结果后返回一行 `started`、`already running` 或 `failed: 原因`；重复启动不会创建第二个监听器。`Stop` 通过命名事件退出循环并释放热键，不会停止 Node 服务。本地启动器可以在服务启动后调用 `scripts\claudio-hotkey-listener.ps1 -Action Start`。退出登录或重启电脑后需要重新启动监听器。
+不写 `-Action` 时默认 `Start`。它启动隐藏的常驻 `powershell.exe`，短暂等待注册结果后返回一行 `started`、`already running` 或 `failed: 原因`；重复启动不会创建第二个监听器。`Stop` 通过命名事件退出循环并释放热键，不会停止 Node 服务。本地启动器 `start-claudio.ps1`（在仓库外）会在服务启动后调用 `scripts\claudio-hotkey-listener.ps1 -Action Start`。退出登录或重启电脑后需要重新启动监听器。
 
 Claudio 页面要开着，服务要在跑。播放中按一次暂停，暂停时继续当前曲目；整队自然播完后再按一次，从第一首重新开始。空队列仍保持暂停。服务没启动或请求失败时会记日志，监听器继续工作，不自动重试 `toggle`。
 
@@ -421,14 +427,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\claudio-hotkey-liste
 
 ### 桌面快捷方式（慢速备选）
 
-旧方式每按一次都冷启动 PowerShell，可能约 3 秒才响应。默认组合键也改为 `Ctrl+Alt+K`，只支持 Ctrl+Alt 加字母、数字或 F1–F12：
+旧方式每按一次都冷启动 PowerShell，可能约 3 秒才响应。默认组合键也改为 `Ctrl+Alt+K`，只支持 Ctrl+Alt 加字母、数字或 F1–F12。要改用快捷方式，先停止监听器：
 
 ```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\claudio-hotkey-listener.ps1 -Action Stop
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\claudio-hotkey.ps1 -Action Install
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\claudio-hotkey.ps1 -Action Remove
 ```
 
-`Install` 在桌面创建 `Claudio Play-Pause.lnk`；可用 `-Hotkey CTRL+ALT+F11` 或 `-BaseUrl http://127.0.0.1:9090`。脚本先探测占用，遇到 1409 会警告并跳过快捷键绑定（仍可双击快捷方式），因此监听器运行时不会和它抢同一个组合键。快捷方式要留在桌面或开始菜单里，Windows 才会接管其热键。
+`Install` 在桌面创建 `Claudio Play-Pause.lnk`；可用 `-Hotkey CTRL+ALT+F11` 或 `-BaseUrl http://127.0.0.1:9090`。脚本先探测占用：遇到 1409，只有该路径上的自有 Claudio 快捷方式已绑定同一组合键时，才保留热键并更新目标和参数；大小写和空格不影响比较。其他占用（包括监听器）会警告并以非零状态退出，不创建或修改快捷方式。请换一个 `-Hotkey`；若要从监听器切换过来，先执行上面的 `Stop`。快捷方式要留在桌面或开始菜单里，Windows 才会接管其热键。
 
 `Remove` 只清除自有快捷方式的「快捷键」字段，保留文件，便于切换到常驻监听器。旧版如果使用过 `-Token` 创建快捷方式，请重新 `Install` 来覆盖旧参数；新版改用上述环境变量，不再接受或保存 `-Token`。
 

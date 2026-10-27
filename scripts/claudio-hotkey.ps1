@@ -59,6 +59,11 @@ function Assert-ClaudioShortcut($Shortcut) {
   }
 }
 
+function Test-CanKeepShortcutHotkey([bool]$IsClaudioShortcut, [string]$CurrentHotkey, [string]$RequestedHotkey) {
+  return $IsClaudioShortcut -and $RequestedHotkey -and
+    (($CurrentHotkey -replace '\s', '') -ieq ($RequestedHotkey -replace '\s', ''))
+}
+
 function Test-ShortcutHotkey([string]$Value) {
   if (-not ('ClaudioShortcutHotkey' -as [type])) {
     Add-Type -TypeDefinition @'
@@ -84,7 +89,6 @@ public static class ClaudioShortcutHotkey
   if ($key.Length -gt 1) { $vk = 111 + [int]$key.Substring(1) }
   $errorCode = [ClaudioShortcutHotkey]::Probe($vk)
   if ($errorCode -eq 1409) {
-    Write-Warning "$Value is already registered by another program, the resident listener, or a desktop shortcut. Skipping the shortcut hotkey; use a different -Hotkey or remove the old binding."
     return $false
   }
   if ($errorCode -ne 0) { throw "RegisterHotKey probe failed (Win32 $errorCode)." }
@@ -112,17 +116,29 @@ function Install-ClaudioShortcut {
   $arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$scriptPath`" -Action Toggle -BaseUrl `"$BaseUrl`""
   $shell = New-Object -ComObject WScript.Shell
   $shortcut = $shell.CreateShortcut($lnkPath)
-  if (Test-Path -LiteralPath $lnkPath) { Assert-ClaudioShortcut $shortcut }
+  $isClaudioShortcut = $false
+  if (Test-Path -LiteralPath $lnkPath) {
+    Assert-ClaudioShortcut $shortcut
+    $isClaudioShortcut = $true
+  }
   $available = Test-ShortcutHotkey $hotkey
+  if (-not $available -and -not (Test-CanKeepShortcutHotkey $isClaudioShortcut $shortcut.Hotkey $hotkey)) {
+    Write-Warning "$hotkey is already registered by another program, the resident listener, or a desktop shortcut. No shortcut was created or modified. Pick another -Hotkey. The shortcut and resident listener are mutually exclusive; use one. To use the shortcut instead of the listener, first run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts\claudio-hotkey-listener.ps1 -Action Stop"
+    throw 'Shortcut installation stopped (Win32 1409).'
+  }
   $shortcut.TargetPath = $powershell
   $shortcut.Arguments = $arguments
   $shortcut.WorkingDirectory = $env:SystemRoot
   $shortcut.WindowStyle = 7
-  if ($available) { $shortcut.Hotkey = $hotkey } else { $shortcut.Hotkey = '' }
+  $shortcut.Hotkey = $hotkey
   $shortcut.Description = "Toggle Claudio playback ($hotkey)"
   $shortcut.Save()
   Write-Output "Created $lnkPath"
-  if ($available) { Write-Output "Hotkey $hotkey" } else { Write-Output 'No shortcut hotkey set' }
+  if ($available) {
+    Write-Output "Hotkey $hotkey"
+  } else {
+    Write-Output "Hotkey $hotkey already held by this Claudio shortcut; kept"
+  }
 }
 
 if ($Action -eq 'Toggle') {

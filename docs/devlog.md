@@ -44,3 +44,4 @@
 ## 2026-10-27
 - `merge main (#16) into silver-player; sw v11` — README.md, docs/devlog.md, pwa/app.js, pwa/media-session.js, pwa/sw.js, scripts/claudio-hotkey.ps1, server/api/chat.js, server/playback-control.js, server/router.js, tests/control-api.test.js, tests/dev-script.test.js, tests/hotkey-script.test.js, tests/media-session.test.js, tests/router.test.js, tests/session-url.test.js
 - `feat: 用常驻全局热键即时切换播放，并检测快捷键冲突` — README.md, docs/devlog.md, scripts/claudio-hotkey-listener.ps1, scripts/claudio-hotkey.ps1, tests/hotkey-script.test.js
+  - PR #18 修正：重复安装保留同一自有热键，其他 1409 冲突不写快捷方式；默认只用监听器，文档补齐互斥切换和清除绑定命令。

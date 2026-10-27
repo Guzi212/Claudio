@@ -33,17 +33,34 @@ describe('Windows 快捷键脚本', () => {
     expect(script).toContain('^CTRL\\+ALT\\+(F([1-9]|1[0-2])|[A-Z0-9])$');
   });
 
-  it('快捷方式探测占用并跳过冲突绑定，Remove 只清除自有快捷方式热键', () => {
+  it('快捷方式探测占用，Remove 只清除自有快捷方式热键', () => {
     expect(script).toContain('RegisterHotKey');
     expect(script).toContain('UnregisterHotKey');
     expect(script).toContain('GetLastWin32Error');
     expect(script).toContain('$errorCode -eq 1409');
-    expect(script).toContain('Skipping the shortcut hotkey');
-    expect(script).toContain("else { $shortcut.Hotkey = '' }");
     expect(script).toContain("[ValidateSet('Install', 'Toggle', 'Remove')]");
     expect(script).toContain('Assert-ClaudioShortcut $shortcut');
     expect(script).not.toContain('Remove-Item');
     expect(script).not.toContain('-Token `"');
+  });
+
+  it('重复安装保留同一自有热键，其他冲突在写入快捷方式前失败', () => {
+    const install = script.slice(script.indexOf('function Install-ClaudioShortcut'), script.indexOf("\nif ($Action -eq 'Toggle')"));
+    expect(script).toContain("($CurrentHotkey -replace '\\s', '') -ieq ($RequestedHotkey -replace '\\s', '')");
+    expect(install).toMatch(/Assert-ClaudioShortcut \$shortcut\s+\$isClaudioShortcut = \$true/);
+    expect(install).toContain('-not $available -and -not (Test-CanKeepShortcutHotkey $isClaudioShortcut $shortcut.Hotkey $hotkey)');
+    expect(install).toContain('No shortcut was created or modified. Pick another -Hotkey.');
+    expect(install).toContain('shortcut and resident listener are mutually exclusive; use one.');
+    expect(install).toContain('scripts\\claudio-hotkey-listener.ps1 -Action Stop');
+    const failure = install.indexOf("throw 'Shortcut installation stopped (Win32 1409).'");
+    expect(failure).toBeGreaterThan(-1);
+    for (const write of ['$shortcut.TargetPath =', '$shortcut.Arguments =', '$shortcut.Hotkey =', '$shortcut.Save()']) {
+      expect(install.indexOf(write)).toBeGreaterThan(failure);
+    }
+    expect(install).toContain('$shortcut.Hotkey = $hotkey');
+    expect(install).not.toContain("$shortcut.Hotkey = ''");
+    expect(install).toContain('Hotkey $hotkey already held by this Claudio shortcut; kept');
+    expect(install).not.toContain('No shortcut hotkey set');
   });
 });
 
@@ -141,6 +158,21 @@ describe.skipIf(process.platform !== 'win32')('PowerShell 5 编译与参数检�
     const child = check('-MediaKey');
     expect(child.status, child.stdout + child.stderr).toBe(0);
     expect(child.stdout).toContain('CTRL+ALT+K, modifiers=3, VK=75, MediaKey=True');
+  });
+
+  it.each([
+    ['自有快捷方式与同一按键', true, 'Ctrl+Alt+K', 'CTRL+ALT+K', true],
+    ['自有快捷方式与含空格的同一按键', true, 'Ctrl + Alt + K', 'ctrl+alt+k', true],
+    ['自有快捷方式与不同按键', true, 'Ctrl+Alt+P', 'CTRL+ALT+K', false],
+    ['非自有快捷方式与同一按键', false, 'Ctrl+Alt+K', 'CTRL+ALT+K', false],
+  ])('%s：纯函数判断是否保留绑定', (_, isClaudioShortcut, currentHotkey, requestedHotkey, expected) => {
+    // Extract only this pure function; never execute the script's action dispatch.
+    const decision = script.match(/function Test-CanKeepShortcutHotkey\b[\s\S]*?\r?\n}/)[0];
+    const code = `${decision}\nTest-CanKeepShortcutHotkey $${isClaudioShortcut} '${currentHotkey}' '${requestedHotkey}'`;
+    const child = spawnSync(powershell, ['-NoProfile', '-Command', code], { encoding: 'utf8', timeout: 15000 });
+    expect(child.error).toBeUndefined();
+    expect(child.status, child.stdout + child.stderr).toBe(0);
+    expect(child.stdout.trim()).toBe(expected ? 'True' : 'False');
   });
 
   it('旧脚本也可由 PowerShell 5 解析，Add-Type 可以编译', () => {
