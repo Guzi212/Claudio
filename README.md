@@ -234,8 +234,9 @@ Content-Type: application/json
 
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
-| `tracks` | 必填 | `{ title, artist, hint? }`，至少一首有 title |
-| `say` / `reason` | 空 | 串场和理由。`say` 显示在串场面板。Fish Audio 已配置时，`say` 会合成成队列第一条 TTS；没配置就静默跳过，歌照常进队列 |
+| `tracks` | 必填 | `{ title, artist, hint?, reason? }`，至少一首有 title。单首 `reason` 有内容才写进这一首；没写就不带这个字段，页面上那一行也不显示 |
+| `say` / `reason` | 空 | `say` 是主持人口播，完整显示在头像旁边，最多 500 字。整轮 `reason` 最多 200 字，记在状态里；当前这首自己没有 `reason` 时，播放区用它补一行。单首 `tracks[].reason` 同样最多 200 字。超出的部分直接截掉，不报错。Fish Audio 已配置时，`say` 会合成成队列第一条 TTS；没配置就静默跳过，歌照常进队列 |
+| `source` | `bot` | 这一轮是谁点的，最多 40 字，超出截断、不报错。写在队列条目和 `GET /api/status` 的 `source` 上。播放器内部的 `queueSource` 仍是 `bot`，开机和定时任务不会把这批歌清掉 |
 | `mode` | `replace` | 播放队列：`replace` 换掉当前队列，`append` 接到队尾。一首都没匹配上时不会把正在播的队列清空 |
 | `target` | `queue` | `queue` 只进 Claudio 队列；`kugou_playlist` 只写酷狗歌单；`both` 两件都做 |
 | `playlistName` | `Claudio推荐` | 账号里同名歌单会复用，没有就新建 |
@@ -249,9 +250,9 @@ Content-Type: application/json
 
 | 用途 | 方法 + 路径 | 参数 | 返回 |
 | --- | --- | --- | --- |
-| 点歌 / 写歌单 | `POST /api/queue/external` | JSON：`tracks[]`（`title` 必填，`artist` / `hint` 可选），`say`，`reason`，`mode`=`replace`\|`append`，`target`=`queue`\|`kugou_playlist`\|`both`，`playlistName`（默认 `Claudio推荐`），`playlistMode`=`append`\|`rewrite`。不带 `volume`（缺省或 `null`）不会改已保存的音量 | `ok`，`matched[]`，`failed[]`，`queue`（`mode` / `added` / `length`），`playlist` |
+| 点歌 / 写歌单 | `POST /api/queue/external` | JSON：`tracks[]`（`title` 必填，`artist` / `hint` / `reason` 可选），`say`（最多 500 字），`reason`（最多 200 字），`source`（默认 `bot`，最多 40 字），`mode`=`replace`\|`append`，`target`=`queue`\|`kugou_playlist`\|`both`，`playlistName`（默认 `Claudio推荐`），`playlistMode`=`append`\|`rewrite`。超长截断，不报错。不带 `volume`（缺省或 `null`）不会改已保存的音量 | `ok`，`matched[]`，`failed[]`，`queue`（`mode` / `added` / `length`），`playlist`。成功写入播放队列时记下 `queuedAt`。返回的 `say` / `reason` 已是截断后的文本 |
 | 播放控制 | `POST /api/control` | JSON：`command`=`next`\|`prev`\|`pause`\|`play`\|`toggle`\|`volume`\|`jump`，`value`（音量 0–100，或 jump 的从 0 开始的序号） | `ok`，`command`，`say`，`nowPlaying`，`queue`，`index`，`paused`，`volume`。`volume` 会立刻记住。`next` 真正切到下一首时，把刚离开的那首记成 `feedback.kind=skip`。`toggle` 播放中就暂停，暂停中就继续。最后一首已经结束时，状态算作已停，`toggle` 和 `play` 都从队列第一首重新开始。队列是空的就停在暂停。这些命令不改音量 |
-| 状态 | `GET /api/status`（`GET /api/now` 相同） | 无 | `brain`，`nowPlaying`，`queue`，`index`，`paused`，`volume`（0–100，会记住；没存过默认 30），`currentTime`（秒），`duration`（秒），`active`（有没有页面连着 WebSocket），`listeners`，`lastSay`，`reason` |
+| 状态 | `GET /api/status`（`GET /api/now` 相同） | 无 | `brain`，`nowPlaying`，`queue`，`index`，`paused`，`volume`（0–100，会记住；没存过默认 30），`currentTime`（秒），`duration`（秒），`active`（有没有页面连着 WebSocket），`listeners`，`lastSay`，`reason`，`queuedAt`（最近一次外部点歌的 ISO 时间，没有则 `null`），`source`（那一次请求的 `source`，没有则空字符串）。队列里的歌若带了自己的 `reason` / `cover` / `queuedAt`，会原样出现在 `queue[]` |
 | 进度上报 | WebSocket `/stream`，客户端发 | `{ "type":"progress", "currentTime", "duration", "volume", "paused", "index" }`，页面大约每 2 秒一次 | 服务端更新内存里的进度，不广播。音量有变化才写入，短时间连续拖动合并成一次。bot 用 `GET /api/status` 读 |
 | 搜歌 | `GET /api/kugou/search` | Query：`title` 必填，`artist`，`hint` | `ok`，`tracks[]`：`hash`，`title`，`artist`，`album`，`duration`，`score` |
 | 酷狗歌单列表 | `GET /api/kugou/playlists` | Query：`page`，`pagesize` | `ok`，`playlists[]`：`id`，`listid`，`globalCollectionId`，`name`，`songCount`，`isPrivate` |
@@ -263,7 +264,9 @@ Content-Type: application/json
 | 聊天（external） | `POST /api/chat` | JSON：`message` | 控制命令（`/skip` `/pause` `/play` `/toggle` `/vol N` `/prev` `/now` `/queue`）照常执行。普通文字返回「选歌请在 Grok Bot 里找 Claudio主持人。」，不调用 Claude |
 | 开机（external） | `POST /api/boot` | 无 | 不调用 Claude。返回当前 `queue` 和 `index`，`brain: "external"`，`skipped: true` |
 
-页面在 external 模式下只出声和显示。加载时，以及主持人投下新队列时，会先直接 `play()`。成功就不出遮罩；只有浏览器返回 `NotAllowedError` 才显示「点击开声」，点一下从当前队列和进度接着放。队列是空的就显示「等待点歌」，不盖遮罩。服务器记着暂停时，打开页面不会自己播；主持人用 replace 或 append 投下新队列，或者发 play，会再直接播。一首播完会放到队列里的下一首，整个队列播完就停。聊天框、自动推歌按钮和 DeepSeek 设置不显示。串场面板显示外部点歌的 `say`。音量沿用已保存的值。
+页面在 external 模式下只出声和显示。加载时，以及主持人投下新队列时，会先直接 `play()`。成功就不出遮罩；只有浏览器返回 `NotAllowedError` 才显示「点击开声」，点一下从当前队列和进度接着放。队列是空的就显示「等主持人点歌」，不盖遮罩。服务器记着暂停时，打开页面不会自己播；主持人用 replace 或 append 投下新队列，或者发 play，会再直接播。一首播完会放到队列里的下一首，整个队列播完就停。聊天框和自动推歌按钮不在播放页上。设置里的 DeepSeek 卡片只在 external 模式隐藏，internal 模式仍显示。播放页右上角有一个小图标，点开可以进歌单和设置。主持人口播显示外部点歌的 `say`，点歌时间显示在名字旁边。音量沿用已保存的值，滑块旁边有数字。
+
+`GET /api/weather` 在 external 模式下直接返回 `{}`，不调用 OpenWeather。播放页也不再每 5 分钟去拉天气。internal 模式这条路由仍返回当前天气；选歌提示里的天气还是在 `buildSystemPrompt` 里取，和这条路由无关。设置页里的「测试天气」按钮仍然会真的请求 OpenWeather。
 
 ### PowerShell 示例
 

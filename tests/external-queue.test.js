@@ -299,6 +299,72 @@ describe('POST /api/queue/external', () => {
     }, badTarget);
     expect(badTarget.statusCode).toBe(400);
   });
+
+  it('记下每首歌的 reason、点歌时间和来源；没写 reason 就不带这个字段', async () => {
+    const { app, runtime, broadcast } = setup({
+      resolveTrack: async want => {
+        const track = song(want.title, want.artist || '周杰伦');
+        if (want.title === '晴天') track.cover = 'https://cdn.example/{size}/a.jpg';
+        return track;
+      },
+    });
+    const res = mockRes();
+    await app.routes['POST /api/queue/external']({
+      body: {
+        source: 'grok',
+        reason: '整轮理由',
+        tracks: [
+          { title: '晴天', artist: '周杰伦', reason: '  吉他前奏  ' },
+          { title: '七里香', artist: '周杰伦', reason: '   ' },
+        ],
+      },
+    }, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(runtime.queueSource).toBe('bot');
+    expect(runtime.queuedSource).toBe('grok');
+    expect(runtime.queuedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(runtime.lastReason).toBe('整轮理由');
+    expect(runtime.queue[0]).toMatchObject({
+      title: '晴天',
+      source: 'grok',
+      reason: '吉他前奏',
+      cover: 'https://cdn.example/{size}/a.jpg',
+      queuedAt: runtime.queuedAt,
+    });
+    expect(runtime.queue[1].reason).toBeUndefined();
+    expect(runtime.queue[1].source).toBe('grok');
+    expect(broadcast).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'external-queue',
+      queuedAt: runtime.queuedAt,
+      source: 'grok',
+    }));
+  });
+
+  it('reason、say、source 超长就截断，仍然 200', async () => {
+    const { app, runtime } = setup();
+    const res = mockRes();
+    await app.routes['POST /api/queue/external']({
+      body: {
+        say: `口${'播'.repeat(500)}`,
+        reason: '理'.repeat(230),
+        source: '来'.repeat(60),
+        tracks: [{ title: '晴天', artist: '周杰伦', reason: `歌${'词'.repeat(200)}` }],
+      },
+    }, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(Array.from(res.body.say)).toHaveLength(500);
+    expect(res.body.say.startsWith('口播')).toBe(true);
+    expect(Array.from(res.body.reason)).toHaveLength(200);
+    expect(runtime.lastSay).toBe(res.body.say);
+    expect(runtime.lastReason).toBe(res.body.reason);
+    expect(Array.from(runtime.queuedSource)).toHaveLength(40);
+    expect(runtime.queueSource).toBe('bot');
+    expect(Array.from(runtime.queue[0].reason)).toHaveLength(200);
+    expect(runtime.queue[0].reason.startsWith('歌词')).toBe(true);
+    expect(Array.from(runtime.queue[0].source)).toHaveLength(40);
+  });
 });
 
 describe('外部歌单不经过 Claude / 候选池', () => {

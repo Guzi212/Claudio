@@ -281,5 +281,17 @@ describe('播放进度', () => {
       reason: '雨',
     });
     expect(body.nowPlaying.title).toBe('晴天');
+    expect(body.queuedAt).toBeNull();
+    expect(body.source).toBe('');
+  });
+
+  it('status 带回点歌时间和来源', () => {
+    const body = playbackStatus({
+      queue: [],
+      queuedAt: '2026-10-25T18:05:00.000Z',
+      queuedSource: 'bot',
+    });
+    expect(body.queuedAt).toBe('2026-10-25T18:05:00.000Z');
+    expect(body.source).toBe('bot');
   });
 });

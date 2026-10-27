@@ -45,8 +45,11 @@ let bootData = null;
 let bootClicked = false;
 let brain = 'external';
 let appliedSay = '';
+let lastReason = '';
+let queuedAt = '';
 let lastProgressAt = 0;
 let queueVisible = true;
+const feedbackByTrack = new Map();
 
 let chat, composer, input, submitBtn, audio, npBox, npTitle, npArtist, consolePlayBtn, consoleFavoriteBtn, queueBtn, loopBtn, queueList, npSeek, npTimeCur, npTimeDur, npVol;
 const STUDIO_THEME_KEY = 'claudio:studio-theme';
@@ -62,7 +65,9 @@ function fmtTime(s) {
 function updateSeekBar(cur, dur) {
   const pct = dur > 0 ? (cur / dur) * 100 : 0;
   if (npSeek) {
-    npSeek.style.setProperty('--seek-pct', `${pct.toFixed(2)}%`);
+    const fill = `${pct.toFixed(2)}%`;
+    npSeek.style.setProperty('--seek-pct', fill);
+    npSeek.style.setProperty('--fill', fill);
     npSeek.value = pct;
   }
   if (npTimeCur) npTimeCur.textContent = fmtTime(cur);
@@ -82,10 +87,7 @@ function ensurePlaybackVolume() {
   const volume = Number.isFinite(slider) ? slider : readLocalVolume();
   const clamped = Math.max(0, Math.min(100, Math.round(volume)));
   audio.volume = clamped / 100;
-  if (npVol) {
-    npVol.value = String(clamped);
-    npVol.style.setProperty('--vol-pct', `${clamped}%`);
-  }
+  syncVolumeChrome(clamped);
 }
 
 function showUnlockOverlay() {
@@ -123,11 +125,20 @@ function applyBrainChrome() {
   }
 }
 
+function syncVolumeChrome(volume) {
+  if (npVol) {
+    npVol.value = String(volume);
+    npVol.style.setProperty('--vol-pct', `${volume}%`);
+    npVol.style.setProperty('--fill', `${volume}%`);
+  }
+  const out = document.getElementById('np-vol-out');
+  if (out) out.textContent = String(volume);
+}
+
 function paintVolume(volume) {
   if (!npVol || !audio || !Number.isFinite(volume)) return;
-  npVol.value = String(volume);
   audio.volume = volume / 100;
-  npVol.style.setProperty('--vol-pct', `${volume}%`);
+  syncVolumeChrome(volume);
 }
 
 function applyLocalVolume() {
@@ -168,6 +179,7 @@ function syncToServer(index, { paused = false, ended = false } = {}) {
 }
 
 function addBubble(role, content, meta = null) {
+  if (!chat) return null;
   const div = document.createElement('div');
   div.className = `bubble ${role}`;
   div.textContent = content;
@@ -183,9 +195,145 @@ function addBubble(role, content, meta = null) {
 }
 
 function setConsoleDialog(text) {
+  // 主持人口播只认 lastSay。接下来播放 / 回到电台 这类切歌提示不写进 #host-line。
   const el = document.getElementById('console-dialog-text');
   if (!el || !text) return;
   el.textContent = text.length > 72 ? `${text.slice(0, 70)}…` : text;
+}
+
+function editionLabelFor(date = new Date()) {
+  const hour = date.getHours();
+  if (hour >= 5 && hour < 11) return '清晨场';
+  if (hour >= 11 && hour < 14) return '午间场';
+  if (hour >= 14 && hour < 17) return '下午场';
+  if (hour >= 17 && hour < 21) return '傍晚场';
+  return '深夜场';
+}
+
+function paintEdition() {
+  const el = document.getElementById('edition-label');
+  if (el) el.textContent = editionLabelFor(new Date());
+}
+
+function rememberQueueMeta(data) {
+  if (!data || typeof data !== 'object') return;
+  if ('queuedAt' in data) queuedAt = data.queuedAt || '';
+  const reason = data.lastReason ?? data.reason;
+  if (typeof reason === 'string') lastReason = reason;
+}
+
+function paintHostChrome() {
+  const line = document.getElementById('host-line');
+  const time = document.getElementById('host-time');
+  if (line) {
+    const text = String(appliedSay || '').trim();
+    if (text) line.textContent = text;
+    else if (!state.queue.length) line.textContent = '我在。让我挑一首适合现在的歌。';
+    else line.textContent = '';
+  }
+  if (!time) return;
+  if (queuedAt) {
+    const when = new Date(queuedAt);
+    if (!Number.isNaN(when.getTime())) {
+      const hh = String(when.getHours()).padStart(2, '0');
+      const mm = String(when.getMinutes()).padStart(2, '0');
+      time.hidden = false;
+      time.textContent = `· ${hh}:${mm} 点歌`;
+      return;
+    }
+  }
+  if (!state.queue.length) {
+    time.hidden = false;
+    time.textContent = '· 在线';
+    return;
+  }
+  time.hidden = true;
+  time.textContent = '';
+}
+
+function paintCover(track) {
+  const img = document.getElementById('np-cover-img');
+  const fallback = document.getElementById('np-cover-fallback');
+  const title = document.getElementById('np-cover-title');
+  const artist = document.getElementById('np-cover-artist');
+  if (title) title.textContent = track?.title || '';
+  if (artist) artist.textContent = track?.artist || '';
+  if (!img) return;
+  const cover = String(track?.cover || '').trim();
+  if (!cover) {
+    img.hidden = true;
+    img.removeAttribute('src');
+    if (fallback) fallback.hidden = false;
+    return;
+  }
+  img.alt = track?.title || '';
+  img.onerror = () => {
+    img.hidden = true;
+    if (fallback) fallback.hidden = false;
+  };
+  if (img.getAttribute('src') !== cover) img.src = cover;
+  img.hidden = false;
+  if (fallback) fallback.hidden = true;
+}
+
+function paintTrackReason(track) {
+  const el = document.getElementById('track-reason');
+  if (!el) return;
+  const own = String(track?.reason || '').trim();
+  const text = own || (track && track === currentTrack() ? String(lastReason || '').trim() : '');
+  if (!text) {
+    el.textContent = '';
+    el.hidden = true;
+    return;
+  }
+  el.textContent = text;
+  el.hidden = false;
+}
+
+function trackFeedbackKey(track) {
+  if (!track) return '';
+  if (track.kugouId) return `id:${track.kugouId}`;
+  return `t:${track.title || ''}\0${track.artist || ''}`;
+}
+
+function paintFeedback() {
+  const value = feedbackByTrack.get(trackFeedbackKey(currentTrack())) || null;
+  document.querySelectorAll('[data-feedback]').forEach(btn => {
+    btn.setAttribute('aria-pressed', String(value === btn.dataset.feedback));
+  });
+}
+
+function postFeedback(kind, track) {
+  fetch('/api/feedback', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      kind,
+      title: track?.title || '',
+      artist: track?.artist || '',
+      kugouId: track?.kugouId || '',
+    }),
+  }).catch(() => {});
+}
+
+function bindFeedback() {
+  document.querySelectorAll('[data-feedback]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const track = currentTrack();
+      const key = trackFeedbackKey(track);
+      if (!key) return;
+      const choice = btn.dataset.feedback === 'dislike' ? 'dislike' : 'like';
+      const current = feedbackByTrack.get(key) || null;
+      if (current === choice) {
+        feedbackByTrack.delete(key);
+        if (choice === 'like') postFeedback('unlike', track);
+      } else {
+        feedbackByTrack.set(key, choice);
+        postFeedback(choice === 'dislike' ? 'unlike' : 'like', track);
+      }
+      paintFeedback();
+    });
+  });
 }
 
 function setStudioTrack(track) {
@@ -200,6 +348,12 @@ function setStudioTrack(track) {
   if (comment) {
     comment.textContent = track.comment || '';
   }
+  if (npTitle) npTitle.textContent = track.title || '';
+  if (npArtist) npArtist.textContent = track.artist || '';
+  const info = document.querySelector('#now-playing .track-info');
+  if (info) info.classList.toggle('long-title', String(track.title || '').length > 4);
+  paintTrackReason(track);
+  paintCover(track);
 }
 
 function normalizeStudioTheme(theme) {
@@ -248,18 +402,23 @@ function currentTrack() {
 }
 
 function resetFavoriteState() {
-  if (!consoleFavoriteBtn) return;
-  consoleFavoriteBtn.setAttribute('aria-pressed', 'false');
-  consoleFavoriteBtn.classList.remove('active');
+  if (consoleFavoriteBtn) {
+    consoleFavoriteBtn.setAttribute('aria-pressed', 'false');
+    consoleFavoriteBtn.classList.remove('active');
+  }
+  paintFeedback();
 }
 
 function updatePlayButtons(isPlaying) {
   const label = isPlaying ? '暂停' : '播放';
-  const mark = isPlaying ? 'Ⅱ' : '▷';
   if (consolePlayBtn) {
-    consolePlayBtn.textContent = mark;
     consolePlayBtn.setAttribute('aria-label', label);
+    const symbol = document.getElementById('play-symbol');
+    if (symbol) symbol.setAttribute('href', isPlaying ? '#pause' : '#play-icon');
   }
+  const playingLabel = document.getElementById('playing-label');
+  if (playingLabel) playingLabel.textContent = isPlaying ? '正在播放' : '已暂停';
+  document.body?.classList.toggle('paused', state.queue.length > 0 && !isPlaying);
 }
 
 function applyStudioState(studio) {
@@ -461,8 +620,8 @@ async function playIndex(i, { autoplay = true, startAt = 0, resume = false, rest
     resetFavoriteState();
     npTitle.textContent = t.title;
     npArtist.textContent = t.artist;
+    setStudioTrack(t);
     if (!t.isTts) {
-      setStudioTrack(t);
       setConsoleDialog(`接下来播放 ${t.title} — ${t.artist}。`);
     } else {
       const comment = document.getElementById('studio-track-comment');
@@ -492,7 +651,10 @@ async function playIndex(i, { autoplay = true, startAt = 0, resume = false, rest
     ensurePlaybackVolume();
     // internal 仍等用户点「开始电台」。external 直接试 play()，被拒绝才盖遮罩。
     if (autoplay && !(brain === 'internal' && !userActivated)) await attemptPlay();
-    else if (!autoplay) syncToServer(state.index, { paused: true, ended: false });
+    else if (!autoplay) {
+      syncToServer(state.index, { paused: true, ended: false });
+      updatePlayButtons(false);
+    }
     npBox.classList.remove('hidden');
     renderQueuePanel();
     if (state.brain === 'internal' && state.loopMode === 'auto' && i === state.queue.length - 1 && !autoRecommending) {
@@ -563,39 +725,43 @@ function toggleFavorite() {
 }
 
 function renderQueuePanel() {
-  if (!queueList) return;
+  document.body?.classList.toggle('is-empty', state.queue.length === 0);
+  paintHostChrome();
+  const count = document.getElementById('queue-count');
   const dialogText = document.getElementById('console-dialog-text');
+  if (!queueList) return;
   if (!state.queue.length) {
+    queueList.innerHTML = '';
+    if (count) count.textContent = '0 首';
     queueList.classList.add('hidden');
     if (dialogText) dialogText.classList.remove('hidden');
     if (queueBtn) queueBtn.setAttribute('aria-pressed', 'false');
     return;
   }
-  queueList.innerHTML = state.queue.map((t, i) => {
-    const active = i === state.index;
-    const prefix = active ? '▶ ' : '';
-    const label = `<span class="track-label">${prefix}${escapeHtml(t.title)} — ${escapeHtml(t.artist)}</span>`;
-    const infoBtn = t.comment
-      ? `<button class="track-expand-btn" aria-label="查看推荐理由" data-expand="${i}">ℹ</button>`
-      : '';
-    const comment = t.comment
-      ? `<div class="track-comment">${escapeHtml(t.comment)}</div>`
-      : '';
-    return `<li class="${active ? 'active' : ''}" data-idx="${i}"><div class="track-row">${label}${infoBtn}</div>${comment}</li>`;
+  const upcoming = [];
+  for (let i = state.index + 1; i < state.queue.length; i += 1) {
+    const track = state.queue[i];
+    if (!track || track.isTts) continue;
+    upcoming.push({ track, index: i });
+  }
+  if (count) count.textContent = `${upcoming.length} 首`;
+  queueList.innerHTML = upcoming.map(({ track, index }, offset) => {
+    const reason = String(track.reason || '').trim();
+    const cover = String(track.cover || '').trim();
+    const art = cover
+      ? `<span class="mini-cover" aria-hidden="true"><img src="${escapeHtml(cover)}" alt=""></span>`
+      : `<span class="mini-cover" aria-hidden="true"></span>`;
+    const reasonHtml = reason ? `<span class="queue-reason">${escapeHtml(reason)}</span>` : '';
+    const position = String(offset + 1).padStart(2, '0');
+    return `<li><button type="button" class="queue-track" data-idx="${index}" aria-label="播放 ${escapeHtml(track.artist || '')}《${escapeHtml(track.title || '')}》"><span class="position">${position}</span>${art}<span class="queue-copy"><span class="queue-title-line"><span class="queue-title">${escapeHtml(track.title || '')}</span><span class="queue-artist">${escapeHtml(track.artist || '')}</span></span>${reasonHtml}</span></button></li>`;
   }).join('');
   queueList.classList.toggle('hidden', !queueVisible);
   if (dialogText) dialogText.classList.toggle('hidden', queueVisible);
   if (queueBtn) queueBtn.setAttribute('aria-pressed', String(queueVisible));
-  const activeEl = queueList.querySelector('li.active');
-  if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
-  queueList.querySelectorAll('li[data-idx]').forEach(li => {
-    li.addEventListener('click', e => {
-      if (e.target.closest('[data-expand]')) {
-        li.classList.toggle('expanded');
-        return;
-      }
+  queueList.querySelectorAll('[data-idx]').forEach(btn => {
+    btn.addEventListener('click', () => {
       markActivated();
-      playIndex(Number(li.dataset.idx));
+      playIndex(Number(btn.dataset.idx));
     });
   });
 }
@@ -705,10 +871,12 @@ export function applyRuntime(runtime, { origin } = {}) {
     state.brain = brain;
     applyBrainChrome();
   }
+  rememberQueueMeta(runtime);
   if (runtime.lastSay && runtime.lastSay !== appliedSay) {
     appliedSay = runtime.lastSay;
     setConsoleDialog(runtime.lastSay);
   }
+  paintHostChrome();
   if (Number.isFinite(runtime.currentTime)) serverProgress = runtime.currentTime;
   const plan = planRuntimeSync({
     queue: state.queue,
@@ -749,15 +917,16 @@ export function applyRuntime(runtime, { origin } = {}) {
 }
 
 // 外部 bot 推来的歌。replace 接管当前队列；append 只在没在播时开播。
-export function applyExternalQueue({ mode, tracks, say, reason } = {}) {
+export function applyExternalQueue({ mode, tracks, say, reason, queuedAt: at } = {}) {
   const list = Array.isArray(tracks) ? tracks.filter(track => track && track.title) : [];
   if (!list.length) return;
-  const line = say || reason || '';
-  if (line) {
-    appliedSay = line;
-    setConsoleDialog(line);
-    if (chat && brain === 'internal') addBubble('assistant', line, '(外部电台)');
+  if (say) {
+    appliedSay = say;
+    setConsoleDialog(say);
+    if (chat && brain === 'internal') addBubble('assistant', say, '(外部电台)');
   }
+  if (reason) lastReason = reason;
+  if (at) queuedAt = at;
   const plan = planExternalPlayback({
     queueLength: state.queue.length,
     hasSrc: Boolean(audio?.getAttribute?.('src') || audio?.src),
@@ -787,33 +956,11 @@ export function appendToQueue(tracks) {
   renderQueuePanel();
 }
 
-const WEATHER_ICON_MAP = {
-  '01': '☀', '02': '⛅', '03': '☁', '04': '☁',
-  '09': '🌧', '10': '🌦', '11': '⛈', '13': '❄', '50': '🌫',
-};
-function weatherIconToEmoji(code) {
-  return WEATHER_ICON_MAP[code?.slice(0, 2)] || '🌡';
-}
-
-async function fetchWeather() {
-  const el = document.getElementById('studio-weather');
-  if (!el) return;
-  try {
-    const res = await fetch('/api/weather');
-    if (!res.ok) return;
-    const d = await res.json();
-    if (typeof d.temp === 'number') {
-      el.textContent = `${weatherIconToEmoji(d.icon)} ${d.temp}°`;
-      el.classList.remove('hidden');
-    }
-  } catch {}
-}
-
 export function initPlayer() {
   chat      = $('#chat');
   composer  = $('#composer');
   input     = $('#input');
-  submitBtn = composer.querySelector('button');
+  submitBtn = composer ? composer.querySelector('button') : null;
   audio     = $('#audio');
   npBox     = $('#now-playing');
   npTitle   = $('#np-title');
@@ -892,17 +1039,21 @@ export function initPlayer() {
 
   if (npVol) {
     npVol.addEventListener('input', () => {
-      audio.volume = npVol.value / 100;
-      npVol.style.setProperty('--vol-pct', `${npVol.value}%`);
-      writeLocalVolume(npVol.value);
+      const volume = Number(npVol.value);
+      audio.volume = volume / 100;
+      syncVolumeChrome(volume);
+      writeLocalVolume(volume);
       reportProgress(true);
     });
   }
 
   bindConsoleControls();
   bindStudioThemes();
+  bindFeedback();
   setStudioTheme(savedStudioTheme() || 'focus', { persist: false });
   updatePlayButtons(false);
+  paintEdition();
+  setInterval(paintEdition, 60 * 1000);
 
   bootOverlay = document.getElementById('boot-overlay');
   bootBtn = document.getElementById('boot-btn');
@@ -939,17 +1090,16 @@ export function initPlayer() {
     playIndex(0);
   });
 
-  composer.addEventListener('submit', e => {
-    e.preventDefault();
-    const m = input.value.trim();
-    if (m) send(m);
-  });
+  if (composer && input && submitBtn) {
+    composer.addEventListener('submit', e => {
+      e.preventDefault();
+      const m = input.value.trim();
+      if (m) send(m);
+    });
+  }
 
   // 启动时拉一下当前队列 / 上次会话
   bootCurrent();
-
-  fetchWeather();
-  setInterval(fetchWeather, 5 * 60 * 1000);
 }
 
 async function bootCurrent() {
@@ -972,6 +1122,7 @@ async function bootCurrent() {
     brain = data.brain === 'internal' ? 'internal' : 'external';
     state.brain = brain;
     applyBrainChrome();
+    rememberQueueMeta(data);
     if (Number.isFinite(data.volume)) applyHeardVolume(data.volume);
     else ensurePlaybackVolume();
     if (brain !== 'internal') {
@@ -979,7 +1130,15 @@ async function bootCurrent() {
       const plan = planExternalBoot({ queue: data.queue, paused: data.paused === true });
       if (plan.dialog) setConsoleDialog(plan.dialog);
       dismissBootOverlay();
-      if (!data.queue?.length) return;
+      if (!data.queue?.length) {
+        state.queue = [];
+        if (data.lastSay) {
+          appliedSay = data.lastSay;
+          setConsoleDialog(data.lastSay);
+        }
+        renderQueuePanel();
+        return;
+      }
       state.queue = data.queue;
       state.index = data.index || 0;
       const t = state.queue[state.index];
@@ -989,11 +1148,11 @@ async function bootCurrent() {
         setStudioTrack(t);
         npBox.classList.remove('hidden');
       }
-      renderQueuePanel();
       if (data.lastSay) {
         appliedSay = data.lastSay;
         setConsoleDialog(data.lastSay);
       }
+      renderQueuePanel();
       await playIndex(state.index, { autoplay: plan.play, startAt: serverProgress });
       return;
     }
@@ -1014,6 +1173,8 @@ async function bootCurrent() {
       }
       renderQueuePanel();
     } else {
+      state.queue = [];
+      renderQueuePanel();
       if (bootOverlay) bootOverlay.classList.remove('hidden');
       preFetchBoot();
     }
@@ -1021,6 +1182,7 @@ async function bootCurrent() {
       appliedSay = data.lastSay;
       addBubble('assistant', data.lastSay, '(上次会话)');
       setConsoleDialog(data.lastSay);
+      paintHostChrome();
     }
   } catch (err) {
     showAlert(`无法连接服务：${err.message}`);
