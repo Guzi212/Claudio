@@ -62,6 +62,8 @@ const runtime = {
   currentTime: 0,
   duration: 0,
   lastReason: '',
+  queuedAt: null,
+  queuedSource: '',
 };
 
 const wss = new WebSocketServer({ noServer: true });

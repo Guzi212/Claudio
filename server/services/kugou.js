@@ -170,6 +170,18 @@ export async function lyric(hash) {
   }
 }
 
+export function coverUrlFromRaw(raw) {
+  if (!raw || typeof raw !== 'object') return '';
+  const fields = ['img', 'cover', 'Image', 'album_img', 'pic', 'imgUrl', 'albumImg'];
+  for (const key of fields) {
+    const value = raw[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim().replace(/\{size\}/gi, '400');
+    }
+  }
+  return '';
+}
+
 // 给一首 Claude 想推的歌 → 解析为可播放队列项；失败返回 null 并记 unmatched
 export async function resolveTrack({ title, artist, hint = '' }) {
   const candidates = await search({ title, artist, hint });
@@ -189,6 +201,7 @@ export async function resolveTrack({ title, artist, hint = '' }) {
       score: c.score,
       albumId: c.raw?.AlbumID || c.raw?.album_id || c.raw?.albumid || '',
       mixsongid: c.raw?.MixSongID || c.raw?.mixsongid || c.raw?.album_audio_id || '',
+      cover: coverUrlFromRaw(c.raw),
     };
     }
   }

@@ -51,7 +51,7 @@ describe('scripts/dev', () => {
       platform: 'darwin',
     });
 
-    expect(config.kugouApiDir).toBe('/opt/kugou-api');
+    expect(config.kugouApiDir).toBe(path.resolve('/opt/kugou-api'));
     expect(config.kugouApiBase).toBe('http://127.0.0.1:3300');
   });
 
