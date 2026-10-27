@@ -40,3 +40,6 @@
 - `fix: 播放页能进歌单和设置，并截断过长的点歌字段` — README.md, pwa/app.js, pwa/index.html, pwa/styles.css, server/api/external-queue.js, tests/external-queue.test.js, tests/player-console-controls.test.js
 - `feat: 媒体键和 Ctrl+Alt+P 都能暂停或继续播放` — README.md, pwa/app.js, pwa/media-session.js, pwa/sw.js, scripts/claudio-hotkey.ps1, server/api/chat.js, server/playback-control.js, server/router.js, tests/control-api.test.js, tests/hotkey-script.test.js, tests/media-session.test.js, tests/router.test.js, tests/session-url.test.js
 - `fix: 队列放完后再按一次就从第一首重新播放` — README.md, pwa/media-session.js, server/playback-control.js, tests/control-api.test.js, tests/media-session.test.js
+
+## 2026-10-27
+- `merge main (#16) into silver-player; sw v11` — README.md, docs/devlog.md, pwa/app.js, pwa/media-session.js, pwa/sw.js, scripts/claudio-hotkey.ps1, server/api/chat.js, server/playback-control.js, server/router.js, tests/control-api.test.js, tests/dev-script.test.js, tests/hotkey-script.test.js, tests/media-session.test.js, tests/router.test.js, tests/session-url.test.js
