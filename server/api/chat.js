@@ -70,7 +70,7 @@ export function mountChatRoute(app, deps = {}) {
     }
 
     if (intent.intent === 'unknown-command') {
-      const say = `不认识的命令：/${intent.command}。试试 /skip /pause /play /vol N`;
+      const say = `不认识的命令：/${intent.command}。试试 /skip /pause /play /toggle /vol N`;
       db.addMessage('assistant', say);
       res.json({ say, queue: [], reason: '', intent: intent.intent });
       return;
