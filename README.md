@@ -366,7 +366,7 @@ Invoke-Claudio Post '/api/feedback' @{ kind = 'like'; title = '晴天'; artist =
 
 ## 快捷键
 
-两套都能暂停或继续，都不需要再装软件。媒体键走浏览器的 Media Session；`Ctrl+Alt+P` 走桌面快捷方式，窗口不在前台时由 Windows 直接打到本机接口。
+推荐常驻监听器：`Ctrl+Alt+K` 由 Windows 全局注册，窗口在后台也能暂停或继续。只用系统自带的 PowerShell 5 和 .NET Framework，不需要安装软件。键盘媒体键也可以继续走浏览器的 Media Session。
 
 ### 媒体键
 
@@ -383,39 +383,54 @@ Invoke-Claudio Post '/api/feedback' @{ kind = 'like'; title = '晴天'; artist =
 
 整队放完（停在最后一首，并且这首已经自然结束）时，状态算作已停，不再当成正在播放。这时按一次媒体键的播放，或按一次空格，都会从队列第一首重新开始。中途暂停再按，仍从当前这首继续。
 
-### Ctrl+Alt+P
+### Ctrl+Alt+K：常驻监听器（推荐）
 
-媒体键会被别的正在出声的程序抢走。桌面快捷方式自带的「快捷键」由 Windows 接管，不看 Claudio 窗口在不在前台。
+监听器只在启动时编译一次，之后按键直接在后台线程向本机 `/api/control` 发送 `{"command":"toggle"}`，复用 HTTP 连接。目标是按下到暂停低于 300 ms；实际延迟还受服务和浏览器响应影响，可看日志里的 `elapsedMs` 核对接口耗时，不把它当成声音已经停下的证明。
 
 在 Claudio 目录执行（PowerShell 5 即可）：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\claudio-hotkey.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\claudio-hotkey-listener.ps1 -Action Start
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\claudio-hotkey-listener.ps1 -Action Status
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\claudio-hotkey-listener.ps1 -Action Stop
 ```
 
-脚本会在桌面创建 `Claudio Play-Pause.lnk`，并在快捷方式的「快捷键」栏写入 `Ctrl+Alt+P`。按下之后，Windows 用隐藏窗口运行同一条脚本，向 `http://127.0.0.1:8080/api/control` 发送 `{ "command": "toggle" }`。正在播放就暂停，已经暂停就从当前这首继续。整队放完后再按一次，从队列第一首重新开始。队列是空的就保持暂停，不会凭空开播。
+不写 `-Action` 时默认 `Start`。它启动隐藏的常驻 `powershell.exe`，短暂等待注册结果后返回一行 `started`、`already running` 或 `failed: 原因`；重复启动不会创建第二个监听器。`Stop` 通过命名事件退出循环并释放热键，不会停止 Node 服务。本地启动器可以在服务启动后调用 `scripts\claudio-hotkey-listener.ps1 -Action Start`。退出登录或重启电脑后需要重新启动监听器。
 
-Claudio 的页面要开着，服务要在跑。快捷方式得留在桌面（开始菜单里也行）；移到别的文件夹后，系统快捷键会失效。想确认时可以右键这个快捷方式，看「快捷键」是不是 `Ctrl + Alt + P`，目标是 `powershell.exe`，并且参数里有 `-WindowStyle Hidden` 和 `-Action Toggle`。
+Claudio 页面要开着，服务要在跑。播放中按一次暂停，暂停时继续当前曲目；整队自然播完后再按一次，从第一首重新开始。空队列仍保持暂停。服务没启动或请求失败时会记日志，监听器继续工作，不自动重试 `toggle`。
 
-换组合键时重新执行脚本。Windows 桌面快捷方式只登记 **Ctrl+Alt 再加一个键**（字母、数字，或 F1–F12），所以只能换最后那个键，例如改成 `Ctrl+Alt+K`：
+更换热键或端口前先 `Stop`，再启动。支持 `CTRL`、`ALT`、`SHIFT`、`WIN` 的组合，加一个字母、数字或 F1–F12：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\claudio-hotkey.ps1 -Hotkey CTRL+ALT+K
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\claudio-hotkey-listener.ps1 -Action Start -Hotkey CTRL+ALT+F11 -BaseUrl http://127.0.0.1:9090
 ```
 
-端口不是 8080 时：
+注册失败时，`Start` 会返回失败状态，日志也会记录原因，并尝试显示 Windows 气泡通知。错误 `1409` 表示组合键已被其他程序或桌面快捷方式占用：`already registered by another program (or by a desktop shortcut). Pick another with -Hotkey ...`。换组合键，或清除旧快捷方式绑定后再启动；不要同时保留绑定相同组合键的 `.lnk` 和监听器。
+
+媒体键默认**不注册**。Chrome 的 Media Session 已经能处理播放 / 暂停媒体键，再让监听器接管可能双重切换或抢走其他应用的媒体键。确实需要监听器接管时，停止后加 `-MediaKey` 启动；任一热键冲突都会让这次启动失败并释放已注册的键。
+
+日志：`%LOCALAPPDATA%\Claudio\hotkey-listener.log`。记录毫秒时间戳、注册、按键时间、HTTP 返回状态和 `paused`（响应中有该字段时），超过 256 KB 时截断。旁边的 `hotkey-listener.json` 只存 PID、热键和运行状态，不存令牌。
+
+只检查参数和 C# 编译，不注册热键、不写运行文件、不发送请求：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\claudio-hotkey.ps1 -BaseUrl http://127.0.0.1:9090
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\claudio-hotkey-listener.ps1 -Action Check -Hotkey CTRL+ALT+F11 -BaseUrl http://127.0.0.1:9
 ```
 
-本机访问不需要、也不要带 `-Token`。快捷方式会把启动参数写进桌面上的 `.lnk`，令牌会以明文留在那里。只有打开了 `CLAUDIO_REQUIRE_TOKEN` 时才在创建时加上 `-Token`。令牌只留在这台电脑上，不要提交，也不要发给别人：
+只有启动进程的环境变量 `CLAUDIO_REQUIRE_TOKEN` 为 `1`、`true`、`yes` 或 `on` 时，脚本才读取同一环境中的 `CLAUDIO_API_TOKEN` 并发送 Bearer 认证；令牌只留在内存，不写入日志、运行文件、快捷方式或子进程命令行。开关关闭时不读取也不发送令牌。服务器 `.env` 不会自动传给另一个 PowerShell；启用认证时，启动器需要为监听器提供相应环境。更换令牌后重启监听器。Host 白名单和服务端鉴权仍照常检查。
+
+### 桌面快捷方式（慢速备选）
+
+旧方式每按一次都冷启动 PowerShell，可能约 3 秒才响应。默认组合键也改为 `Ctrl+Alt+K`，只支持 Ctrl+Alt 加字母、数字或 F1–F12：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\claudio-hotkey.ps1 -Token "你的令牌"
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\claudio-hotkey.ps1 -Action Install
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\claudio-hotkey.ps1 -Action Remove
 ```
 
-Host 白名单和原来的鉴权不变。这条命令打的是 `127.0.0.1`，和浏览器一样要过 `hostGuard`。
+`Install` 在桌面创建 `Claudio Play-Pause.lnk`；可用 `-Hotkey CTRL+ALT+F11` 或 `-BaseUrl http://127.0.0.1:9090`。脚本先探测占用，遇到 1409 会警告并跳过快捷键绑定（仍可双击快捷方式），因此监听器运行时不会和它抢同一个组合键。快捷方式要留在桌面或开始菜单里，Windows 才会接管其热键。
+
+`Remove` 只清除自有快捷方式的「快捷键」字段，保留文件，便于切换到常驻监听器。旧版如果使用过 `-Token` 创建快捷方式，请重新 `Install` 来覆盖旧参数；新版改用上述环境变量，不再接受或保存 `-Token`。
 
 ## Clash / 代理
 
