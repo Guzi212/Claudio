@@ -45,3 +45,8 @@
 - `merge main (#16) into silver-player; sw v11` — README.md, docs/devlog.md, pwa/app.js, pwa/media-session.js, pwa/sw.js, scripts/claudio-hotkey.ps1, server/api/chat.js, server/playback-control.js, server/router.js, tests/control-api.test.js, tests/dev-script.test.js, tests/hotkey-script.test.js, tests/media-session.test.js, tests/router.test.js, tests/session-url.test.js
 - `feat: 用常驻全局热键即时切换播放，并检测快捷键冲突` — README.md, docs/devlog.md, scripts/claudio-hotkey-listener.ps1, scripts/claudio-hotkey.ps1, tests/hotkey-script.test.js
   - PR #18 修正：重复安装保留同一自有热键，其他 1409 冲突不写快捷方式；默认只用监听器，文档补齐互斥切换和清除绑定命令。
+
+## 2026-10-28
+- `feat: 打磨 Grokbot 主持的暗色个人电台` — docs/superpowers/plans/2026-10-27-radio-ui-polish.md, pwa/components/lyrics.js, pwa/icon.svg, pwa/index.html, pwa/manifest.json, pwa/styles.css, pwa/sw.js, pwa/views/player.js, pwa/views/settings.js, scripts/verify-radio-ui.mjs, tests/lyrics.test.js, tests/media-session.test.js, tests/player-auto-advance.test.js, tests/player-console-controls.test.js, tests/player-motion.test.js, tests/pwa-safe-dom.test.js, tests/radio-ui.test.js, tests/session-url.test.js
+- `docs: 同步电台界面用法与验收范围` — README.md, docs/devlog.md, docs/superpowers/plans/2026-10-27-radio-ui-polish.md
+- `fix: 展开和定位歌词时仅滚动歌词面板` — docs/devlog.md, docs/superpowers/plans/2026-10-27-radio-ui-polish.md, pwa/components/lyrics.js, scripts/verify-radio-ui.mjs, tests/lyrics.test.js
