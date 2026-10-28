@@ -4,7 +4,7 @@
 
 **Goal:** 在保留真实播放能力的前提下，把 Claudio 打磨成由 Grokbot 主持的舒适暗色个人电台，并统一歌单、品味与设置页面。
 
-**Architecture:** 保持原生 HTML、CSS 和 ES modules，不重写 `pwa/views/player.js` 的播放状态机或 `media-session.js`。保留现有 DOM 契约，以共享视觉 token、重组播放页结构、Grokbot SVG 和轻量状态动画完成小范围重构；用真实后端加模拟队列在 Chrome 中验收。
+**Architecture:** 保持原生 HTML、CSS 和 ES modules，不重写 `pwa/views/player.js` 的播放状态机或 `media-session.js`。保留现有 DOM 契约，以共享视觉 token、重组播放页结构、Grokbot SVG 和轻量状态动画完成小范围重构。在 Chrome 中加载真实 PWA 模块，使用隔离的模拟 API、WebSocket 和本地合成音频验收交互；另用真实应用服务做启动与首页 HTTP 检查。酷狗上游和真实账号播放不属于本次沙盒验收证据。
 
 **Tech Stack:** HTML、CSS、原生 JavaScript、Vitest、Node.js、本机 Chrome CDP；无新运行时依赖。
 
