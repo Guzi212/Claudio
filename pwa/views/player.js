@@ -21,9 +21,9 @@ const $ = sel => document.querySelector(sel);
 
 const LOOP_MODES = ['list', 'one', 'auto'];
 const LOOP_MODE_META = {
-  list: { mark: '↻', label: '列表循环' },
-  one: { mark: '↺1', label: '单曲循环' },
-  auto: { mark: 'AI', label: '自动推歌' },
+  list: { mark: '列表循环', label: '列表循环' },
+  one: { mark: '单曲循环', label: '单曲循环' },
+  auto: { mark: '自动推歌', label: '自动推歌' },
 };
 const NEXT_BATCH_PROMPT = '上一批歌已经播完了，请根据当前时间和氛围继续推荐下一批';
 
@@ -118,6 +118,9 @@ async function attemptPlay() {
 
 function applyBrainChrome() {
   document.body?.classList.toggle('brain-internal', brain === 'internal');
+  const consoleChat = document.getElementById('console-chat');
+  if (consoleChat) consoleChat.hidden = brain !== 'internal';
+  document.querySelectorAll('[data-internal-only]').forEach(btn => { btn.hidden = brain !== 'internal'; });
   const label = document.querySelector('.poem-panel > span');
   if (label) label.textContent = brain === 'internal' ? 'AI RADIO' : '串场';
   if (brain !== 'internal' && bootBtn && bootOverlay && !bootOverlay.classList.contains('hidden')) {
@@ -419,6 +422,7 @@ function updatePlayButtons(isPlaying) {
   const playingLabel = document.getElementById('playing-label');
   if (playingLabel) playingLabel.textContent = isPlaying ? '正在播放' : '已暂停';
   document.body?.classList.toggle('paused', state.queue.length > 0 && !isPlaying);
+  document.body?.classList.toggle('is-playing', isPlaying);
 }
 
 function applyStudioState(studio) {
@@ -757,12 +761,26 @@ function renderQueuePanel() {
   }).join('');
   queueList.classList.toggle('hidden', !queueVisible);
   if (dialogText) dialogText.classList.toggle('hidden', queueVisible);
-  if (queueBtn) queueBtn.setAttribute('aria-pressed', String(queueVisible));
+  if (queueBtn) {
+    queueBtn.setAttribute('aria-pressed', String(queueVisible));
+    queueBtn.setAttribute('aria-expanded', String(queueVisible));
+    queueBtn.textContent = queueVisible ? '收起队列' : '展开队列';
+    queueBtn.setAttribute('aria-label', queueVisible ? '收起完整队列' : '展开完整队列');
+  }
   queueList.querySelectorAll('[data-idx]').forEach(btn => {
     btn.addEventListener('click', () => {
       markActivated();
       playIndex(Number(btn.dataset.idx));
     });
+  });
+  bindQueueCoverFallbacks();
+}
+
+function bindQueueCoverFallbacks() {
+  queueList.querySelectorAll('.mini-cover img').forEach(img => {
+    const removeBrokenCover = () => img.remove();
+    img.addEventListener('error', removeBrokenCover, { once: true });
+    if (img.complete && img.naturalWidth === 0) removeBrokenCover();
   });
 }
 
@@ -1167,7 +1185,11 @@ async function bootCurrent() {
         setStudioTrack(t);
         setConsoleDialog(`回到电台：${t.title} — ${t.artist}。`);
         const src = await resolveAudioSrc(t);
-        if (src) audio.src = src;
+        if (src) {
+          audio.preload = 'metadata';
+          audio.src = src;
+          audio.load();
+        }
         window.dispatchEvent(new CustomEvent('claudio:trackchange', { detail: t }));
         npBox.classList.remove('hidden');
       }

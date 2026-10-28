@@ -264,7 +264,11 @@ Content-Type: application/json
 | 聊天（external） | `POST /api/chat` | JSON：`message` | 控制命令（`/skip` `/pause` `/play` `/toggle` `/vol N` `/prev` `/now` `/queue`）照常执行。普通文字返回「选歌请在 Grok Bot 里找 Claudio主持人。」，不调用 Claude |
 | 开机（external） | `POST /api/boot` | 无 | 不调用 Claude。返回当前 `queue` 和 `index`，`brain: "external"`，`skipped: true` |
 
-页面在 external 模式下只出声和显示。加载时，以及主持人投下新队列时，会先直接 `play()`。成功就不出遮罩；只有浏览器返回 `NotAllowedError` 才显示「点击开声」，点一下从当前队列和进度接着放。队列是空的就显示「等主持人点歌」，不盖遮罩。服务器记着暂停时，打开页面不会自己播；主持人用 replace 或 append 投下新队列，或者发 play，会再直接播。一首播完会放到队列里的下一首，整个队列播完就停。聊天框和自动推歌按钮不在播放页上。设置里的 DeepSeek 卡片只在 external 模式隐藏，internal 模式仍显示。播放页右上角有一个小图标，点开可以进歌单和设置。主持人口播显示外部点歌的 `say`，点歌时间显示在名字旁边。音量沿用已保存的值，滑块旁边有数字。
+页面在 external 模式下只出声和显示。加载时，以及主持人投下新队列时，会先直接 `play()`。成功就不出遮罩；只有浏览器返回 `NotAllowedError` 才显示「点击开声」，点一下从当前队列和进度接着放。队列是空的就显示「等主持人点歌」，不盖遮罩。服务器记着暂停时，打开页面不会自己播；主持人用 replace 或 append 投下新队列，或者发 play，会再直接播。一首播完会放到队列里的下一首，整个队列播完就停。
+
+界面以暗色为主，Grokbot 主持人口播显示外部点歌的 `say`，点歌时间显示在名字旁边。顶部导航可直接进入电台、歌单、品味和设置；右上角菜单也保留入口。音量沿用已保存的值，滑块旁边有数字。有歌词时出现「歌词」按钮，点击展开或收起，默认不挤占播放区。当前封面和待播封面加载失败时显示备用图。
+
+external 模式隐藏点歌对话和播放模式选项。internal 模式显示点歌对话、列表循环 / 单曲循环 / 自动推歌，以及队列展开或收起按钮；冷启动只预加载音频元数据，不自动播放。设置里的 DeepSeek 卡片只在 external 模式隐藏。
 
 `GET /api/weather` 在 external 模式下直接返回 `{}`，不调用 OpenWeather。播放页也不再每 5 分钟去拉天气。internal 模式这条路由仍返回当前天气；选歌提示里的天气还是在 `buildSystemPrompt` 里取，和这条路由无关。设置页里的「测试天气」按钮仍然会真的请求 OpenWeather。
 
