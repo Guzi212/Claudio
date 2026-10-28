@@ -49,3 +49,4 @@
 ## 2026-10-28
 - `feat: 打磨 Grokbot 主持的暗色个人电台` — docs/superpowers/plans/2026-10-27-radio-ui-polish.md, pwa/components/lyrics.js, pwa/icon.svg, pwa/index.html, pwa/manifest.json, pwa/styles.css, pwa/sw.js, pwa/views/player.js, pwa/views/settings.js, scripts/verify-radio-ui.mjs, tests/lyrics.test.js, tests/media-session.test.js, tests/player-auto-advance.test.js, tests/player-console-controls.test.js, tests/player-motion.test.js, tests/pwa-safe-dom.test.js, tests/radio-ui.test.js, tests/session-url.test.js
 - `docs: 同步电台界面用法与验收范围` — README.md, docs/devlog.md, docs/superpowers/plans/2026-10-27-radio-ui-polish.md
+- `fix: 展开和定位歌词时仅滚动歌词面板` — docs/devlog.md, docs/superpowers/plans/2026-10-27-radio-ui-polish.md, pwa/components/lyrics.js, scripts/verify-radio-ui.mjs, tests/lyrics.test.js

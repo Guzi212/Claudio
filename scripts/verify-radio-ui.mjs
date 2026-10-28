@@ -105,7 +105,11 @@ function createPreview() {
   app.get('/api/taste', (_req, res) => res.json({ taste: '# 喜欢的声音\n\n- 周杰伦\n- 陈奕迅\n- 安静的夜晚\n\n<!-- kugou-distilled:start -->\n<!-- kugou-distilled:end -->', routines: '# 日常\n\n- 09:00 工作\n- 22:00 放松' }));
   app.get('/api/kugou/playlists', (_req, res) => res.json({ ok: true, playlists: [{ listid: '1', name: '深夜循环', songCount: 28 }, { listid: '2', name: '通勤路上', songCount: 45 }, { listid: '3', name: '那些年的华语歌', songCount: 62 }] }));
   app.get('/api/kugou/playlists/pool', (_req, res) => res.json({ ok: true, pool: null }));
-  app.get('/api/lyric', (_req, res) => res.json({ lyric: '[00:00]故事的小黄花\n[00:05]从出生那年就飘着\n[00:10]童年的荡秋千\n[00:15]随记忆一直晃到现在' }));
+  app.get('/api/lyric', (_req, res) => res.json({ lyric: Array.from({ length: 40 }, (_, index) => {
+    const seconds = index * 5;
+    const time = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+    return `[${time}]${['故事的小黄花', '从出生那年就飘着', '童年的荡秋千', '随记忆一直晃到现在'][index % 4]}`;
+  }).join('\n') }));
   app.get('/api/unmatched', (_req, res) => res.json({ items: [] }));
   app.get('/preview-tone.wav', (_req, res) => res.type('audio/wav').send(tone));
   app.post('/api/control', (req, res) => {
@@ -397,6 +401,30 @@ try {
   internal.aiSettings = await evaluate(`getComputedStyle(document.querySelector('#settings-ai')).display`);
   await screenshot('desktop-internal-settings');
 
+  await viewport(390, 844);
+  await evaluate(`document.querySelector('.tab[data-view="player"]').click()`);
+  await evaluate(`(() => { const audio = document.querySelector('#audio'); audio.pause(); audio.currentTime = 60; })()`);
+  await waitFor(`document.querySelector('.lyric-line.active')?.dataset.idx === '12'`);
+  await click('#lyrics-toggle');
+  const lyricPosition = await evaluate(`(() => {
+    const panel = document.querySelector('#lyrics-panel');
+    const line = panel.querySelector('.lyric-line.active');
+    const p = panel.getBoundingClientRect(), r = line.getBoundingClientRect();
+    return { pageY: scrollY, scrollTop: panel.scrollTop, centered: Math.abs(r.top + r.height / 2 - p.top - panel.clientTop - panel.clientHeight / 2) < 2 };
+  })()`);
+  assert.equal(lyricPosition.centered, true, 'Paused lyrics should center immediately on expansion');
+  await evaluate(`window.scrollTo({ top: 0, behavior: 'instant' }); document.querySelector('#audio').currentTime = 65`);
+  await waitFor(`document.querySelector('.lyric-line.active')?.dataset.idx === '13'`);
+  const lyricFollow = await evaluate(`(() => {
+    const panel = document.querySelector('#lyrics-panel');
+    const line = panel.querySelector('.lyric-line.active');
+    const p = panel.getBoundingClientRect(), r = line.getBoundingClientRect();
+    return { pageY: scrollY, scrollTop: panel.scrollTop, centered: Math.abs(r.top + r.height / 2 - p.top - panel.clientTop - panel.clientHeight / 2) < 2 };
+  })()`);
+  assert.equal(lyricFollow.pageY, 0, 'Lyrics must not pull the page away from the controls');
+  assert.equal(lyricFollow.centered, true, 'Following lyrics should only center within the panel');
+  await screenshot('mobile-lyrics-follow');
+
   state.brain = 'external'; state.queue = []; state.index = 0; state.paused = true;
   await viewport(390, 844); await navigate();
   await waitFor(`document.body.classList.contains('is-empty')`);
@@ -405,7 +433,7 @@ try {
   await screenshot('mobile-empty');
 
   assert.equal(errors.length, 0, `Browser errors: ${errors.join('\n')}`);
-  await writeFile(path.join(output, 'verification.json'), JSON.stringify({ results, playback, motionPlaying, motionPaused, selected, liked, exclusive, cancelled, seek, rememberedVolume, nav, focus, consoleHidden, externalOptionsHidden, longQueue, internal, internalOptions, empty, errors }, null, 2));
+  await writeFile(path.join(output, 'verification.json'), JSON.stringify({ results, playback, motionPlaying, motionPaused, selected, liked, exclusive, cancelled, seek, rememberedVolume, nav, focus, consoleHidden, externalOptionsHidden, longQueue, internal, internalOptions, lyricPosition, lyricFollow, empty, errors }, null, 2));
   console.log(JSON.stringify({ ok: true, output, screenshots: 14, playback, motionPlaying, motionPaused, selected, seek, rememberedVolume, nav, errors }, null, 2));
 } finally {
   if (ws?.readyState === WebSocket.OPEN) { try { await send('Browser.close'); } catch {} ws.close(); }

@@ -9,11 +9,20 @@ function lyricDom() {
   };
   const container = {
     children: [],
+    scrollTop: 0,
+    clientTop: 1,
+    clientHeight: 172,
     classList: { toggle() {} },
-    appendChild(fragment) { this.children.push(...fragment.children); },
+    getBoundingClientRect() { return { top: 600, height: 174 }; },
+    scrollTo: vi.fn(function({ top }) { this.scrollTop = top; }),
+    appendChild(fragment) {
+      fragment.children.forEach((child, index) => {
+        child.getBoundingClientRect = () => ({ top: 666 + index * 28 - this.scrollTop, height: 28 });
+        this.children.push(child);
+      });
+    },
     querySelectorAll() { return this.children; },
     set textContent(value) { if (!value) this.children = []; },
-    scrollIntoView() {},
   };
   const toggle = {
     hidden: true,
@@ -27,7 +36,7 @@ function lyricDom() {
     getElementById(id) { return id === 'lyrics-toggle' ? toggle : null; },
     createDocumentFragment() { return { children: [], appendChild(child) { this.children.push(child); } }; },
     createElement() {
-      return { className: '', dataset: {}, textContent: '', scrollIntoView() {}, classList: { add() {}, remove() {} } };
+      return { className: '', dataset: {}, textContent: '', scrollIntoView: vi.fn(), classList: { add() {}, remove() {} } };
     },
   };
   return { audio, container, toggle, restore() { globalThis.document = oldDocument; } };
@@ -90,6 +99,63 @@ describe('parseLRC · LRC 解析器', () => {
     expect(parseLRC('[00:01.00]   spaced   ')).toEqual([
       { time: 1, text: 'spaced' },
     ]);
+  });
+
+  it('暂停后展开歌词，即使当前行没有变化也立即定位', async () => {
+    const dom = lyricDom();
+    vi.stubGlobal('fetch', async () => ({ ok: true, json: async () => ({ lyric: '[00:00]开头\n[00:05]前奏\n[00:10]主歌\n[00:15]副歌' }) }));
+    try {
+      const lyrics = init({ audio: dom.audio, container: dom.container });
+      await lyrics.loadLyric({ kugouId: 'song-1' });
+      dom.audio.currentTime = 15;
+      dom.audio.listeners.timeupdate();
+      expect(dom.container.scrollTop).toBe(0);
+      dom.toggle.click();
+      expect(dom.container.scrollTop).toBe(77);
+      dom.toggle.click();
+      dom.container.scrollTop = 0;
+      dom.toggle.click();
+      expect(dom.container.scrollTop).toBe(77);
+    } finally {
+      vi.unstubAllGlobals();
+      dom.restore();
+    }
+  });
+
+  it('逐行跟随只滚动歌词容器，不调用整页 scrollIntoView', async () => {
+    const dom = lyricDom();
+    vi.stubGlobal('fetch', async () => ({ ok: true, json: async () => ({ lyric: '[00:00]开头\n[00:05]前奏\n[00:10]主歌\n[00:15]副歌' }) }));
+    try {
+      const lyrics = init({ audio: dom.audio, container: dom.container });
+      await lyrics.loadLyric({ kugouId: 'song-1' });
+      dom.toggle.click();
+      dom.audio.currentTime = 15;
+      dom.audio.listeners.timeupdate();
+      expect(dom.container.scrollTop).toBe(77);
+      expect(dom.container.children.every(line => line.scrollIntoView.mock.calls.length === 0)).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+      dom.restore();
+    }
+  });
+
+  it('暂停连续定位时 seeked 不被 timeupdate 的节流跳过', async () => {
+    const dom = lyricDom();
+    vi.stubGlobal('fetch', async () => ({ ok: true, json: async () => ({ lyric: '[00:00]开头\n[00:05]前奏\n[00:10]主歌\n[00:15]副歌' }) }));
+    try {
+      const lyrics = init({ audio: dom.audio, container: dom.container });
+      await lyrics.loadLyric({ kugouId: 'song-1' });
+      dom.toggle.click();
+      dom.audio.currentTime = 10;
+      dom.audio.listeners.timeupdate();
+      expect(dom.container.scrollTop).toBe(49);
+      dom.audio.currentTime = 15;
+      dom.audio.listeners.seeked?.();
+      expect(dom.container.scrollTop).toBe(77);
+    } finally {
+      vi.unstubAllGlobals();
+      dom.restore();
+    }
   });
 
   it('歌词加载后由用户展开，歌词文本不进入 HTML 解析', async () => {

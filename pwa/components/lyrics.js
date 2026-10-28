@@ -64,6 +64,7 @@ export function init({ audio, container, getCurrentTrack } = {}) {
     toggle.addEventListener('click', () => {
       userExpanded = !userExpanded;
       syncVisibility();
+      if (userExpanded) updateHighlight({ recenter: true });
     });
   }
 
@@ -141,7 +142,15 @@ export function init({ audio, container, getCurrentTrack } = {}) {
     activeIdx = -1;
   }
 
-  function updateHighlight() {
+  function centerLine(line) {
+    const panel = container.getBoundingClientRect();
+    const rect = line.getBoundingClientRect();
+    const top = container.scrollTop + rect.top - panel.top - container.clientTop
+      - (container.clientHeight - rect.height) / 2;
+    container.scrollTop = Math.max(0, top);
+  }
+
+  function updateHighlight({ recenter = false } = {}) {
     if (!lines.length) return;
     const now = audio.currentTime || 0;
 
@@ -152,13 +161,13 @@ export function init({ audio, container, getCurrentTrack } = {}) {
       else break;
     }
 
-    if (idx === activeIdx) return;
+    if (idx === activeIdx && !recenter) return;
     const els = container.querySelectorAll('.lyric-line');
     if (activeIdx >= 0 && els[activeIdx]) els[activeIdx].classList.remove('active');
     activeIdx = idx;
     if (idx >= 0 && els[idx]) {
       els[idx].classList.add('active');
-      if (userExpanded) els[idx].scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (userExpanded) centerLine(els[idx]);
     }
   }
 
@@ -173,6 +182,8 @@ export function init({ audio, container, getCurrentTrack } = {}) {
     lastUpdateAt = t;
     updateHighlight();
   });
+
+  audio.addEventListener('seeked', () => updateHighlight({ recenter: true }));
 
   audio.addEventListener('emptied', () => {
     currentHash = null;
