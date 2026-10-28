@@ -56,6 +56,26 @@ export function init({ audio, container, getCurrentTrack } = {}) {
   let activeIdx = -1;
   let currentHash = null;
   let lastUpdateAt = 0;
+  let userExpanded = false;
+  const toggle = document.getElementById('lyrics-toggle');
+  if (toggle) {
+    toggle.hidden = true;
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.addEventListener('click', () => {
+      userExpanded = !userExpanded;
+      syncVisibility();
+    });
+  }
+
+  function syncVisibility() {
+    const hasLyrics = lines.length > 0;
+    if (toggle) {
+      toggle.hidden = !hasLyrics;
+      toggle.setAttribute('aria-expanded', String(userExpanded));
+      toggle.textContent = userExpanded ? '收起歌词' : '歌词';
+    }
+    setHidden(!hasLyrics || !userExpanded);
+  }
 
   function setHidden(hidden) {
     container.classList.toggle('hidden', !!hidden);
@@ -64,8 +84,9 @@ export function init({ audio, container, getCurrentTrack } = {}) {
   function clearLyrics() {
     lines = [];
     activeIdx = -1;
-    container.innerHTML = '';
-    setHidden(true);
+    container.textContent = '';
+    userExpanded = false;
+    syncVisibility();
   }
 
   async function loadLyric(track) {
@@ -102,12 +123,12 @@ export function init({ audio, container, getCurrentTrack } = {}) {
   }
 
   function renderLines() {
-    container.innerHTML = '';
+    container.textContent = '';
     if (!lines.length) {
-      setHidden(true);
+      syncVisibility();
       return;
     }
-    setHidden(false);
+    syncVisibility();
     const frag = document.createDocumentFragment();
     for (let i = 0; i < lines.length; i++) {
       const div = document.createElement('div');
@@ -137,7 +158,7 @@ export function init({ audio, container, getCurrentTrack } = {}) {
     activeIdx = idx;
     if (idx >= 0 && els[idx]) {
       els[idx].classList.add('active');
-      els[idx].scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (userExpanded) els[idx].scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   }
 

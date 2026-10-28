@@ -1,5 +1,37 @@
-import { describe, it, expect } from 'vitest';
-import { parseLRC } from '../pwa/components/lyrics.js';
+import { describe, it, expect, vi } from 'vitest';
+import { parseLRC, init } from '../pwa/components/lyrics.js';
+
+function lyricDom() {
+  const audio = {
+    listeners: {},
+    addEventListener(type, handler) { this.listeners[type] = handler; },
+    currentTime: 0,
+  };
+  const container = {
+    children: [],
+    classList: { toggle() {} },
+    appendChild(fragment) { this.children.push(...fragment.children); },
+    querySelectorAll() { return this.children; },
+    set textContent(value) { if (!value) this.children = []; },
+    scrollIntoView() {},
+  };
+  const toggle = {
+    hidden: true,
+    expanded: 'false',
+    textContent: '',
+    setAttribute(name, value) { if (name === 'aria-expanded') this.expanded = value; },
+    addEventListener(type, handler) { if (type === 'click') this.click = handler; },
+  };
+  const oldDocument = globalThis.document;
+  globalThis.document = {
+    getElementById(id) { return id === 'lyrics-toggle' ? toggle : null; },
+    createDocumentFragment() { return { children: [], appendChild(child) { this.children.push(child); } }; },
+    createElement() {
+      return { className: '', dataset: {}, textContent: '', scrollIntoView() {}, classList: { add() {}, remove() {} } };
+    },
+  };
+  return { audio, container, toggle, restore() { globalThis.document = oldDocument; } };
+}
 
 describe('parseLRC · LRC 解析器', () => {
   it('解析标准 [mm:ss.xx] 单行', () => {
@@ -58,5 +90,29 @@ describe('parseLRC · LRC 解析器', () => {
     expect(parseLRC('[00:01.00]   spaced   ')).toEqual([
       { time: 1, text: 'spaced' },
     ]);
+  });
+
+  it('歌词加载后由用户展开，歌词文本不进入 HTML 解析', async () => {
+    const dom = lyricDom();
+    const oldFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async () => ({ ok: true, json: async () => ({ lyric: '[00:00]<img src=x onerror=alert(1)>' }) }));
+    try {
+      const lyrics = init({ audio: dom.audio, container: dom.container, getCurrentTrack: () => ({ kugouId: 'song-1' }) });
+      await lyrics.loadLyric({ kugouId: 'song-1' });
+      expect(dom.container.children).toHaveLength(1);
+      expect(dom.container.children[0].textContent).toBe('<img src=x onerror=alert(1)>');
+      expect(dom.toggle.hidden).toBe(false);
+      expect(dom.toggle.expanded).toBe('false');
+      expect(dom.toggle.textContent).toBe('歌词');
+      dom.toggle.click();
+      expect(dom.toggle.expanded).toBe('true');
+      expect(dom.toggle.textContent).toBe('收起歌词');
+      dom.toggle.click();
+      expect(dom.toggle.expanded).toBe('false');
+      expect(globalThis.fetch).toHaveBeenCalledWith('/api/lyric?hash=song-1');
+    } finally {
+      globalThis.fetch = oldFetch;
+      dom.restore();
+    }
   });
 });

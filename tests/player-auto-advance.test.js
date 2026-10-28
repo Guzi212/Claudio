@@ -10,7 +10,7 @@ const initBody  = playerJs.slice(initStart);
 describe('audio 自动推进与错误处理', () => {
   it('循环按钮支持列表循环、单曲循环、自动推歌三种模式', () => {
     expect(playerJs).toContain("const LOOP_MODES = ['list', 'one', 'auto']");
-    expect(playerJs).toContain("auto: { mark: 'AI'");
+    expect(playerJs).toContain("auto: { mark: '自动推歌'");
   });
 
   it('audio.ended 根据播放模式分别列表循环、单曲循环或自动推歌', () => {
