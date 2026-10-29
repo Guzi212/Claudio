@@ -50,3 +50,7 @@
 - `feat: 打磨 Grokbot 主持的暗色个人电台` — docs/superpowers/plans/2026-10-27-radio-ui-polish.md, pwa/components/lyrics.js, pwa/icon.svg, pwa/index.html, pwa/manifest.json, pwa/styles.css, pwa/sw.js, pwa/views/player.js, pwa/views/settings.js, scripts/verify-radio-ui.mjs, tests/lyrics.test.js, tests/media-session.test.js, tests/player-auto-advance.test.js, tests/player-console-controls.test.js, tests/player-motion.test.js, tests/pwa-safe-dom.test.js, tests/radio-ui.test.js, tests/session-url.test.js
 - `docs: 同步电台界面用法与验收范围` — README.md, docs/devlog.md, docs/superpowers/plans/2026-10-27-radio-ui-polish.md
 - `fix: 展开和定位歌词时仅滚动歌词面板` — docs/devlog.md, docs/superpowers/plans/2026-10-27-radio-ui-polish.md, pwa/components/lyrics.js, scripts/verify-radio-ui.mjs, tests/lyrics.test.js
+
+## 2026-10-30
+- `feat: 播放器改为夜墨山水风格，配色随时辰变化` — pwa/icon.svg, pwa/index.html, pwa/manifest.json, pwa/styles.css, pwa/sw.js, pwa/views/player.js, scripts/verify-radio-ui.mjs, tests/media-session.test.js, tests/radio-ui.test.js, tests/session-url.test.js
+- `feat: 播放器改为宣纸水墨画风，Grokbot 换成墨团留白眼` — pwa/assets/ink/cover.webp, pwa/assets/ink/grokbot.webp, pwa/assets/ink/icon-512.png, pwa/assets/ink/landscape-tall.webp, pwa/assets/ink/landscape-wide.webp, pwa/assets/ink/paper.webp, pwa/icon.svg, pwa/index.html, pwa/manifest.json, pwa/styles.css, pwa/sw.js, scripts/verify-radio-ui.mjs, tests/media-session.test.js, tests/radio-ui.test.js, tests/session-url.test.js

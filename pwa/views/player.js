@@ -213,9 +213,41 @@ function editionLabelFor(date = new Date()) {
   return '深夜场';
 }
 
+// Ink palette follows the same hour bands as the edition label.
+function daypartFor(date = new Date()) {
+  const hour = date.getHours();
+  if (hour >= 5 && hour < 11) return 'dawn';
+  if (hour >= 11 && hour < 14) return 'noon';
+  if (hour >= 14 && hour < 17) return 'afternoon';
+  if (hour >= 17 && hour < 21) return 'dusk';
+  return 'night';
+}
+
 function paintEdition() {
+  const now = new Date();
   const el = document.getElementById('edition-label');
-  if (el) el.textContent = editionLabelFor(new Date());
+  if (el) el.textContent = editionLabelFor(now);
+  const daypart = daypartFor(now);
+  const root = document.documentElement;
+  if (root.dataset.daypart !== daypart) root.dataset.daypart = daypart;
+  const symbol = document.getElementById('edition-symbol');
+  if (symbol) symbol.setAttribute('href', daypart === 'night' ? '#moon' : '#sun');
+}
+
+let inkedTrackKey = '';
+// One-shot fade on track change; Web Animations keeps it on the compositor without forcing a reflow.
+function inkInTrack(track) {
+  const key = `${track?.title || ''}\0${track?.artist || ''}`;
+  if (key === inkedTrackKey) return;
+  const first = inkedTrackKey === '';
+  inkedTrackKey = key;
+  if (first || typeof Element.prototype.animate !== 'function') return;
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+  const timing = { duration: 300, easing: 'cubic-bezier(.2, .7, .2, 1)' };
+  document.getElementById('np-cover')?.animate(
+    [{ opacity: 0.35, transform: 'scale(1.015)' }, { opacity: 1, transform: 'none' }], timing);
+  document.querySelector('#now-playing .track-info')?.animate(
+    [{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], timing);
 }
 
 function rememberQueueMeta(data) {
@@ -357,6 +389,7 @@ function setStudioTrack(track) {
   if (info) info.classList.toggle('long-title', String(track.title || '').length > 4);
   paintTrackReason(track);
   paintCover(track);
+  inkInTrack(track);
 }
 
 function normalizeStudioTheme(theme) {

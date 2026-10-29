@@ -246,6 +246,19 @@ try {
     results[name] = await layout(name, width, height);
   }
 
+  const canvases = new Set();
+  for (const [name, width, height] of [['desktop', 1280, 900], ['mobile', 390, 844]]) {
+    await viewport(width, height);
+    await navigate();
+    for (const part of ['dawn', 'noon', 'afternoon', 'dusk', 'night']) {
+      await evaluate(`document.documentElement.dataset.daypart = ${JSON.stringify(part)}`);
+      await delay(60);
+      canvases.add(await evaluate(`getComputedStyle(document.querySelector('.ink-tint')).backgroundImage`));
+      await screenshot(`${name}-${part}`);
+    }
+  }
+  assert.equal(canvases.size, 5, 'Each daypart should paint its own paper tint');
+
   await viewport(390, 844); await navigate();
   await waitFor(`!document.body.classList.contains('is-empty')`);
   await evaluate(`document.querySelector('[data-console-control="play-pause"]').click()`);
