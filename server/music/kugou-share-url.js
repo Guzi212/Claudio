@@ -28,6 +28,12 @@ function parseUrl(raw) {
   }
 }
 
+// 只认 kugou.com 本身和它的子域。用 endsWith('kugou.com') 会把 evil-kugou.com 放进来。
+function isKugouHostname(hostname) {
+  const host = String(hostname || '').trim().toLowerCase().replace(/\.$/, '');
+  return host === 'kugou.com' || host.endsWith('.kugou.com');
+}
+
 export async function parseShareUrl(rawUrl, { axiosClient = axios } = {}) {
   if (!rawUrl || typeof rawUrl !== 'string') {
     throw new Error('parseShareUrl: 需要传入非空字符串 URL');
@@ -38,7 +44,7 @@ export async function parseShareUrl(rawUrl, { axiosClient = axios } = {}) {
     throw new Error(`parseShareUrl: 无效的 URL：${rawUrl}`);
   }
 
-  if (!urlObj.hostname.endsWith('kugou.com')) {
+  if (!isKugouHostname(urlObj.hostname)) {
     throw new Error(`parseShareUrl: 不是酷狗域名：${urlObj.hostname}`);
   }
 
@@ -68,6 +74,10 @@ export async function parseShareUrl(rawUrl, { axiosClient = axios } = {}) {
   const resolvedObj = parseUrl(resolvedUrl);
   if (!resolvedObj) {
     throw new Error(`parseShareUrl: 重定向到无效 URL：${resolvedUrl}`);
+  }
+  // 短链可以跳到任何地方，最终地址按同一规则复查，非酷狗域名不认
+  if (!isKugouHostname(resolvedObj.hostname)) {
+    throw new Error(`parseShareUrl: 重定向到了非酷狗域名：${resolvedObj.hostname}`);
   }
 
   const fromResolved = extractFromQuery(resolvedObj);

@@ -185,6 +185,22 @@ CLAUDIO_API_TOKEN=一段足够长的随机串
 
 手机或局域网里的浏览器不是回环。开关关闭时，页面能打开，但接口会 401，除非请求自己带上 token，或者先用 `?token=` 换过 cookie。局域网或穿透域名还要写进下面的 Host 白名单，否则直接 403。
 
+### 音频代理只转发酷狗域名
+
+`/api/proxy` 会替调用方去拉远程音频，所以目标按域名白名单放行：只转发 `kugou.com`、`kgimg.com` 及其子域（`www.kugou.com`、`fs.kugou.com`、`imge.kgimg.com` 等）。协议不是 http / https、地址里带用户名密码、或者主机名本身就是 IP（含 IPv6 和 `2130706433`、`0x7f000001` 这类写法）的，一律拒绝。重定向的每一跳都重新判定，酷狗地址跳到内网也拦得住。
+
+不通过返回 403 `forbidden target`，服务端只记主机名：
+
+```text
+[proxy] blocked target host=127.0.0.1 reason=ip-literal
+```
+
+个别 CDN 域名没被覆盖、导致某些歌放不出来时，在 `.env` 里补一行逗号分隔的域名（只写域名，不带端口和路径）：
+
+```env
+CLAUDIO_PROXY_ALLOWED_HOSTS=cdn.example.com,cdn2.example.com
+```
+
 ### Host 白名单（DNS 重绑定）
 
 每个 HTTP 请求和每次 WebSocket 升级都会看 `Host`。默认只放行 `localhost`、`127.0.0.1`、`[::1]`，带不带端口都行。对不上返回 403 `{ "ok": false, "error": "forbidden host" }`，响应里不回显 Host。
@@ -266,7 +282,7 @@ Content-Type: application/json
 
 页面在 external 模式下只出声和显示。加载时，以及主持人投下新队列时，会先直接 `play()`。成功就不出遮罩；只有浏览器返回 `NotAllowedError` 才显示「点击开声」，点一下从当前队列和进度接着放。队列是空的就显示「等主持人点歌」，不盖遮罩。服务器记着暂停时，打开页面不会自己播；主持人用 replace 或 append 投下新队列，或者发 play，会再直接播。一首播完会放到队列里的下一首，整个队列播完就停。
 
-界面以暗色为主，Grokbot 主持人口播显示外部点歌的 `say`，点歌时间显示在名字旁边。顶部导航可直接进入电台、歌单、品味和设置；右上角菜单也保留入口。音量沿用已保存的值，滑块旁边有数字。有歌词时出现「歌词」按钮，点击展开或收起，默认不挤占播放区。当前封面和待播封面加载失败时显示备用图。
+界面是宣纸水墨画风：浅色宣纸底配静态山水背景（宽屏和手机竖屏各一张），配色按时辰（清晨、午间、下午、傍晚、深夜）自动切换。Grokbot 头像是留白双眼的墨团。主持人口播显示外部点歌的 `say`，点歌时间显示在名字旁边。顶部导航可直接进入电台、歌单、品味和设置；右上角菜单也保留入口。音量沿用已保存的值，滑块旁边有数字。有歌词时出现「歌词」按钮，点击展开或收起，默认不挤占播放区。当前封面和待播封面加载失败时显示备用图。
 
 external 模式隐藏点歌对话和播放模式选项。internal 模式显示点歌对话、列表循环 / 单曲循环 / 自动推歌，以及队列展开或收起按钮；冷启动只预加载音频元数据，不自动播放。设置里的 DeepSeek 卡片只在 external 模式隐藏。
 
@@ -490,7 +506,7 @@ rules:
 │   ├── router.js              # intent 分流
 │   ├── context.js             # 6 片粘成 system prompt
 │   ├── claude.js              # 仅 CLAUDIO_BRAIN=internal 时调用
-│   ├── db.js                  # better-sqlite3 包装
+│   ├── db.js                  # node:sqlite 包装
 │   └── services/
 │       ├── kugou.js           # search / song_url / lyric
 │       └── kugou-login.js     # cookie 自动续约
@@ -498,8 +514,10 @@ rules:
 │   ├── index.html
 │   ├── app.js
 │   ├── styles.css
-│   ├── sw.js                  # service worker
-│   └── manifest.json
+│   ├── sw.js                  # service worker（改壳资源要升 CACHE 版本）
+│   ├── manifest.json
+│   ├── views/ components/     # 各视图和歌词等组件
+│   └── assets/ink/            # 水墨背景、宣纸纹理、Grokbot 头像、图标
 ├── prompts/
 │   └── dj-persona.md          # Claudio 的人格 + JSON schema 硬约束
 ├── user/

@@ -8,8 +8,7 @@ description: Claudio 项目完整开发流程 — worktree 创建、测试、PR�
 ## 开始新任务（必须执行）
 
 ```bash
-# 1. 确认在主工作目录
-cd /Users/loic/workspace/Claudio
+# 1. 确认在主工作目录（仓库根）
 
 # 2. 拉取最新 main
 git fetch origin main && git checkout main && git pull origin main
@@ -22,8 +21,8 @@ git worktree add ../claudio-<name> -b fix/<name>
 # 4. 进入 worktree
 cd ../claudio-<name>
 
-# 5. 安装依赖（package.json 有变化时）
-pnpm install
+# 5. 安装依赖（和 CI 一致）
+npm ci
 ```
 
 分支命名规则：`feat/<功能>` 或 `fix/<问题>`，全小写，连字符。
@@ -32,7 +31,7 @@ pnpm install
 
 ```bash
 # 1. 全量测试，必须全部通过
-pnpm test
+npm test
 
 # 2. Push 分支
 git push -u origin HEAD
@@ -46,15 +45,14 @@ gh pr checks --watch
 # 5. Squash merge
 gh pr merge --squash --delete-branch
 
-# 6. 清理 worktree
-cd /Users/loic/workspace/Claudio
+# 6. 清理 worktree（回到主工作目录执行）
 git worktree remove ../claudio-<name>
 git pull origin main
 ```
 
 ## 检查清单
 
-- [ ] `pnpm test` 全部通过
+- [ ] `npm test` 全部通过
 - [ ] commit message 描述行为变化，不描述实现细节
 - [ ] 没有 `.env`、私钥、token、cookie 被提交
 - [ ] PR 描述说明改动原因
