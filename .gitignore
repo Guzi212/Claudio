@@ -18,6 +18,9 @@ Thumbs.db
 # 本地 cookie 调试临时脚本
 .tmp-*.mjs
 
+# 本地设计稿和 AI 原图
+design-preview/
+
 # Editor
 .vscode/
 .idea/
