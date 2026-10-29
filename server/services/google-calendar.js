@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import axios from 'axios';
 
-const DEFAULT_CREDS = path.join(process.env.HOME, '.config/google-calendar-mcp/gcp-oauth.keys.json');
+const DEFAULT_CREDS = path.join(os.homedir(), '.config/google-calendar-mcp/gcp-oauth.keys.json');
 const CREDS_PATH = process.env.GOOGLE_OAUTH_CREDENTIALS || DEFAULT_CREDS;
 const TOKENS_PATH = path.join(path.dirname(CREDS_PATH), 'tokens.json');
 const CACHE_TTL_MS = 5 * 60_000;
