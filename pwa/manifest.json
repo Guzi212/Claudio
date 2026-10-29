@@ -1,11 +1,11 @@
 {
   "name": "Claudio · 私人电台",
   "short_name": "Claudio",
-  "description": "Grokbot 主持的私人 AI 电台",
+  "description": "Grokbot 主持的水墨私人 AI 电台",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0b0d12",
-  "theme_color": "#0b0d12",
+  "background_color": "#f2ede1",
+  "theme_color": "#f2ede1",
   "orientation": "any",
   "icons": [
     {
@@ -13,6 +13,12 @@
       "type": "image/svg+xml",
       "sizes": "any",
       "purpose": "any maskable"
+    },
+    {
+      "src": "/assets/ink/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any"
     }
   ]
 }
