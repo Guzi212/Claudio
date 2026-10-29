@@ -1,11 +1,11 @@
 {
   "name": "Claudio · 私人电台",
   "short_name": "Claudio",
-  "description": "Grokbot 主持的私人 AI 电台",
+  "description": "侠客 Grokbot 主持的水墨私人 AI 电台",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0b0d12",
-  "theme_color": "#0b0d12",
+  "background_color": "#0b0c0e",
+  "theme_color": "#0b0c0e",
   "orientation": "any",
   "icons": [
     {
