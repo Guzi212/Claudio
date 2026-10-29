@@ -23,22 +23,23 @@ describe('radio visual contract', () => {
     expect(css).toContain('body:not(.brain-internal) #console-chat');
   });
 
-  it('使用夜墨山水 token，朱砂（Claude 赭）作印章色', () => {
-    expect(css).toContain('--canvas: #0b0c0e');
-    expect(css).toContain('--surface: #15171a');
-    expect(css).toContain('--ink: #ece6d8');
-    expect(css).toContain('--muted: #9b968b');
-    expect(css).toContain('--seal: #d97757');
-    expect(css).toContain('--paper: #e9e2d0');
-    expect(manifest.background_color).toBe('#0b0c0e');
-    expect(html).toContain('<meta name="theme-color" content="#0b0c0e">');
+  it('宣纸底、墨色字、朱砂印章色', () => {
+    expect(css).toContain('--canvas: #f2ede1');
+    expect(css).toContain('--ink: #1f1c18');
+    expect(css).toContain('--muted: #6f675b');
+    expect(css).toContain('--seal: #b4432d');
+    expect(css).toContain('color-scheme: light');
+    expect(css).toContain('url("assets/ink/paper.webp")');
+    expect(manifest.background_color).toBe('#f2ede1');
+    expect(html).toContain('<meta name="theme-color" content="#f2ede1">');
   });
 
   it('配色随时辰切换，五个时段都有色板且与场次划分一致', () => {
     expect(html).toContain('<html lang="zh-cn" data-daypart="night">');
-    for (const part of ['dawn', 'noon', 'afternoon', 'dusk']) {
+    for (const part of ['dawn', 'noon', 'afternoon', 'dusk', 'night']) {
       expect(css).toContain(`:root[data-daypart="${part}"]`);
     }
+    expect(css).toMatch(/\.ink-tint\s*\{[^}]*background:\s*var\(--tint\)/);
     const playerJs = fs.readFileSync(path.resolve('pwa/views/player.js'), 'utf8');
     expect(playerJs).toContain('function daypartFor(');
     expect(playerJs).toContain('root.dataset.daypart = daypart');
@@ -47,8 +48,15 @@ describe('radio visual contract', () => {
     expect(html).toContain('id="edition-symbol"');
   });
 
-  it('水墨远山是固定背景，动画只走 transform/opacity，不用实时滤镜', () => {
+  it('水墨山水是固定静态背景，动画只走 transform/opacity，不用实时滤镜', () => {
     expect(html).toContain('class="ink-scene" aria-hidden="true"');
+    expect(css).toContain('url("assets/ink/landscape-wide.webp")');
+    expect(css).toContain('url("assets/ink/landscape-tall.webp")');
+    for (const asset of ['landscape-wide.webp', 'landscape-tall.webp', 'paper.webp', 'cover.webp', 'grokbot.webp', 'icon-512.png']) {
+      expect(fs.existsSync(path.resolve('pwa/assets/ink', asset))).toBe(true);
+      expect(sw).toContain(`'/assets/ink/${asset}'`);
+    }
+    expect(css).not.toContain('background-attachment: fixed');
     expect(css).toMatch(/\.ink-scene\s*\{[^}]*position:\s*fixed[^}]*pointer-events:\s*none/);
     expect(css).toMatch(/\.ink-mist\s*\{[^}]*will-change:\s*transform/);
     expect(css).not.toContain('backdrop-filter');
@@ -57,14 +65,16 @@ describe('radio visual contract', () => {
     expect(html).not.toContain('feGaussianBlur');
   });
 
-  it('侠客 Grokbot 标记、声波和页面图标保持一致身份', () => {
+  it('Grokbot 是一团墨加两道留白眼，图标与头像同一身份', () => {
     expect(html).toMatch(/class="[^"]*\bbot-mark\b[^"]*"/);
     expect(html).toContain('href="#grokbot"');
     const grokbot = html.slice(html.indexOf('<symbol id="grokbot"'), html.indexOf('</symbol>', html.indexOf('<symbol id="grokbot"')));
-    expect(grokbot).toContain('#d97757');
+    expect(grokbot).toContain('href="assets/ink/grokbot.webp"');
     const icon = fs.readFileSync(path.resolve('pwa/icon.svg'), 'utf8');
-    expect(icon).toContain('#0b0c0e');
-    expect(icon).toContain('#d97757');
+    expect(icon).toContain('#f2ede1');
+    expect(icon).toContain('#1a1815');
+    expect(icon).toContain('rotate(-30');
+    expect(manifest.icons.map(i => i.src)).toContain('/assets/ink/icon-512.png');
     expect(css).toMatch(/\.is-playing\s+#host-speaking\s+i\s*\{[^}]*animation:/);
     expect(css).toMatch(/#host-speaking\s+i\s*\{[^}]*animation:\s*none/);
   });
@@ -78,7 +88,7 @@ describe('radio visual contract', () => {
   });
 
   it('离线壳缓存覆盖新增资源', () => {
-    expect(sw).toContain('const CACHE = \'claudio-shell-v13\'');
+    expect(sw).toContain('const CACHE = \'claudio-shell-v14\'');
     expect(sw).toContain('\'/components/studio-visual.js\'');
     expect(sw).toContain('\'/external-playback.js\'');
     expect(sw).toContain('\'/boot-playback.js\'');
