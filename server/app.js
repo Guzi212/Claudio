@@ -38,6 +38,7 @@ import { hostGuard } from './host-guard.js';
 import { mountSessionRoute } from './session.js';
 import { resolveListenHost } from './listen.js';
 import { axiosProxyOptions } from './outbound-proxy.js';
+import { checkProxyUrl, createRedirectGuard, findProxyBlock } from './proxy-guard.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -145,6 +146,13 @@ app.get('/api/proxy', async (req, res) => {
 
   try {
     const target = decodeURIComponent(url);
+    // 只替白名单域名（默认 kugou.com / kgimg.com 及其子域）转发，见 server/proxy-guard.js
+    const check = checkProxyUrl(target);
+    if (!check.ok) {
+      console.warn(`[proxy] blocked target host=${check.hostname || '(none)'} reason=${check.reason}`);
+      res.status(403).send('forbidden target');
+      return;
+    }
     const upstream = await axios.get(target, {
       responseType: 'stream',
       headers: {
@@ -156,9 +164,23 @@ app.get('/api/proxy', async (req, res) => {
       timeoutErrorMessage: 'upstream first-byte timeout',
       signal: ac.signal,
       validateStatus: s => s >= 200 && s < 400,
+      // 重定向的每一跳都重新判定，跳到白名单外直接中止
+      beforeRedirect: createRedirectGuard(),
       // CDN 走 KUGOU_PROXY；目标若是 127.0.0.1 / localhost 则强制直连。
       ...axiosProxyOptions(target),
     });
+
+    // 兜底：万一某一跳没走 beforeRedirect，最终地址也复查一次
+    const finalUrl = upstream.request?.res?.responseUrl;
+    if (finalUrl) {
+      const finalCheck = checkProxyUrl(finalUrl);
+      if (!finalCheck.ok) {
+        upstream.data?.destroy?.();
+        console.warn(`[proxy] blocked redirect host=${finalCheck.hostname || '(none)'} reason=${finalCheck.reason}`);
+        res.status(403).send('forbidden target');
+        return;
+      }
+    }
 
     for (const h of ['content-type', 'content-length', 'accept-ranges', 'content-range']) {
       const v = upstream.headers[h];
@@ -179,6 +201,13 @@ app.get('/api/proxy', async (req, res) => {
     });
   } catch (err) {
     if (err.name === 'CanceledError' || err.code === 'ERR_CANCELED') return;
+    const blocked = findProxyBlock(err);
+    if (blocked) {
+      console.warn(`[proxy] blocked redirect host=${blocked.hostname || '(none)'} reason=${blocked.reason}`);
+      if (!res.headersSent) res.status(403).send('forbidden target');
+      else try { res.end(); } catch { /* */ }
+      return;
+    }
     console.error('[proxy] failed:', err.message);
     if (!res.headersSent) res.status(502).send('upstream failed: ' + err.message);
     else try { res.end(); } catch { /* */ }
