@@ -137,7 +137,7 @@ git worktree remove ../claudio-<branch-name>
 
 ### 其它约定
 
-- 依赖和测试以 CI（`.github/workflows/ci.yml`：`npm ci` + `npm test`）为准；本机 pnpm 9 读不了 `pnpm-workspace.yaml`，不要用 pnpm
+- 依赖和测试以 CI（`.github/workflows/ci.yml`：`npm ci` + `npm test`）为准；只用 npm，仓库里没有 pnpm 锁文件
 - 每次 commit 后 `.githooks/post-commit` 会往 `docs/devlog.md` 追加一行，提交前留意它
 - 改了 PWA 壳资源（HTML/CSS/JS/图片）要升 `pwa/sw.js` 的 `CACHE` 版本，并同步测试里的版本断言
 - UI 视觉验收：`node scripts/verify-radio-ui.mjs <输出目录>`（需要本机 Chrome）
