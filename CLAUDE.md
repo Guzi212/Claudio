@@ -97,15 +97,15 @@ git worktree add ../claudio-<branch-name> -b feat/<branch-name>
 # 4. 进入 worktree 工作目录
 cd ../claudio-<branch-name>
 
-# 5. 安装依赖（如果 package.json 有变化）
-pnpm install
+# 5. 安装依赖（如果 package.json 有变化）。只用 npm，不要用 pnpm
+npm ci
 ```
 
 ### 任务完成后（必须执行）
 
 ```bash
 # 1. 跑测试，必须全部通过
-pnpm test
+npm test
 
 # 2. push 分支
 git push -u origin feat/<branch-name>
