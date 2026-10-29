@@ -2,6 +2,8 @@
 # PostToolUse hook: 编辑 server/ 文件后自动运行对应测试
 data=$(cat)
 fp=$(echo "$data" | python3 -c "import sys,json; print(json.load(sys.stdin).get('tool_input',{}).get('file_path',''))")
+fp=${fp//\\//}
+cd "${CLAUDE_PROJECT_DIR:-.}" || exit 0
 
 # 只处理 server/ 下的 JS 文件
 if [[ "$fp" != *"/server/"* ]] || [[ "$fp" != *.js ]]; then
@@ -9,7 +11,7 @@ if [[ "$fp" != *"/server/"* ]] || [[ "$fp" != *.js ]]; then
 fi
 
 name=$(basename "${fp%.js}")
-test_file=$(find . -maxdepth 5 -name "${name}.test.js" 2>/dev/null | grep -v node_modules | head -1)
+test_file=$(find . -maxdepth 5 -name "${name}.test.js" 2>/dev/null | grep -v -e node_modules -e '/.claude/' | head -1)
 
 if [ -n "$test_file" ]; then
   echo "🧪 自动运行相关测试: $test_file"

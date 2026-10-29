@@ -1,8 +1,8 @@
 # Claudio · 个人 Claude AI 电台
 
-个人 AI 电台项目。Claude 做大脑，根据品味语料 + 当前时间 + 历史播放推荐歌曲；酷狗音乐负责检索 + 直链；浏览器 PWA 播放。
+个人 AI 电台项目。默认 `CLAUDIO_BRAIN=external`：选歌交给外部 Grok Bot（Claudio主持人），Claudio 只负责酷狗检索、直链和浏览器 PWA 播放。设成 `internal` 才由 Claude 根据品味语料 + 当前时间 + 历史播放选歌。
 
-架构：`router → context → claude → state.db → services/kugou`
+架构（internal 选歌路径）：`router → context → claude → state.db → services/kugou`
 
 ## Agent skills
 
@@ -83,8 +83,7 @@ Issues 存放在 GitHub（`Guzi212/Claudio`），通过 `gh` CLI 操作。见 `d
 ### 开始任务前（必须执行）
 
 ```bash
-# 1. 确认当前在主工作目录（不是 worktree）
-cd /Users/loic/workspace/Claudio
+# 1. 确认当前在主工作目录（仓库根，不是 worktree）
 
 # 2. 拉取最新 main
 git fetch origin main
@@ -97,15 +96,15 @@ git worktree add ../claudio-<branch-name> -b feat/<branch-name>
 # 4. 进入 worktree 工作目录
 cd ../claudio-<branch-name>
 
-# 5. 安装依赖（如果 package.json 有变化）
-pnpm install
+# 5. 安装依赖（和 CI 一致用 npm ci）
+npm ci
 ```
 
 ### 任务完成后（必须执行）
 
 ```bash
 # 1. 跑测试，必须全部通过
-pnpm test
+npm test
 
 # 2. push 分支
 git push -u origin feat/<branch-name>
@@ -117,8 +116,7 @@ gh pr create --title "<标题>" --body "<描述>" --base main
 gh pr checks          # 等所有 checks 变绿
 gh pr merge --squash  # CI 全绿后执行
 
-# 5. 清理 worktree（merge 完成后）
-cd /Users/loic/workspace/Claudio
+# 5. 清理 worktree（merge 完成后，回到主工作目录执行）
 git worktree remove ../claudio-<branch-name>
 ```
 
@@ -128,3 +126,18 @@ git worktree remove ../claudio-<branch-name>
 - 禁止直接 push main，禁止 `git checkout main` 后直接改文件
 - PR 有冲突时不要尝试自动解决，停下来通知用户
 - 每个 worktree 对应一个独立任务，不在同一 worktree 里做多个无关改动
+
+### 文档类改动和清理
+
+本项目覆盖全局「未经授权不 commit / push / 开 PR」的默认规则：
+
+- 只改文档、规则文件、注释或 `.claude/` 配置的改动，检查没问题就直接 commit、push、开 PR，不用先问。不要自己 merge，用户在 PR 上审批。
+- 过时、用不上的东西主动清理：已合并 PR 的分支和 worktree、已完成的计划文档、被替代的旧稿、一次性调试脚本和日志。清理了什么写进 PR 描述或汇报。
+- 含有未合并的独有提交、对应 PR 还开着、或别的会话正在用的，先问再删。
+
+### 其它约定
+
+- 依赖和测试以 CI（`.github/workflows/ci.yml`：`npm ci` + `npm test`）为准；本机 pnpm 9 读不了 `pnpm-workspace.yaml`，不要用 pnpm
+- 每次 commit 后 `.githooks/post-commit` 会往 `docs/devlog.md` 追加一行，提交前留意它
+- 改了 PWA 壳资源（HTML/CSS/JS/图片）要升 `pwa/sw.js` 的 `CACHE` 版本，并同步测试里的版本断言
+- UI 视觉验收：`node scripts/verify-radio-ui.mjs <输出目录>`（需要本机 Chrome）
