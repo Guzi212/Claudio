@@ -185,6 +185,22 @@ CLAUDIO_API_TOKEN=一段足够长的随机串
 
 手机或局域网里的浏览器不是回环。开关关闭时，页面能打开，但接口会 401，除非请求自己带上 token，或者先用 `?token=` 换过 cookie。局域网或穿透域名还要写进下面的 Host 白名单，否则直接 403。
 
+### 音频代理只转发酷狗域名
+
+`/api/proxy` 会替调用方去拉远程音频，所以目标按域名白名单放行：只转发 `kugou.com`、`kgimg.com` 及其子域（`www.kugou.com`、`fs.kugou.com`、`imge.kgimg.com` 等）。协议不是 http / https、地址里带用户名密码、或者主机名本身就是 IP（含 IPv6 和 `2130706433`、`0x7f000001` 这类写法）的，一律拒绝。重定向的每一跳都重新判定，酷狗地址跳到内网也拦得住。
+
+不通过返回 403 `forbidden target`，服务端只记主机名：
+
+```text
+[proxy] blocked target host=127.0.0.1 reason=ip-literal
+```
+
+个别 CDN 域名没被覆盖、导致某些歌放不出来时，在 `.env` 里补一行逗号分隔的域名（只写域名，不带端口和路径）：
+
+```env
+CLAUDIO_PROXY_ALLOWED_HOSTS=cdn.example.com,cdn2.example.com
+```
+
 ### Host 白名单（DNS 重绑定）
 
 每个 HTTP 请求和每次 WebSocket 升级都会看 `Host`。默认只放行 `localhost`、`127.0.0.1`、`[::1]`，带不带端口都行。对不上返回 403 `{ "ok": false, "error": "forbidden host" }`，响应里不回显 Host。

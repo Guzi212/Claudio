@@ -27,7 +27,7 @@ describe('PWA 换 cookie', () => {
   });
 
   it('service worker 不把 ?token= 写进缓存', () => {
-    expect(sw).toContain("const CACHE = 'claudio-shell-v14'");
+    expect(sw).toContain("const CACHE = 'claudio-shell-v15'");
     expect(sw).toContain("url.searchParams.has('token')");
     expect(sw).toContain('/session-url.js');
   });

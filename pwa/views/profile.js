@@ -77,6 +77,15 @@ async function runImport() {
   }
 }
 
+// 报错按纯文本渲染：err.message 可能带上游返回的内容，拼进 innerHTML 等于执行它。
+export function renderUnmatchedError(list, message) {
+  list.textContent = '';
+  const li = document.createElement('li');
+  li.className = 'muted';
+  li.textContent = `加载失败：${message}`;
+  list.appendChild(li);
+}
+
 async function loadUnmatched() {
   if (unmatchedLoaded) return;
   unmatchedList.innerHTML = '<li class="muted">加载中…</li>';
@@ -101,7 +110,7 @@ async function loadUnmatched() {
     }
     unmatchedLoaded = true;
   } catch (err) {
-    unmatchedList.innerHTML = `<li class="muted">加载失败：${err.message}</li>`;
+    renderUnmatchedError(unmatchedList, err.message);
   }
 }
 
