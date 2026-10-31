@@ -88,7 +88,7 @@ describe('radio visual contract', () => {
   });
 
   it('离线壳缓存覆盖新增资源', () => {
-    expect(sw).toContain('const CACHE = \'claudio-shell-v16\'');
+    expect(sw).toContain('const CACHE = \'claudio-shell-v17\'');
     expect(sw).toContain('\'/components/studio-visual.js\'');
     expect(sw).toContain('\'/external-playback.js\'');
     expect(sw).toContain('\'/boot-playback.js\'');

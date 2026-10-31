@@ -1,5 +1,5 @@
 // 极简 service worker：只缓存壳层（HTML/CSS/JS），不缓存音频和 /api/*
-const CACHE = 'claudio-shell-v16';
+const CACHE = 'claudio-shell-v17';
 const SHELL = [
   '/', '/index.html', '/app.js', '/session-url.js', '/volume-memory.js', '/client-id.js', '/media-session.js', '/styles.css', '/manifest.json', '/icon.svg',
   '/external-playback.js', '/boot-playback.js', '/runtime-sync.js', '/player-mode.js',

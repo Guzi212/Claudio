@@ -1,3 +1,5 @@
+import { trimPlayedHistory } from './queue-source.js';
+
 // 续播池独立于 internal 选歌候选池；只保存主持人已经选好的歌。
 export const CONTINUE_POOL_KEY = 'continue_pool';
 
@@ -73,8 +75,12 @@ export function continueFromPool(runtime, { db, random = Math.random } = {}) {
   pool.continuedCount += items.length;
   saveContinuePool(db, pool);
   runtime.continuePool = pool;
-  // 保留旧索引，迟到的 ended 上报仍能识别；不裁剪已播放的队列。
+  // 新批次前只保留有限历史；每次调用读取配置，迟到报告由 offset 换算。
+  const rawHistory = process.env.CLAUDIO_QUEUE_HISTORY?.trim() || '';
+  const history = /^\d+$/.test(rawHistory) ? Number(rawHistory) : NaN;
+  const keep = Number.isSafeInteger(history) ? history : 20;
   runtime.index = runtime.queue.length;
+  trimPlayedHistory(runtime, keep);
   runtime.queue.push(...items);
   runtime.queueSource = 'bot';
   runtime.paused = false;

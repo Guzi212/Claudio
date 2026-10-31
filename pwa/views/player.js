@@ -30,6 +30,7 @@ const NEXT_BATCH_PROMPT = '上一批歌已经播完了，请根据当前时间�
 const state = {
   queue: [],
   index: 0,
+  offset: 0,
   loopMode: 'auto',
   brain: 'external',
   continuePoolActive: false,
@@ -167,6 +168,7 @@ function reportProgress(force = false) {
       volume: npVol ? Number(npVol.value) : readLocalVolume(),
       paused: Boolean(audio.paused),
       index: state.index,
+      queueOffset: state.offset,
       clientId: getClientId(),
     },
   }));
@@ -178,7 +180,7 @@ function syncToServer(index, { paused = false, ended = false } = {}) {
   return fetch('/api/runtime/state', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ index, paused, ended, clientId: getClientId() }),
+    body: JSON.stringify({ index, queueOffset: state.offset, paused, ended, clientId: getClientId() }),
   }).then(res => res.ok ? res.json() : null).catch(() => null);
 }
 
@@ -538,6 +540,7 @@ function startBoot() {
   if (plan.applyQueue) {
     state.queue = data.queue;
     state.index = plan.index;
+    state.offset = data.queueOffset || 0;
   }
   if (plan.playIndex != null) playIndex(plan.playIndex);
 }
@@ -650,10 +653,10 @@ async function playIndex(i, { autoplay = true, startAt = 0, resume = false, rest
     return;
   }
   if (!restart && alreadyPlayingIndex(i)) return;
-  const claim = claimPlayLoad(playLoadIndex, i);
+  const claim = claimPlayLoad(playLoadIndex, i + state.offset);
   if (!claim.accept) return;
   playLoadIndex = claim.loading;
-  const loadToken = i;
+  const loadToken = i + state.offset;
   suppressPauseSync = true;
   try {
     state.index = i;
@@ -672,12 +675,12 @@ async function playIndex(i, { autoplay = true, startAt = 0, resume = false, rest
 
     const src = await resolveAudioSrc(t);
     // await 期间用户可能又点了别的曲目，确认当前目标没变再写 src
-    if (playLoadIndex !== loadToken || !trackStillCurrent(t)) return;
+    if (playLoadIndex !== loadToken || state.index + state.offset !== loadToken || !trackStillCurrent(t)) return;
     if (!src) {
-      if (i < state.queue.length - 1) {
+      if (state.index < state.queue.length - 1) {
         playLoadIndex = null;
         suppressPauseSync = false;
-        return playIndex(i + 1, { autoplay, startAt: 0, restart: false });
+        return playIndex(state.index + 1, { autoplay, startAt: 0, restart: false });
       }
       showAlert(`无法取到《${t.title}》的播放地址`);
       return;
@@ -900,6 +903,7 @@ async function send(message) {
     if (data.queue && data.queue.length) {
       state.queue = data.queue;
       state.index = 0;
+      state.offset = data.queueOffset || 0;
       playIndex(0);
     }
     if (data._resolveError) {
@@ -937,6 +941,7 @@ export function applyRuntime(runtime, { origin } = {}) {
   const plan = planRuntimeSync({
     queue: state.queue,
     index: state.index,
+    offset: state.offset,
     hasSrc: Boolean(audio?.getAttribute?.('src') || audio?.src),
     ended: Boolean(audio?.ended),
   }, runtime);
@@ -944,6 +949,8 @@ export function applyRuntime(runtime, { origin } = {}) {
   else ensurePlaybackVolume();
   if (plan.applyQueue && plan.playIndex == null) {
     state.queue = plan.queue || [];
+    state.index = plan.index;
+    state.offset = plan.queueOffset;
     renderQueuePanel();
     if (!state.queue.length && brain !== 'internal') {
       setConsoleDialog('等待点歌');
@@ -952,6 +959,7 @@ export function applyRuntime(runtime, { origin } = {}) {
   }
   if (plan.playIndex != null) {
     if (plan.applyQueue) state.queue = plan.queue;
+    state.offset = plan.queueOffset;
     const autoplay = plan.pause !== true;
     playIndex(plan.playIndex, {
       autoplay,
@@ -995,6 +1003,7 @@ export function applyExternalQueue({ mode, tracks, say, reason, queuedAt: at } =
   } else {
     state.queue = list;
     state.index = 0;
+    state.offset = 0;
   }
   renderQueuePanel();
   if (!plan.autoplay) return;
@@ -1143,6 +1152,7 @@ export function initPlayer() {
     if (!queue.length) return;
     state.queue = queue;
     state.index = 0;
+    state.offset = 0;
     renderQueuePanel();
     playIndex(0);
   });
@@ -1178,6 +1188,7 @@ async function bootCurrent() {
     const data = await r.json();
     brain = data.brain === 'internal' ? 'internal' : 'external';
     state.brain = brain;
+    state.offset = data.queueOffset || 0;
     applyBrainChrome();
     rememberQueueMeta(data);
     if (Number.isFinite(data.volume)) applyHeardVolume(data.volume);

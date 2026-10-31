@@ -182,6 +182,7 @@ export function mountExternalQueueRoutes(app, deps = {}) {
       const keepSavedVolume = body.volume == null || body.volume === '';
       if (mode === 'replace') {
         runtime.queue = queueItems;
+        runtime.queueOffset = 0;
         runtime.index = 0;
         runtime.paused = false;
         markQueueSource(runtime, 'bot');

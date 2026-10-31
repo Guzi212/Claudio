@@ -33,18 +33,21 @@ export function planRuntimeSync(local = {}, remote = {}) {
   }
   const pause = typeof remote.paused === 'boolean' ? remote.paused : null;
   const index = Number.isFinite(remote.index) ? remote.index : 0;
+  const queueOffset = remote.queueOffset || 0;
   if (!remote.queue.length) {
-    return { volume, applyQueue: local.queue?.length > 0, queue: [], playIndex: null, pause: true, restart: false };
+    return { volume, applyQueue: local.queue?.length > 0, queue: [], index: 0, queueOffset, playIndex: null, pause: true, restart: false };
   }
   const clamped = Math.max(0, Math.min(index, remote.queue.length - 1));
-  const sameTrack = local.index === clamped
+  const position = { index: clamped, queueOffset };
+  const sameTrack = local.index + (local.offset || 0) === clamped + queueOffset
     && trackKey(local.queue?.[local.index]) === trackKey(remote.queue[clamped])
     && Boolean(local.hasSrc);
   if (sameTrack) {
-    const queueChanged = !sameQueue(local.queue, remote.queue);
+    const queueChanged = !sameQueue(local.queue, remote.queue) || (local.offset || 0) !== queueOffset;
     // 这首已经播完，外部又发了 play：从头再播一次。暂停广播不能借 ended 再 load。
     if (local.ended && pause === false) {
       return {
+        ...position,
         volume,
         applyQueue: queueChanged,
         queue: remote.queue,
@@ -54,6 +57,7 @@ export function planRuntimeSync(local = {}, remote = {}) {
       };
     }
     return {
+      ...position,
       volume,
       applyQueue: queueChanged,
       queue: remote.queue,
@@ -62,5 +66,5 @@ export function planRuntimeSync(local = {}, remote = {}) {
       restart: false,
     };
   }
-  return { volume, applyQueue: true, queue: remote.queue, playIndex: clamped, pause, restart: false };
+  return { ...position, volume, applyQueue: true, queue: remote.queue, playIndex: clamped, pause, restart: false };
 }
