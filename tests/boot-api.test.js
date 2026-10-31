@@ -28,6 +28,7 @@ describe('POST /api/boot', () => {
     const runtime = {
       queue: [{ title: '外部', artist: 'Bot', kugouId: 'h1' }],
       index: 1,
+      queueOffset: 12,
       paused: false,
       lastSay: 'bot 说',
       lastReason: '雨',
@@ -51,6 +52,8 @@ describe('POST /api/boot', () => {
     expect(res.body.skipped).toBe(true);
     expect(res.body.queue).toEqual(runtime.queue);
     expect(res.body.index).toBe(1);
+    expect(res.body.queueOffset).toBe(12);
+    expect(runtime.queueOffset).toBe(12);
     expect(runtime.queue[0].title).toBe('外部');
   });
 
@@ -123,6 +126,7 @@ describe('POST /api/boot', () => {
     const runtime = {
       queue: [{ title: '外部', artist: 'Bot' }],
       index: 0,
+      queueOffset: 12,
       paused: true,
       lastSay: '',
       queueSource: 'bot',
@@ -148,6 +152,8 @@ describe('POST /api/boot', () => {
     expect(ask).toHaveBeenCalled();
     expect(runtime.queue[0].title).toBe('开播');
     expect(runtime.queueSource).toBe('boot');
+    expect(runtime.queueOffset).toBe(0);
+    expect(res.body.queueOffset).toBe(0);
     expect(runtime.index).toBe(0);
     expect(res.body.skipped).toBeUndefined();
   });

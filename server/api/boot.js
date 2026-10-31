@@ -35,6 +35,7 @@ export function mountBootRoute(app, deps = {}) {
         say: waiting ? '等待点歌' : (runtime.lastSay || ''),
         queue: runtime.queue || [],
         index: runtime.index || 0,
+        queueOffset: runtime.queueOffset || 0,
         reason: runtime.lastReason || '',
         intent: 'boot',
         brain: 'external',
@@ -58,6 +59,7 @@ export function mountBootRoute(app, deps = {}) {
           say: hint,
           queue: runtime.queue,
           index: runtime.index,
+          queueOffset: runtime.queueOffset || 0,
           reason: '',
           intent: 'boot',
           skipped: true,
@@ -69,6 +71,7 @@ export function mountBootRoute(app, deps = {}) {
 
       if (songQueue.length > 0) {
         runtime.queue = songQueue;
+        runtime.queueOffset = 0;
         runtime.index = 0;
         runtime.paused = false;
         markQueueSource(runtime, 'boot');
@@ -86,6 +89,7 @@ export function mountBootRoute(app, deps = {}) {
         say,
         queue: songQueue,
         index: runtime.index,
+        queueOffset: runtime.queueOffset || 0,
         reason,
         intent: 'boot',
         _resolveError,

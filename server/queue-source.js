@@ -7,6 +7,23 @@ export function markQueueSource(runtime, source) {
   runtime.trackEnded = false;
 }
 
+// 裁剪只换数组，不移动曲目的绝对位置；调用方决定何时回收历史。
+export function trimPlayedHistory(runtime, keep) {
+  const removed = Math.max(0, Math.min(runtime.index - keep, runtime.queue.length));
+  runtime.queue = runtime.queue.slice(removed);
+  runtime.index -= removed;
+  runtime.queueOffset = (runtime.queueOffset || 0) + removed;
+  return removed;
+}
+
+// 旧客户端不带 offset 时沿用当前队列；负索引表示曲目已经被裁掉。
+export function reportedQueueIndex(runtime, { index, queueOffset } = {}) {
+  if (typeof index !== 'number' || !Number.isFinite(index)) return undefined;
+  const currentOffset = runtime.queueOffset || 0;
+  const reportedOffset = Number.isSafeInteger(queueOffset) && queueOffset >= 0 ? queueOffset : currentOffset;
+  return index + reportedOffset - currentOffset;
+}
+
 /**
  * 外部点歌写入的队列是否还没放完。
  * 放完 = 来源仍是 bot，但 index 已经在最后一首，且这一首已经自然结束。
