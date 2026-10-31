@@ -13,7 +13,10 @@ import { dbApi } from './db.js';
 import { ensureLogin, startAutoRefresh, stopAutoRefresh } from './services/kugou-login.js';
 import { start as startScheduler } from './scheduler.js';
 import { brainMode, startBrainServices } from './brain.js';
-import { playbackStatus, applyProgress } from './playback-control.js';
+import { applyProgress } from './playback-control.js';
+import { readContinuePool } from './continue-pool.js';
+import { mountContinuePoolRoutes } from './api/continue-pool.js';
+import { mountRuntimeRoutes } from './api/runtime.js';
 import { readSavedVolume, createVolumeSaver } from './volume-store.js';
 import { mountTtsRoutes } from './tts.js';
 import { mountSettingsRoutes } from './api/settings.js';
@@ -31,8 +34,6 @@ import { mountChatRoute } from './api/chat.js';
 import { mountControlRoute } from './api/control.js';
 import { mountPlaysRoutes } from './api/plays.js';
 import { mountSearchRoute } from './api/search.js';
-import { applyRuntimePlayback } from './queue-source.js';
-import { stateBroadcast } from './runtime-events.js';
 import { authMiddleware, authorizeUpgrade } from './auth.js';
 import { hostGuard } from './host-guard.js';
 import { mountSessionRoute } from './session.js';
@@ -65,6 +66,7 @@ const runtime = {
   lastReason: '',
   queuedAt: null,
   queuedSource: '',
+  continuePool: readContinuePool(dbApi),
 };
 
 const wss = new WebSocketServer({ noServer: true });
@@ -97,16 +99,10 @@ app.get('/api/health', (req, res) => {
   res.json({ ok: true, ts: Date.now() });
 });
 
-function statusBody() {
-  return playbackStatus(runtime, { listeners: wsClients.size, brain: brainMode() });
-}
-
-app.get('/api/now', (req, res) => {
-  res.json(statusBody());
-});
-
-app.get('/api/status', (req, res) => {
-  res.json(statusBody());
+// stateBroadcast 的回声规则和续播结束处理集中在 runtime 路由。
+mountRuntimeRoutes(app, {
+  runtime, broadcast, db: dbApi,
+  statusOptions: () => ({ listeners: wsClients.size, brain: brainMode() }),
 });
 
 app.get('/api/taste', (req, res) => {
@@ -214,30 +210,6 @@ app.get('/api/proxy', async (req, res) => {
   }
 });
 
-// PWA 通知队列指针变化。前端是 audio 元素的真实播放方，服务端只是镜像状态。
-// 两种调用方式：
-//   POST /api/runtime/advance              → 自然往后一首
-//   POST /api/runtime/advance {index: N}   → 强制对齐到 N（推荐：前端按钮触发时使用）
-app.post('/api/runtime/advance', (req, res) => {
-  const explicit = req.body?.index;
-  if (typeof explicit === 'number' && Number.isFinite(explicit)) {
-    applyRuntimePlayback(runtime, { index: explicit, ended: false });
-  } else if (runtime.index < runtime.queue.length - 1) {
-    applyRuntimePlayback(runtime, { index: runtime.index + 1, ended: false });
-  }
-  broadcast(stateBroadcast(runtime, req.body?.clientId));
-  res.json({ ok: true, index: runtime.index });
-});
-
-// 全量 sync：前端把 paused / 当前这首是否结束也推回来（按钮触发时使用）。
-// clientId 原样放进广播的 origin。页面认出是自己刚报的，就不再跟着重播或暂停。
-app.post('/api/runtime/state', (req, res) => {
-  const { index, paused, ended, clientId } = req.body || {};
-  const playback = applyRuntimePlayback(runtime, { index, paused, ended });
-  broadcast(stateBroadcast(runtime, clientId));
-  res.json({ ok: true, index: playback.index, paused: playback.paused });
-});
-
 // TTS 路由（/tts/<sha1>.mp3 读 cache/tts/<sha1>.mp3）
 mountTtsRoutes(app);
 
@@ -252,6 +224,7 @@ mountStudioRoutes(app, { getRuntime: () => runtime });
 mountTestRoutes(app);
 mountPlaylistRoutes(app, { runtime, broadcast });
 mountExternalQueueRoutes(app, { runtime, broadcast });
+mountContinuePoolRoutes(app, { runtime, broadcast });
 
 // ────────────────────────────────────────────────────────
 // HTTP server + WS upgrade

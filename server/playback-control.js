@@ -1,5 +1,6 @@
 // 播放控制与状态快照。聊天里的 /skip 和 bot 的 /api/control 共用这里。
 import { defaultVolume } from './volume-store.js';
+import { continuePoolView } from './continue-pool.js';
 
 export const EXTERNAL_CHAT_HINT = '选歌请在 Grok Bot 里找 Claudio主持人。';
 
@@ -29,6 +30,7 @@ export function playbackStatus(runtime = {}, { listeners = 0, brain = 'external'
     reason: runtime.lastReason || '',
     queuedAt: runtime.queuedAt || null,
     source: runtime.queuedSource || '',
+    continuePool: continuePoolView(runtime),
   };
 }
 
@@ -192,6 +194,9 @@ export function applyControl(runtime, { command, arg, value } = {}) {
 
 export function applyProgress(runtime, body = {}) {
   if (!runtime) return;
+  // 旧曲的 WS 进度可能晚于队尾的 HTTP 请求抵达；不能把续播指针拉回去。
+  if (runtime.queue?.[runtime.index]?.source === 'continue-pool'
+    && typeof body.index === 'number' && body.index < runtime.index) return;
   if (typeof body.currentTime === 'number' && Number.isFinite(body.currentTime)) {
     runtime.currentTime = Math.max(0, body.currentTime);
   }
