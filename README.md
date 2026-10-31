@@ -2,7 +2,7 @@
 
 > 默认只负责出声和显示。选歌交给外部的 Grok Bot（Claudio主持人）。
 
-酷狗音乐负责检索、直链和歌单读写；浏览器 PWA 播放。`CLAUDIO_BRAIN` 默认是 `external`：不调用 Claude，不开机选歌，不定时推歌，队列播完就停。设成 `internal` 才恢复原来的 Claude 选歌（开机电台、聊天点歌、定时任务）。
+酷狗音乐负责检索、直链和歌单读写；浏览器 PWA 播放。`CLAUDIO_BRAIN` 默认是 `external`：不调用 Claude，不开机选歌，不定时推歌，队列播完后从主持人设置的续播池继续，没有可用续播池就停。设成 `internal` 才恢复原来的 Claude 选歌（开机电台、聊天点歌、定时任务）。
 
 口味语料还在：`user/taste.md`、`user/music/kugou_taste_summary.md`、酷狗歌单导入脚本都保留，给 bot 读，不给 Claudio 自己拿来推歌。
 
@@ -120,7 +120,7 @@ npm run dev:app
 - [ ] 控制台显示 `KuGou login OK · 8080 ready`，以及 `CLAUDIO_BRAIN=external，跳过定时推歌`
 - [ ] 浏览器加载 PWA。允许自动播放时会直接出声；只有浏览器拒绝时才出现「点击开声」
 - [ ] `POST /api/queue/external` 点一首歌，页面开始播，串场面板显示 `say`
-- [ ] 队列最后一首结束后停下，不再自己续歌
+- [ ] 无续播池时队尾停下；设置续播池后，最后一首自然结束会自动续播
 - [ ] 控制台 `npm test` 全绿
 
 ## 调试小技巧
@@ -383,6 +383,27 @@ Invoke-Claudio Post '/api/feedback' @{ kind = 'like'; title = '晴天'; artist =
 ```
 
 `target` 不含播放队列时 `queue` 为 `null`。不含酷狗歌单时 `playlist` 为 `null`。歌单写入失败时 HTTP 仍是 200，看 `ok` 和 `playlist.ok` / `playlist.error`，避免客户端自动重试造成重复写入。
+
+## 续播池
+
+主持人通过 `PUT /api/continue-pool`（也接受 POST）替换续播池，鉴权与其它 `/api` 相同。Claudio 只顺序/随机播放已选歌曲，不调用 AI。最多 200 首：
+
+```json
+{
+  "name": "夜间续播",
+  "tracks": [{ "title": "晴天", "artist": "周杰伦", "reason": "夜里慢慢听" }],
+  "shuffle": false,
+  "loop": true,
+  "batchSize": 5,
+  "source": "claudio-host"
+}
+```
+
+也可把 `tracks` 换成 `"playlist": {"listid":"12"}` 或 `{"globalCollectionId":"g12"}`，导入歌单前 200 首中有 hash 的歌曲。响应为 `{ok, continuePool, matched, failed}`；没有可用匹配时返回 400，保留旧池。`GET /api/continue-pool` 附带歌名/歌手预览，`DELETE /api/continue-pool` 清空池，不改当前队列。
+
+`/api/status` 和 `/api/now` 的 `continuePool` 无池时为 `null`，否则包含 `name、size、cursor、remaining、loop、shuffle、batchSize、source、setAt、lastContinuedAt、continuedCount、active`，不含曲目列表。`cursor` 是下一首索引，`remaining` 是本轮余量，`continuedCount` 是累计加入队列的曲目数，`active` 表示池还可续播。默认每批 5 首（1–50），循环开启、随机关闭；`loop:false` 耗尽后沿用原来的停止和播放键从头重播行为。
+
+PWA 在队尾向 `/api/runtime/state` 上报 `ended:true`，或调用队尾的 `/api/runtime/advance` 时触发续播；新曲直链播放时再解析。池元数据、曲目及游标保存在 prefs，重启保留；主持人推新队列不会清池。internal 模式队尾也先尝试续播，单曲循环仍沿用原行为。续播队列来源保持 `bot`，避免开机/定时任务覆盖。为识别迟到的结束上报，本版保留已播放队列，长时间续播会增加内存及状态响应大小。
 
 ## 快捷键
 

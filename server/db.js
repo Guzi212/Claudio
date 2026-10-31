@@ -8,7 +8,8 @@ const require = createRequire(import.meta.url);
 const { DatabaseSync } = require('node:sqlite');
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DB_PATH = path.resolve(__dirname, '..', 'state.db');
+// 测试不触碰用户的播放记录、凭据或仓库内的 state.db。
+const DB_PATH = process.env.VITEST ? ':memory:' : path.resolve(__dirname, '..', 'state.db');
 
 const db = new DatabaseSync(DB_PATH);
 db.exec('PRAGMA journal_mode = WAL');
