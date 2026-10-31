@@ -269,7 +269,7 @@ Content-Type: application/json
 | 点歌 / 写歌单 | `POST /api/queue/external` | JSON：`tracks[]`（`title` 必填，`artist` / `hint` / `reason` 可选），`say`（最多 500 字），`reason`（最多 200 字），`source`（默认 `bot`，最多 40 字），`mode`=`replace`\|`append`，`target`=`queue`\|`kugou_playlist`\|`both`，`playlistName`（默认 `Claudio推荐`），`playlistMode`=`append`\|`rewrite`。超长截断，不报错。不带 `volume`（缺省或 `null`）不会改已保存的音量 | `ok`，`matched[]`，`failed[]`，`queue`（`mode` / `added` / `length`），`playlist`。成功写入播放队列时记下 `queuedAt`。返回的 `say` / `reason` 已是截断后的文本 |
 | 播放控制 | `POST /api/control` | JSON：`command`=`next`\|`prev`\|`pause`\|`play`\|`toggle`\|`volume`\|`jump`，`value`（音量 0–100，或 jump 的从 0 开始的序号） | `ok`，`command`，`say`，`nowPlaying`，`queue`，`index`，`paused`，`volume`。`volume` 会立刻记住。`next` 真正切到下一首时，把刚离开的那首记成 `feedback.kind=skip`。`toggle` 播放中就暂停，暂停中就继续。最后一首已经结束时，状态算作已停，`toggle` 和 `play` 都从队列第一首重新开始。队列是空的就停在暂停。这些命令不改音量 |
 | 状态 | `GET /api/status`（`GET /api/now` 相同） | 无 | `brain`，`nowPlaying`，`queue`，`index`，`paused`，`volume`（0–100，会记住；没存过默认 30），`currentTime`（秒），`duration`（秒），`active`（有没有页面连着 WebSocket），`listeners`，`lastSay`，`reason`，`queuedAt`（最近一次外部点歌的 ISO 时间，没有则 `null`），`source`（那一次请求的 `source`，没有则空字符串）。队列里的歌若带了自己的 `reason` / `cover` / `queuedAt`，会原样出现在 `queue[]` |
-| 进度上报 | WebSocket `/stream`，客户端发 | `{ "type":"progress", "currentTime", "duration", "volume", "paused", "index" }`，页面大约每 2 秒一次 | 服务端更新内存里的进度，不广播。音量有变化才写入，短时间连续拖动合并成一次。bot 用 `GET /api/status` 读 |
+| 进度上报 | WebSocket `/stream`，客户端发 | `{ "type":"progress", "currentTime", "duration", "volume", "paused", "index", "queueOffset" }`，页面大约每 2 秒一次 | 服务端更新内存里的进度，不广播。音量有变化才写入，短时间连续拖动合并成一次。bot 用 `GET /api/status` 读 |
 | 搜歌 | `GET /api/kugou/search` | Query：`title` 必填，`artist`，`hint` | `ok`，`tracks[]`：`hash`，`title`，`artist`，`album`，`duration`，`score` |
 | 酷狗歌单列表 | `GET /api/kugou/playlists` | Query：`page`，`pagesize` | `ok`，`playlists[]`：`id`，`listid`，`globalCollectionId`，`name`，`songCount`，`isPrivate` |
 | 歌单曲目 | `GET /api/kugou/playlists/tracks` | Query：`listid` 或 `gcid`，可选 `pagesize` | `ok`，以及曲目结果（含 `tracks`） |
@@ -403,7 +403,11 @@ Invoke-Claudio Post '/api/feedback' @{ kind = 'like'; title = '晴天'; artist =
 
 `/api/status` 和 `/api/now` 的 `continuePool` 无池时为 `null`，否则包含 `name、size、cursor、remaining、loop、shuffle、batchSize、source、setAt、lastContinuedAt、continuedCount、active`，不含曲目列表。`cursor` 是下一首索引，`remaining` 是本轮余量，`continuedCount` 是累计加入队列的曲目数，`active` 表示池还可续播。默认每批 5 首（1–50），循环开启、随机关闭；`loop:false` 耗尽后沿用原来的停止和播放键从头重播行为。
 
-PWA 在队尾向 `/api/runtime/state` 上报 `ended:true`，或调用队尾的 `/api/runtime/advance` 时触发续播；新曲直链播放时再解析。池元数据、曲目及游标保存在 prefs，重启保留；主持人推新队列不会清池。internal 模式队尾也先尝试续播，单曲循环仍沿用原行为。续播队列来源保持 `bot`，避免开机/定时任务覆盖。为识别迟到的结束上报，本版保留已播放队列，长时间续播会增加内存及状态响应大小。
+PWA 在队尾向 `/api/runtime/state` 上报 `ended:true`，或调用队尾的 `/api/runtime/advance` 时触发续播；新曲直链播放时再解析。池元数据、曲目及游标保存在 prefs，重启保留；主持人推新队列不会清池。internal 模式队尾也先尝试续播，单曲循环仍沿用原行为。续播队列来源保持 `bot`，避免开机/定时任务覆盖。
+
+每次续播加入新批次前，当前队列只保留新播放位置之前最近 20 首历史。环境变量 `CLAUDIO_QUEUE_HISTORY` 可设为大于等于 0 的整数，`0` 不保留历史，无效值使用默认 20；只影响续播池路径，不裁剪外部追加、歌单、聊天或开机队列，也不改变续播池的游标、循环和随机顺序。上一首只能回到保留历史的第 0 首，到头后沿用原来的提示/不动。整队播完后按 `play` / `toggle` 重播，从当前保留队列的第 0 首（最早保留的历史曲目）开始。
+
+`/api/status`、`/api/now` 和 WS `state` 的 `queueOffset` 表示当前队列累计裁掉的头部曲目数；`index` 仍是保留队列内的相对索引，`index + queueOffset` 是绝对位置。替换队列时 offset 归零，追加时保留。PWA 的状态、显式 advance 和带 index 的进度报告应附上收到该队列时的 `queueOffset`；服务端换算迟到索引，忽略已裁掉曲目的报告。旧客户端缺省 offset 时按当前队列处理。同一绝对位置、同一曲目的裁剪/追加广播只更新队列，不重新加载音频。
 
 ## 快捷键
 

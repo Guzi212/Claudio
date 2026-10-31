@@ -1,6 +1,7 @@
 // 播放控制与状态快照。聊天里的 /skip 和 bot 的 /api/control 共用这里。
 import { defaultVolume } from './volume-store.js';
 import { continuePoolView } from './continue-pool.js';
+import { reportedQueueIndex } from './queue-source.js';
 
 export const EXTERNAL_CHAT_HINT = '选歌请在 Grok Bot 里找 Claudio主持人。';
 
@@ -20,6 +21,7 @@ export function playbackStatus(runtime = {}, { listeners = 0, brain = 'external'
     nowPlaying: queue[safeIndex] || null,
     queue,
     index: queue.length ? safeIndex : 0,
+    queueOffset: runtime.queueOffset || 0,
     paused: Boolean(runtime.paused) || queueFinished(runtime),
     volume: Number.isFinite(runtime.volume) ? runtime.volume : defaultVolume(),
     currentTime: Number.isFinite(runtime.currentTime) ? runtime.currentTime : 0,
@@ -42,6 +44,7 @@ export function queueFinished(runtime = {}) {
 }
 
 function restartFromStart(runtime) {
+  // 重播从当前保留队列的第 0 首开始，即裁剪后最早保留的历史曲目。
   runtime.index = 0;
   runtime.currentTime = 0;
   runtime.paused = false;
@@ -60,7 +63,11 @@ function trackOf(queue, index) {
 
 export function applyControl(runtime, { command, arg, value } = {}) {
   const cmd = String(command || '').toLowerCase();
-  const queue = Array.isArray(runtime.queue) ? runtime.queue : (runtime.queue = []);
+  if (!Array.isArray(runtime.queue)) {
+    runtime.queue = [];
+    runtime.queueOffset = 0;
+  }
+  const queue = runtime.queue;
   if (!Number.isFinite(runtime.volume)) runtime.volume = defaultVolume();
 
   const base = () => playbackStatus(runtime);
@@ -194,9 +201,11 @@ export function applyControl(runtime, { command, arg, value } = {}) {
 
 export function applyProgress(runtime, body = {}) {
   if (!runtime) return;
+  const index = reportedQueueIndex(runtime, body);
+  if (index < 0) return;
   // 旧曲的 WS 进度可能晚于队尾的 HTTP 请求抵达；不能把续播指针拉回去。
   if (runtime.queue?.[runtime.index]?.source === 'continue-pool'
-    && typeof body.index === 'number' && body.index < runtime.index) return;
+    && typeof index === 'number' && index < runtime.index) return;
   if (typeof body.currentTime === 'number' && Number.isFinite(body.currentTime)) {
     runtime.currentTime = Math.max(0, body.currentTime);
   }
@@ -205,8 +214,8 @@ export function applyProgress(runtime, body = {}) {
   }
   const volume = clampVolume(body.volume);
   if (volume != null && body.volume != null) runtime.volume = volume;
-  if (typeof body.index === 'number' && Number.isFinite(body.index) && Array.isArray(runtime.queue) && runtime.queue.length) {
-    const next = Math.max(0, Math.min(Math.trunc(body.index), runtime.queue.length - 1));
+  if (typeof index === 'number' && Array.isArray(runtime.queue) && runtime.queue.length) {
+    const next = Math.max(0, Math.min(Math.trunc(index), runtime.queue.length - 1));
     if (next !== runtime.index) runtime.trackEnded = false;
     runtime.index = next;
   }

@@ -55,6 +55,7 @@ app.use(express.json({ limit: '1mb' }));
 const runtime = {
   queue: [],      // [{title, artist, kugouId, audioUrl, ...}]
   index: 0,       // 当前播放索引
+  queueOffset: 0, // 当前队列累计裁掉的头部曲目数
   paused: false,
   lastSay: '',
   active: false,  // PWA 是否连着 WS（scheduler 的 hourly-mood 凭这门禁）

@@ -101,7 +101,7 @@ describe('scheduler · job 触发行为', () => {
   it('morning-plan 触发 ask(systemPrompt, "早安...") 并把 queue 写回 runtime', async () => {
     const { start } = await import('../server/scheduler.js');
     const cronLib = fakeCronLib();
-    const runtime = fakeRuntime();
+    const runtime = fakeRuntime({ queueOffset: 12 });
     const broadcast = vi.fn();
     const askFn = vi.fn(async () => ({
       say: '早安',
@@ -126,6 +126,7 @@ describe('scheduler · job 触发行为', () => {
     expect(runtime.lastSay).toBe('早安');
     expect(runtime.queue).toHaveLength(1);
     expect(runtime.index).toBe(0);
+    expect(runtime.queueOffset).toBe(0);
     expect(runtime.paused).toBe(false);
     expect(broadcast).toHaveBeenCalled();
   });

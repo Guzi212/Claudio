@@ -79,6 +79,7 @@ export function start({
       }
       if (Array.isArray(queue) && queue.length > 0) {
         runtime.queue = queue;
+        runtime.queueOffset = 0;
         runtime.index = 0;
         runtime.paused = false;
         markQueueSource(runtime, 'scheduler');

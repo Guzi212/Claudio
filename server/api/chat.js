@@ -110,6 +110,7 @@ export function mountChatRoute(app, deps = {}) {
 
       if (finalQueue.length > 0) {
         runtime.queue = finalQueue;
+        runtime.queueOffset = 0;
         runtime.index = 0;
         runtime.paused = false;
         markQueueSource(runtime, 'claude');

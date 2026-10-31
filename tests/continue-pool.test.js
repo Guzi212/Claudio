@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mountContinuePoolRoutes } from '../server/api/continue-pool.js';
 import { mountRuntimeRoutes } from '../server/api/runtime.js';
 import { mountExternalQueueRoutes } from '../server/api/external-queue.js';
+import { mountControlRoute } from '../server/api/control.js';
 import { applyControl, applyProgress, queueFinished } from '../server/playback-control.js';
 import { hasActiveExternalQueue } from '../server/queue-source.js';
 import { CONTINUE_POOL_KEY, readContinuePool } from '../server/continue-pool.js';
@@ -39,6 +40,7 @@ function setup(overrides = {}) {
   mountContinuePoolRoutes(app, deps);
   mountRuntimeRoutes(app, { ...deps, statusOptions: () => ({ brain: overrides.brain || 'external', listeners: 1 }) });
   mountExternalQueueRoutes(app, deps);
+  mountControlRoute(app, deps);
   async function call(path, body = {}) {
     const res = {
       statusCode: 200,
@@ -53,10 +55,147 @@ function setup(overrides = {}) {
     ...options,
   });
   const end = (body = {}) => call('POST /api/runtime/state', {
-    index: runtime.index, paused: true, ended: true, clientId: 'page-a', ...body,
+    index: runtime.index, queueOffset: runtime.queueOffset || 0, paused: true, ended: true, clientId: 'page-a', ...body,
   });
   return { runtime, db, prefs, call, set, end, events, broadcast, resolveTrack, fetchUserPlaylistTracks };
 }
+
+afterEach(() => vi.unstubAllEnvs());
+
+describe('续播历史窗口', () => {
+  it('循环续播 30 批仍有界，绝对位置和池游标独立递增', async () => {
+    vi.stubEnv('CLAUDIO_QUEUE_HISTORY', '2');
+    const s = setup();
+    await s.set({ batchSize: 2 });
+    for (let batch = 0; batch < 30; batch += 1) {
+      const oldQueue = s.runtime.queue;
+      const res = await s.end({ index: oldQueue.length - 1 });
+      expect(res.body.continued).toBe(true);
+      expect(s.runtime.queue).not.toBe(oldQueue);
+      expect(s.runtime.queue.length).toBeLessThanOrEqual(4);
+      expect(s.runtime.index).toBe(Math.min(1 + batch * 2, 2));
+      expect(s.runtime.index + s.runtime.queueOffset).toBe(1 + batch * 2);
+      expect(s.runtime.queue[s.runtime.index].title).toBe(['池一', '池二', '池三'][(batch * 2) % 3]);
+      expect(s.runtime.continuePool.continuedCount).toBe((batch + 1) * 2);
+      expect(s.runtime.continuePool.cursor).toBe(((batch + 1) * 2) % 3);
+      expect((await s.call('GET /api/status')).body.continuePool.remaining).toBe(3 - s.runtime.continuePool.cursor);
+    }
+    expect(s.runtime.queueOffset).toBe(57);
+    for (const path of ['/api/status', '/api/now']) {
+      expect((await s.call(`GET ${path}`)).body).toMatchObject({ queueOffset: 57, index: 2, nowPlaying: s.runtime.queue[2] });
+    }
+    expect(s.events.at(-1).runtime.queueOffset).toBe(57);
+  });
+
+  it('H=0 不保留已播曲目，重复结束和进度不能污染新曲', async () => {
+    vi.stubEnv('CLAUDIO_QUEUE_HISTORY', '0');
+    const s = setup();
+    await s.set({ batchSize: 1 });
+    await Promise.all([s.end({ index: 0, queueOffset: 0 }), s.end({ index: 0, queueOffset: 0 })]);
+    expect(s.runtime.queue).toHaveLength(1);
+    expect(s.runtime).toMatchObject({ index: 0, queueOffset: 1, paused: false, trackEnded: false });
+    applyProgress(s.runtime, { index: 0, queueOffset: 0, currentTime: 180, duration: 180, paused: true });
+    expect(s.runtime).toMatchObject({ currentTime: 0, duration: 0, paused: false });
+    await s.call('POST /api/runtime/state', { index: 0, queueOffset: 1, paused: false, ended: false });
+    expect((await s.end({ index: 0, queueOffset: 0 })).body.stale).toBe(true);
+    expect((await s.call('POST /api/runtime/advance', { index: 0, queueOffset: 0 })).body.stale).toBe(true);
+    expect(s.runtime.continuePool.continuedCount).toBe(1);
+    expect(s.runtime.trackEnded).toBe(false);
+    await s.end();
+    expect(s.runtime.queueOffset).toBe(2);
+    expect(s.runtime.continuePool.continuedCount).toBe(2);
+  });
+
+  it.each([undefined, '', '-1', '1.5', 'abc', 'Infinity', '1e2', '9007199254740992'])('无效历史配置 %s 使用默认 20', async value => {
+    vi.stubEnv('CLAUDIO_QUEUE_HISTORY', value);
+    const s = setup();
+    s.runtime.queue = Array.from({ length: 30 }, (_, i) => ({ title: `旧曲${i}` }));
+    await s.set({ batchSize: 2 });
+    await s.end({ index: 29 });
+    expect(s.runtime.queue).toHaveLength(22);
+    expect(s.runtime).toMatchObject({ index: 20, queueOffset: 10 });
+    expect(s.runtime.queue[0].title).toBe('旧曲10');
+  });
+
+  it('每批重新读取历史配置；append 保留 offset，replace 清零且使旧边界失效', async () => {
+    const s = setup();
+    await s.set({ batchSize: 1 });
+    await s.end();
+    vi.stubEnv('CLAUDIO_QUEUE_HISTORY', '0');
+    await s.end();
+    expect(s.runtime.queueOffset).toBe(2);
+    await s.call('POST /api/queue/external', { tracks: [{ title: '追加' }], mode: 'append' });
+    expect(s.runtime.queueOffset).toBe(2);
+    // append 也会换数组；续播边界在新曲确认开播之前仍然挡住隐式推进。
+    await s.call('POST /api/runtime/advance');
+    expect(s.runtime.index).toBe(0);
+    await s.call('POST /api/queue/external', { tracks: [{ title: '替换' }] });
+    expect(s.runtime).toMatchObject({ queueOffset: 0, index: 0 });
+    await s.end();
+    expect(s.runtime.queueOffset).toBe(1);
+    expect(s.runtime.continuePool.continuedCount).toBe(3);
+  });
+
+  it('旧 offset 的保留曲目正确换算，边界仍挡住迟到的 ended 和进度', async () => {
+    vi.stubEnv('CLAUDIO_QUEUE_HISTORY', '2');
+    const s = setup();
+    await s.set({ batchSize: 2 });
+    await s.end();
+    await s.end({ index: 2 });
+    expect(s.runtime).toMatchObject({ index: 2, queueOffset: 1 });
+    // 旧 index=3 是当前同一曲目，可正常确认开播和更新进度。
+    await s.call('POST /api/runtime/state', { index: 3, queueOffset: 0, paused: false, ended: false });
+    applyProgress(s.runtime, { index: 3, queueOffset: 0, currentTime: 9, paused: false });
+    expect(s.runtime).toMatchObject({ index: 2, currentTime: 9, paused: false });
+    const late = await s.end({ index: 2, queueOffset: 0 });
+    expect(late.body.stale).toBe(true);
+    applyProgress(s.runtime, { index: 2, queueOffset: 0, currentTime: 180, paused: true });
+    expect(s.runtime).toMatchObject({ index: 2, currentTime: 9, paused: false, trackEnded: false });
+    // 显式跳转也使用同样的换算；旧客户端缺省 offset 时按当前队列处理。
+    await s.call('POST /api/runtime/advance', { index: 4, queueOffset: 0 });
+    expect(s.runtime.index).toBe(3);
+    applyProgress(s.runtime, { index: 3, currentTime: 12 });
+    expect(s.runtime.currentTime).toBe(12);
+    await s.call('POST /api/runtime/state', { index: 3, paused: true, ended: false });
+    expect(s.runtime.paused).toBe(true);
+  });
+
+  it('裁剪后 advance/state 交错仍只续一批，确认播放后才能隐式推进', async () => {
+    vi.stubEnv('CLAUDIO_QUEUE_HISTORY', '0');
+    const s = setup();
+    await s.set({ batchSize: 1 });
+    await s.call('POST /api/runtime/advance');
+    await s.end({ index: 0, queueOffset: 0 });
+    await s.call('POST /api/runtime/advance');
+    expect(s.runtime.continuePool.continuedCount).toBe(1);
+    await s.call('POST /api/runtime/state', { index: 0, queueOffset: 1, paused: false, ended: false });
+    await s.call('POST /api/runtime/advance');
+    expect(s.runtime.continuePool.continuedCount).toBe(2);
+  });
+
+  it('上一首仅回到保留历史，队尾 play/toggle 从当前保留队列的 0 开始', async () => {
+    vi.stubEnv('CLAUDIO_QUEUE_HISTORY', '2');
+    const s = setup();
+    await s.set({ batchSize: 2 });
+    await s.end();
+    await s.end({ index: 2 });
+    const oldest = s.runtime.queue[0];
+    expect(s.runtime.queueOffset).toBe(1);
+    for (const index of [1, 0, 0]) {
+      const res = await s.call('POST /api/control', { command: 'prev' });
+      expect(res.body.index).toBe(index);
+    }
+    expect(s.runtime.queue[s.runtime.index]).toBe(oldest);
+    await s.call('DELETE /api/continue-pool');
+    for (const command of ['play', 'toggle']) {
+      await s.end({ index: s.runtime.queue.length - 1 });
+      expect(queueFinished(s.runtime)).toBe(true);
+      const res = await s.call('POST /api/control', { command });
+      expect(res.body).toMatchObject({ index: 0, queueOffset: 1, nowPlaying: oldest, paused: false });
+      expect(s.runtime).toMatchObject({ currentTime: 0, trackEnded: false });
+    }
+  });
+});
 
 describe('续播池 API', () => {
   it('按歌曲匹配，保存必要元数据和逐曲理由，报告失败但不改当前队列', async () => {
