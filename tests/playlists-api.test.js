@@ -151,6 +151,7 @@ describe('POST /api/kugou/playlists/play', () => {
 
   it('整单替换 runtime.queue 并广播', async () => {
     const deps = makeDeps();
+    deps.runtime.queueOffset = 12;
     const app = mockApp();
     mountPlaylistRoutes(app, deps);
     const res = mockRes();
@@ -162,6 +163,7 @@ describe('POST /api/kugou/playlists/play', () => {
     expect(res.body.count).toBe(2);
     expect(deps.runtime.queue).toHaveLength(2);
     expect(deps.runtime.index).toBe(0);
+    expect(deps.runtime.queueOffset).toBe(0);
     expect(deps.runtime.queue[0]).toMatchObject({ title: 'A', kugouId: 'h1', audioUrl: null, source: 'playlist' });
     expect(deps.broadcast).toHaveBeenCalledWith(expect.objectContaining({ type: 'state' }));
   });

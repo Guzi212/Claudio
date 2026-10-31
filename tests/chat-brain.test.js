@@ -93,11 +93,13 @@ describe('POST /api/chat · CLAUDIO_BRAIN', () => {
 
   it('internal 聊天选歌会覆盖还没放完的外部队列', async () => {
     const { app, runtime, ask } = setup('internal');
+    runtime.queueOffset = 12;
     const res = mockRes();
     await app.routes['POST /api/chat']({ body: { message: '换一首' } }, res);
     expect(ask).toHaveBeenCalled();
     expect(runtime.queue[0].title).toBe('聊天歌');
     expect(runtime.queueSource).toBe('claude');
+    expect(runtime.queueOffset).toBe(0);
     expect(runtime.index).toBe(0);
     expect(res.body.queue[0].title).toBe('聊天歌');
   });
