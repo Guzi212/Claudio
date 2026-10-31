@@ -32,6 +32,7 @@ const state = {
   index: 0,
   loopMode: 'auto',
   brain: 'external',
+  continuePoolActive: false,
 };
 
 let autoRecommending = false;
@@ -174,11 +175,11 @@ function reportProgress(force = false) {
 // 把服务端的真实位置推回前端的镜像状态（避免 server / client 两边索引漂移）。
 // clientId 会跟着广播回来；这份页面看到自己的 origin 就不再改播放。
 function syncToServer(index, { paused = false, ended = false } = {}) {
-  fetch('/api/runtime/state', {
+  return fetch('/api/runtime/state', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ index, paused, ended, clientId: getClientId() }),
-  }).catch(() => {});
+  }).then(res => res.ok ? res.json() : null).catch(() => null);
 }
 
 function addBubble(role, content, meta = null) {
@@ -252,6 +253,10 @@ function inkInTrack(track) {
 
 function rememberQueueMeta(data) {
   if (!data || typeof data !== 'object') return;
+  if ('continuePool' in data) {
+    const pool = data.continuePool;
+    state.continuePoolActive = Boolean(pool && (pool.active ?? (pool.loop || pool.cursor < pool.tracks?.length)));
+  }
   if ('queuedAt' in data) queuedAt = data.queuedAt || '';
   const reason = data.lastReason ?? data.reason;
   if (typeof reason === 'string') lastReason = reason;
@@ -542,7 +547,7 @@ function dismissBootOverlay() {
 }
 
 async function autoRecommend(prompt) {
-  if (autoRecommending) return;
+  if (state.continuePoolActive || autoRecommending) return;
   autoRecommending = true;
   const myGen = ++autoRecommendGen;
   try {
@@ -553,7 +558,7 @@ async function autoRecommend(prompt) {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    if (myGen !== autoRecommendGen) return;
+    if (myGen !== autoRecommendGen || state.continuePoolActive) return;
     const newSongs = (data.queue || []).filter(q => !q.isTts);
     if (newSongs.length) {
       state.queue = [...state.queue, ...newSongs];
@@ -1020,19 +1025,20 @@ export function initPlayer() {
   document.addEventListener('click', markActivated, { capture: true, once: true });
   document.addEventListener('keydown', markActivated, { capture: true, once: true });
 
-  audio.addEventListener('ended', () => {
+  audio.addEventListener('ended', async () => {
     if (state.brain === 'internal' && state.loopMode === 'one') {
       audio.currentTime = 0;
       audio.play().catch(() => {});
     } else if (state.index < state.queue.length - 1) {
       playIndex(state.index + 1);
-    } else if (state.brain === 'internal' && state.loopMode === 'list' && state.queue.length) {
-      playIndex(0);
-    } else if (state.brain === 'internal' && state.loopMode === 'auto' && state.queue.length) {
-      syncToServer(state.index, { paused: true, ended: true });
-      requestNextBatch({ playWhenReady: true });
     } else if (state.queue.length) {
-      syncToServer(state.index, { paused: true, ended: true });
+      // 队尾先让服务端接续播池；internal 的循环/推歌只在没有续播时执行。
+      const endedQueue = state.queue;
+      const endedIndex = state.index;
+      const result = await syncToServer(endedIndex, { paused: true, ended: true });
+      if (result?.continued || result?.stale || state.queue !== endedQueue || state.index !== endedIndex) return;
+      if (state.brain === 'internal' && state.loopMode === 'list') playIndex(0);
+      else if (state.brain === 'internal' && state.loopMode === 'auto') requestNextBatch({ playWhenReady: true });
     } else {
       npBox.classList.add('hidden');
       syncToServer(state.index, { paused: true });
