@@ -1,7 +1,7 @@
 // 酷狗相关出站请求的代理。
 //
 // Claudio 自己只在「目标不是本机」时使用 KUGOU_PROXY：/api/proxy 拉 CDN、
-// 直接请求 kugou.com 的短链等。本机 KuGouMusicApi（localhost:3000）以及
+// 直接请求 kugou.com 的短链等。本机 KuGouMusicApi（默认 localhost:33400）以及
 // 任何 127.0.0.0/8、localhost、::1 永远直连。
 //
 // 不填 KUGOU_PROXY 就直连，并且显式 proxy:false，避免进程里残留的
