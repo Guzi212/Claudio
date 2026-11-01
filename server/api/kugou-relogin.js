@@ -15,8 +15,9 @@ import { dbApi } from '../db.js';
 import { mergeCookieMap, serializeCookie, pickIdentity } from '../services/kugou-cookie.js';
 import { ensureDfid, COOKIE_PREF, REFRESHED_AT_PREF } from '../services/kugou-login.js';
 import { axiosProxyOptions } from '../outbound-proxy.js';
+import { DEFAULT_KUGOU_API_BASE } from '../kugou-api-base.js';
 
-const BASE = process.env.KUGOU_API_BASE || 'http://localhost:3000';
+const BASE = process.env.KUGOU_API_BASE || DEFAULT_KUGOU_API_BASE;
 const QR_KEY_PATH    = '/login/qr/key';
 const QR_CREATE_PATH = '/login/qr/create';
 const QR_CHECK_PATH  = '/login/qr/check';

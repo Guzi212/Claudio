@@ -4,10 +4,11 @@ import axios from 'axios';
 import { dbApi } from '../db.js';
 import { axiosProxyOptions } from '../outbound-proxy.js';
 import { get as getSetting } from '../services/settings.js';
+import { DEFAULT_KUGOU_API_BASE } from '../kugou-api-base.js';
 
 const execAsync = promisify(exec);
 const LARK_TIMEOUT_MS = 3_000;
-const KUGOU_BASE = process.env.KUGOU_API_BASE || 'http://localhost:3000';
+const KUGOU_BASE = process.env.KUGOU_API_BASE || DEFAULT_KUGOU_API_BASE;
 
 async function checkKugou() {
   const cookie = dbApi.getPref('kugou_cookie') || process.env.KUGOU_COOKIE || '';

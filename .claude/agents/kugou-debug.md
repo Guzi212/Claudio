@@ -37,8 +37,8 @@ sqlite3 state.db "SELECT value FROM prefs WHERE key='kugou_cookie';"
 **修复**：在 Settings 界面点击"重新登录"，扫码刷新 cookie
 
 ### 2. 上游 KuGouMusicApi 未启动
-**症状**：`ECONNREFUSED` 错误，BASE = `http://localhost:3000`
-**排查**：`curl http://localhost:3000/search?keywords=test`
+**症状**：`ECONNREFUSED` 错误，BASE = `http://localhost:33400`
+**排查**：`curl http://localhost:33400/search?keywords=test`
 **修复**：单独启动 KuGouMusicApi 服务
 
 ### 3. 扫码重登失败
@@ -57,7 +57,7 @@ sqlite3 state.db "SELECT value FROM prefs WHERE key='kugou_cookie';"
 
 1. **确认 KuGouMusicApi 是否在线**：`curl ${KUGOU_API_BASE}/search?keywords=test`
 2. **检查 cookie 是否存在且非空**：查 db 或 env
-3. **用 cookie 直接调 API**：`curl -H "Cookie: <cookie>" http://localhost:3000/search?keywords=周杰伦`
+3. **用 cookie 直接调 API**：`curl -H "Cookie: <cookie>" http://localhost:33400/search?keywords=周杰伦`
 4. **运行对应测试**：`npx vitest run kugou.test.js kugou-relogin.test.js --reporter=verbose`
 5. **检查最近的 server 日志**：关注 `axios` 错误和 HTTP 状态码
 
