@@ -32,7 +32,7 @@ npm install
 ```
 回到 Claudio 目录：`cd ../Claudio`。
 
-默认上游目录是 `../KuGouMusicApi`，默认监听 `http://localhost:3000`。如果你的目录或端口不同，在 `.env` 里设置 `KUGOU_API_DIR` / `KUGOU_API_BASE`。
+默认上游目录是 `../KuGouMusicApi`，默认监听 `http://localhost:33400`（`npm run dev` 会把这个端口作为 `PORT` 传给上游）。不用上游自带的 3000，是因为 Windows 开着 Hyper-V / WSL / Docker 时常把 3000 附近划进排除端口（`netsh int ipv4 show excludedportrange protocol=tcp`），非管理员启动会报 `EACCES`。如果你的目录或端口不同，在 `.env` 里设置 `KUGOU_API_DIR` / `KUGOU_API_BASE`。
 
 > 不同 fork 接口路径会有差异。如果搜歌返回 404，去 `server/services/kugou.js` 顶部的 `ENDPOINTS` / `LOGIN_PATH` 改路径。
 
@@ -500,7 +500,7 @@ KUGOU_PROXY=http://127.0.0.1:7890
 
 这会影响两处：
 
-- Claudio 自己的出站：`/api/proxy` 拉酷狗 CDN，以及直接请求 `kugou.com` 的地方（例如歌单短链）。目标是 `127.0.0.1`、`localhost` 或 `::1` 时永远不走代理，本机 KuGouMusicApi（默认 `localhost:3000`）不受影响。
+- Claudio 自己的出站：`/api/proxy` 拉酷狗 CDN，以及直接请求 `kugou.com` 的地方（例如歌单短链）。目标是 `127.0.0.1`、`localhost` 或 `::1` 时永远不走代理，本机 KuGouMusicApi（默认 `localhost:33400`）不受影响。
 - `npm run dev` 拉起的 KuGouMusicApi 进程。真正访问酷狗网关的是它。上游 axios **不读** `HTTP_PROXY` / `HTTPS_PROXY`，只在 `util/runtime.js` 的 `resolveProxy()` 里读 `KUGOU_API_PROXY`（或启动参数 `--proxy`）。dev 脚本会把 `KUGOU_PROXY` 抄进子进程的 `KUGOU_API_PROXY`。
 
 如果 KuGouMusicApi 已经在跑，这次不会改它的环境。关掉后用 `npm run dev` 重新拉起，或在那个进程里自己设 `KUGOU_API_PROXY`。上游版本需要带 `KUGOU_API_PROXY` 支持（当前 MakcRe/KuGouMusicApi 的 `main` 已支持）。

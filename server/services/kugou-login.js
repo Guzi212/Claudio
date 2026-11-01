@@ -9,8 +9,9 @@ import {
   pickIdentity,
   hasDfid,
 } from './kugou-cookie.js';
+import { DEFAULT_KUGOU_API_BASE } from '../kugou-api-base.js';
 
-const BASE = process.env.KUGOU_API_BASE || 'http://localhost:3000';
+const BASE = process.env.KUGOU_API_BASE || DEFAULT_KUGOU_API_BASE;
 
 // KuGouMusicApi 社区版的登录接口路径。不同 fork 名字略有差异。
 const LOGIN_PATH = '/login/cellphone';     // GET ?mobile=xxx&password=xxx

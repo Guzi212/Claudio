@@ -2,8 +2,9 @@ import axios from 'axios';
 import 'dotenv/config';
 import { dbApi } from '../db.js';
 import { axiosProxyOptions } from '../outbound-proxy.js';
+import { DEFAULT_KUGOU_API_BASE } from '../kugou-api-base.js';
 
-const BASE = process.env.KUGOU_API_BASE || 'http://localhost:3000';
+const BASE = process.env.KUGOU_API_BASE || DEFAULT_KUGOU_API_BASE;
 
 // KuGouMusicApi 社区版常见接口路径。不同 fork 略有差异，按需在这里改。
 const ENDPOINTS = {

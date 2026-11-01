@@ -2,10 +2,10 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config as loadEnv } from 'dotenv';
+import { DEFAULT_KUGOU_API_BASE, localKugouApiPort } from '../server/kugou-api-base.js';
 
 const THIS_FILE = fileURLToPath(import.meta.url);
 const PROJECT_ROOT = path.resolve(path.dirname(THIS_FILE), '..');
-const DEFAULT_KUGOU_API_BASE = 'http://localhost:3000';
 const DEFAULT_WAIT_MS = 20_000;
 const DEFAULT_INTERVAL_MS = 500;
 
@@ -25,9 +25,13 @@ export function buildDevConfig({
   const kugouApiBase = env.KUGOU_API_BASE || DEFAULT_KUGOU_API_BASE;
   const kugouApiDir = path.resolve(projectRoot, env.KUGOU_API_DIR || '../KuGouMusicApi');
   const kugouProxy = String(env.KUGOU_PROXY || '').trim();
+  // 上游只读 PORT 决定监听端口。不传的话它会继承 Claudio 的 PORT（.env 里常是 8080）
+  // 或落回 3000，和 KUGOU_API_BASE 对不上。
+  const kugouApiPort = localKugouApiPort(kugouApiBase);
 
   return {
     kugouApiBase,
+    kugouApiPort,
     kugouApiDir,
     kugouProxy,
     kugou: {
@@ -120,7 +124,9 @@ export async function startDev({
   // 所以这里不设置 HTTP_PROXY / HTTPS_PROXY，只把 Claudio 的 KUGOU_PROXY 抄给上游。
   const kugouEnv = config.kugouProxy
     ? { ...childEnv, KUGOU_API_PROXY: config.kugouProxy }
-    : childEnv;
+    : { ...childEnv };
+  if (config.kugouApiPort) kugouEnv.PORT = config.kugouApiPort;
+  else delete kugouEnv.PORT;
   const children = [];
   let shuttingDown = false;
 
