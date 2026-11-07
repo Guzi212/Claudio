@@ -55,9 +55,26 @@ db.exec(`
     ts        INTEGER NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS like_pending (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    kugou_id        TEXT NOT NULL,
+    title           TEXT NOT NULL,
+    artist          TEXT NOT NULL DEFAULT '',
+    album           TEXT NOT NULL DEFAULT '',
+    album_id        TEXT NOT NULL DEFAULT '',
+    mixsongid       TEXT NOT NULL DEFAULT '',
+    status          TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'done', 'skipped')),
+    target_playlist TEXT,
+    target_listid   TEXT,
+    note            TEXT,
+    created_ts      INTEGER NOT NULL,
+    resolved_ts     INTEGER
+  );
+
   CREATE INDEX IF NOT EXISTS idx_messages_ts ON messages(ts DESC);
   CREATE INDEX IF NOT EXISTS idx_plays_ts ON plays(ts DESC);
   CREATE INDEX IF NOT EXISTS idx_feedback_ts ON feedback(ts DESC);
+  CREATE INDEX IF NOT EXISTS idx_like_pending_status ON like_pending(status, created_ts DESC);
 `);
 
 // 已有库的 plays.source 约束是建表时写死的。CREATE TABLE IF NOT EXISTS 不会改它，
@@ -113,6 +130,13 @@ const stmts = {
   recentUnmatched: db.prepare(`SELECT id, title, artist, hint, ts FROM unmatched ORDER BY ts DESC LIMIT ?`),
   insertFeedback: db.prepare(`INSERT INTO feedback (kind, kugou_id, title, artist, ts) VALUES (?, ?, ?, ?, ?)`),
   recentFeedback: db.prepare(`SELECT id, kind, kugou_id, title, artist, ts FROM feedback ORDER BY ts DESC LIMIT ?`),
+  insertLikePending: db.prepare(`INSERT INTO like_pending (kugou_id, title, artist, album, album_id, mixsongid, created_ts) VALUES (?, ?, ?, ?, ?, ?, ?)`),
+  findPendingLike: db.prepare(`SELECT id FROM like_pending WHERE kugou_id = ? AND status = 'pending' ORDER BY id DESC LIMIT 1`),
+  pendingLikes: db.prepare(`SELECT * FROM like_pending WHERE status = 'pending' ORDER BY created_ts ASC, id ASC LIMIT ?`),
+  getLikePending: db.prepare(`SELECT * FROM like_pending WHERE id = ?`),
+  resolveLikePending: db.prepare(`UPDATE like_pending SET status = 'done', target_playlist = ?, target_listid = ?, resolved_ts = ? WHERE id = ? AND status = 'pending'`),
+  skipLikePending: db.prepare(`UPDATE like_pending SET status = 'skipped', note = ?, resolved_ts = ? WHERE id = ? AND status = 'pending'`),
+  cancelLikePendingByHash: db.prepare(`UPDATE like_pending SET status = 'skipped', note = 'unliked', resolved_ts = ? WHERE kugou_id = ? AND status = 'pending'`),
 };
 
 export const dbApi = {
@@ -159,6 +183,34 @@ export const dbApi = {
 
   recentFeedback(n = 20) {
     return stmts.recentFeedback.all(n);
+  },
+
+  addLikePending({ kugouId, title, artist = '', album = '', albumId = '', mixsongid = '' }) {
+    const existing = stmts.findPendingLike.get(kugouId);
+    if (existing) return Number(existing.id);
+    return Number(stmts.insertLikePending.run(
+      kugouId, title, artist || '', album || '', albumId || '', mixsongid || '', Date.now(),
+    ).lastInsertRowid);
+  },
+
+  pendingLikes(n = 100) {
+    return stmts.pendingLikes.all(n);
+  },
+
+  getLikePending(id) {
+    return stmts.getLikePending.get(id) || null;
+  },
+
+  resolveLikePending(id, { targetPlaylist = '', targetListid = '' } = {}) {
+    stmts.resolveLikePending.run(targetPlaylist || '', targetListid || '', Date.now(), id);
+  },
+
+  skipLikePending(id, { note = '' } = {}) {
+    stmts.skipLikePending.run(note || '', Date.now(), id);
+  },
+
+  cancelLikePendingByHash(kugouId) {
+    stmts.cancelLikePendingByHash.run(Date.now(), kugouId);
   },
 
   raw: db,

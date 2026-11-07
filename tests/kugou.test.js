@@ -59,6 +59,24 @@ describe('services/kugou', () => {
     expect(typeof mod.fetchUserPlaylistTracks).toBe('function');
   });
 
+  it('歌单列表标出自建可写与收藏只读', async () => {
+    const axiosMock = vi.fn().mockResolvedValue({
+      data: {
+        data: {
+          info: [
+            { listid: 2, name: '我喜欢', type: 0, global_collection_id: 'g2' },
+            { listid: 25, name: '别人的歌单', type: 1, global_collection_id: 'g25' },
+          ],
+        },
+      },
+    });
+    vi.doMock('axios', () => ({ default: { create: () => ({ post: axiosMock }) } }));
+    const { fetchUserPlaylistsStrict } = await import('../server/services/kugou.js');
+    const list = await fetchUserPlaylistsStrict({});
+    expect(list[0]).toMatchObject({ name: '我喜欢', type: 0, writable: true });
+    expect(list[1]).toMatchObject({ name: '别人的歌单', type: 1, writable: false });
+  });
+
   it('导出 normalizeForMatch / parseNameField 供下游复用', async () => {
     const mod = await import('../server/services/kugou.js');
     expect(typeof mod.normalizeForMatch).toBe('function');

@@ -212,6 +212,25 @@ export async function resolveTrack({ title, artist, hint = '' }) {
   return null;
 }
 
+// 用歌名 / 歌手重新搜一次，拿到指定 hash 的专辑 id 和 mixsongid。
+// 写歌单时这两个字段能让 playlist/tracks/add 更稳，缺失时上游可能只认 name|hash。
+export async function resolveTrackMeta({ title, artist = '', hash = '' } = {}) {
+  const candidates = await search({ title, artist });
+  const target = String(hash || '').trim();
+  const match = target ? candidates.find(item => item.hash === target) : candidates[0];
+  if (!match) return null;
+  return {
+    hash: match.hash,
+    title: match.title,
+    artist: match.artist,
+    album: match.album || '',
+    duration: match.duration || 0,
+    cover: match.cover || coverUrlFromRaw(match.raw),
+    albumId: match.raw?.AlbumID || match.raw?.album_id || match.raw?.albumid || '',
+    mixsongid: match.raw?.MixSongID || match.raw?.mixsongid || match.raw?.album_audio_id || '',
+  };
+}
+
 // KuGouMusicApi 在歌单接口返回的 name 形如 "Artist - Title"（与现有 OCR 解析的 "Title - Artist"
 // 相反）。差异留在 service 层修正，downstream 拿到的就是已经摆正的 {title, artist}。
 function parseNameField(name) {
@@ -342,6 +361,9 @@ function mapUserPlaylists(payload) {
         songCount: Number(item.song_count || item.songcount || item.count || item.total || 0),
         cover: item.pic || item.img || item.cover || '',
         isPrivate: item.is_private === 1 || item.is_private === true || item.type === 0,
+        // type=0 是账号自建歌单，可写；type=1 是收藏别人的歌单，只读。
+        type: Number(item.type ?? 0),
+        writable: Number(item.type ?? 0) === 0,
       };
     })
     .filter(p => p.id && p.name);
@@ -500,6 +522,7 @@ export default {
   songUrl,
   lyric,
   resolveTrack,
+  resolveTrackMeta,
   fetchSharedPlaylist,
   fetchUserPlaylists,
   fetchUserPlaylistTracks,
