@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { localUserPath } from '../user-files.js';
 
 const DISTILLED_RE = /<!--\s*kugou-distilled:start\s*-->[\s\S]*?<!--\s*kugou-distilled:end\s*-->/;
 
@@ -23,8 +24,9 @@ function mergeTaste(incoming, existing) {
 
 export function mountTasteRoutes(app, { rootDir }) {
   const userDir = path.join(rootDir, 'user');
-  const tastePath = path.join(userDir, 'taste.md');
-  const routinesPath = path.join(userDir, 'routines.md');
+  // 页面上的编辑写入 .local 覆盖文件，不碰仓库里的模板。
+  const tastePath = localUserPath(rootDir, 'user/taste.md');
+  const routinesPath = localUserPath(rootDir, 'user/routines.md');
 
   app.put('/api/taste', (req, res) => {
     try {

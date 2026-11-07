@@ -1,6 +1,6 @@
-# Claudio · 个人 Claude AI 电台
+# Claudio · 自托管 AI 电台
 
-个人 AI 电台项目。默认 `CLAUDIO_BRAIN=external`：选歌交给外部 Grok Bot（Claudio主持人），Claudio 只负责酷狗检索、直链和浏览器 PWA 播放。设成 `internal` 才由 Claude 根据品味语料 + 当前时间 + 历史播放选歌。
+自托管 AI 电台项目。默认 `CLAUDIO_BRAIN=external`：选歌交给外部 Grok Bot（Claudio 主持人），Claudio 只负责酷狗检索、直链和浏览器 PWA 播放。设成 `internal` 才由 Claude 根据品味语料 + 当前时间 + 历史播放选歌。
 
 架构（internal 选歌路径）：`router → context → claude → state.db → services/kugou`
 
@@ -16,7 +16,7 @@ Issues 存放在 GitHub（`Guzi212/Claudio`），通过 `gh` CLI 操作。见 `d
 
 ### Domain docs
 
-单一上下文：`CONTEXT.md` + `docs/adr/` 在项目根目录。见 `docs/agents/domain.md`。
+使用手册在 `docs/manual.md`。如果后续引入 `CONTEXT.md` / `docs/adr/`，按 `docs/agents/domain.md` 的约定处理。
 
 ## 模型选择清单
 
@@ -138,6 +138,7 @@ git worktree remove ../claudio-<branch-name>
 ### 其它约定
 
 - 依赖和测试以 CI（`.github/workflows/ci.yml`：`npm ci` + `npm test`）为准；只用 npm，仓库里没有 pnpm 锁文件
-- 每次 commit 后 `.githooks/post-commit` 会往 `docs/devlog.md` 追加一行，提交前留意它
+- 每次 commit 后 `.githooks/post-commit` 会往本地 `docs/devlog.md` 追加一行（已 gitignore）
+- 个人语料写 `*.local.*` 覆盖文件（`user/taste.local.md`、`claudio/journal.local.md` 等），不要提交
 - 改了 PWA 壳资源（HTML/CSS/JS/图片）要升 `pwa/sw.js` 的 `CACHE` 版本，并同步测试里的版本断言
 - UI 视觉验收：`node scripts/verify-radio-ui.mjs <输出目录>`（需要本机 Chrome）

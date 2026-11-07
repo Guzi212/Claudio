@@ -6,6 +6,7 @@ import { dbApi } from './db.js';
 import { getCurrent as getWeather } from './services/weather.js';
 import { getTodayEvents } from './services/google-calendar.js';
 import { getPool, getPoolTracks, formatPoolForPrompt } from './services/candidate-pool.js';
+import { readUserFile } from './user-files.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -57,11 +58,11 @@ export async function buildSystemPrompt({ now = new Date() } = {}) {
 
   // ① Claudio 自我认知
   const identity = readSafe('claudio/identity.md').trim();
-  const journal  = readSafe('claudio/journal.md').trim();
+  const journal  = readUserFile(ROOT, 'claudio/journal.md').trim();
 
-  // ② 用户语料
-  const taste = readSafe('user/taste.md').trim();
-  const routines = readSafe('user/routines.md').trim();
+  // ② 用户语料（优先读 .local 覆盖文件）
+  const taste = readUserFile(ROOT, 'user/taste.md').trim();
+  const routines = readUserFile(ROOT, 'user/routines.md').trim();
 
   // ③ 环境：时间 + 天气 + 今日日程
   const [weather, events] = await Promise.all([

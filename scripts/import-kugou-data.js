@@ -39,10 +39,10 @@ function upsertGeneratedTaste(tastePath, summary) {
 }
 
 const fromUrl = argValue('--from-url', '');
-const inputPath = argValue('--input', 'user/music/kugou_input.txt');
-const rawOutputPath = argValue('--raw-output', 'user/music/kugou_raw.md');
-const summaryOutputPath = argValue('--summary-output', 'user/music/kugou_taste_summary.md');
-const tastePath = argValue('--taste', 'user/taste.md');
+const inputPath = argValue('--input', 'user/music/kugou_input.local.txt');
+const rawOutputPath = argValue('--raw-output', 'user/music/kugou_raw.local.md');
+const summaryOutputPath = argValue('--summary-output', 'user/music/kugou_taste_summary.local.md');
+const tastePath = argValue('--taste', 'user/taste.local.md');
 const bucketArg = argValue('--bucket', 'long_term');
 const likeLevelArg = argValue('--like-level', '');
 const playlistName = argValue('--name', '');
@@ -75,7 +75,8 @@ async function loadTracks() {
   const inputAbs = abs(inputPath);
   if (!fs.existsSync(inputAbs)) {
     console.error(`找不到输入文件：${inputPath}`);
-    console.error('请先把酷狗截图 OCR 文本、分享链接、复制出来的歌单粘到这个文件里。');
+    console.error('先复制模板：cp user/music/kugou_input.txt user/music/kugou_input.local.txt');
+    console.error('再把酷狗截图 OCR 文本、分享链接、复制出来的歌单粘进去。');
     console.error('或者使用：--from-url <share-url> 直接从分享链接抓取。');
     process.exit(1);
   }

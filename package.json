@@ -1,12 +1,30 @@
 {
   "name": "claudio",
   "version": "0.1.0",
-  "description": "个人 Claude AI 电台 · 读懂听歌习惯 → 规划声音 → 像 DJ 那样播报",
+  "description": "自托管的 AI 私人电台 · 外部 DJ Bot 选歌，酷狗检索，水墨 PWA 播放",
   "private": true,
+  "license": "MIT",
+  "author": "Guzi212",
   "type": "module",
   "engines": {
     "node": ">=22.12.0"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Guzi212/Claudio.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Guzi212/Claudio/issues"
+  },
+  "homepage": "https://github.com/Guzi212/Claudio#readme",
+  "keywords": [
+    "ai",
+    "radio",
+    "music",
+    "pwa",
+    "kugou",
+    "self-hosted"
+  ],
   "scripts": {
     "prepare": "git config core.hooksPath .githooks",
     "dev": "node scripts/dev.js",

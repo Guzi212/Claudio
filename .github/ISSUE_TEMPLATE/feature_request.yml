@@ -1,0 +1,41 @@
+name: 功能建议
+description: 提出一个新功能或改进
+labels: [needs-triage]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 想解决什么问题
+      description: 描述使用场景和当前的痛点，而不是直接给方案。
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 你希望的方案
+      description: 可选。说明交互、接口或配置上的想法。
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 考虑过的替代方案
+  - type: dropdown
+    id: area
+    attributes:
+      label: 涉及范围
+      options:
+        - 播放器 / PWA
+        - 酷狗检索与直链
+        - 外部 DJ Bot 接口
+        - internal 选歌
+        - 鉴权 / 部署
+        - 文档
+        - 其它
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 确认
+      options:
+        - label: 我已经搜索过现有 Issue，没有找到相同建议。
+          required: true

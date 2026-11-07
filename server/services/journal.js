@@ -3,11 +3,37 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DEFAULT_JOURNAL = path.resolve(__dirname, '../../claudio/journal.md');
+const JOURNAL_TEMPLATE = path.resolve(__dirname, '../../claudio/journal.md');
+const JOURNAL_LOCAL = path.resolve(__dirname, '../../claudio/journal.local.md');
 
 const START_MARKER = '<!-- journal:entries:start -->';
 const END_MARKER   = '<!-- journal:entries:end -->';
 const MAX_ENTRIES  = 30;
+
+const FALLBACK_TEMPLATE = `# Claudio 的关系记忆
+
+## 近期日志
+
+<!-- journal:entries:start -->
+<!-- journal:entries:end -->
+`;
+
+// 个人日志写进 .local 文件；仓库里的 journal.md 只作为模板。
+function resolveJournalPath(journalPath) {
+  if (journalPath) return journalPath;
+  if (fs.existsSync(JOURNAL_LOCAL)) return JOURNAL_LOCAL;
+
+  try {
+    fs.mkdirSync(path.dirname(JOURNAL_LOCAL), { recursive: true });
+    const template = fs.existsSync(JOURNAL_TEMPLATE)
+      ? fs.readFileSync(JOURNAL_TEMPLATE, 'utf8')
+      : FALLBACK_TEMPLATE;
+    fs.writeFileSync(JOURNAL_LOCAL, template, 'utf8');
+    return JOURNAL_LOCAL;
+  } catch {
+    return JOURNAL_TEMPLATE;
+  }
+}
 
 const LIFE_RE    = /答辩|面试|上线|发布|入职|离职|生日|纪念|结束了|搞定了|通过了|没过/;
 const EMOTION_RE = /很累|太累|难受|崩了|心情不好|状态很差|心情很好|很开心|超开心|好高兴|压力很大|很焦虑|睡不着|失眠/;
@@ -45,10 +71,11 @@ export function detectSignal(userMessage, recentPlays, now = new Date()) {
   return null;
 }
 
-export function appendJournalEntry(signal, now = new Date(), journalPath = DEFAULT_JOURNAL) {
+export function appendJournalEntry(signal, now = new Date(), journalPath) {
+  const target = resolveJournalPath(journalPath);
   let content;
   try {
-    content = fs.readFileSync(journalPath, 'utf8');
+    content = fs.readFileSync(target, 'utf8');
   } catch {
     return;
   }
@@ -69,7 +96,7 @@ export function appendJournalEntry(signal, now = new Date(), journalPath = DEFAU
   // entries 区块格式：\n<新条目>\n<旧条目...>\n
   const newMiddle = '\n' + entry + trimmed.join('\n') + (trimmed.length ? '\n' : '');
   try {
-    fs.writeFileSync(journalPath, before + newMiddle + after, 'utf8');
+    fs.writeFileSync(target, before + newMiddle + after, 'utf8');
   } catch {
     /* 磁盘写入失败静默跳过，不影响主流程 */
   }
