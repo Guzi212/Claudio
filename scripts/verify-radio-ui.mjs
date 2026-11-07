@@ -105,6 +105,16 @@ function createPreview() {
   app.get('/api/taste', (_req, res) => res.json({ taste: '# 喜欢的声音\n\n- 周杰伦\n- 陈奕迅\n- 安静的夜晚\n\n<!-- kugou-distilled:start -->\n<!-- kugou-distilled:end -->', routines: '# 日常\n\n- 09:00 工作\n- 22:00 放松' }));
   app.get('/api/kugou/playlists', (_req, res) => res.json({ ok: true, playlists: [{ listid: '1', name: '深夜循环', songCount: 28 }, { listid: '2', name: '通勤路上', songCount: 45 }, { listid: '3', name: '那些年的华语歌', songCount: 62 }] }));
   app.get('/api/kugou/playlists/pool', (_req, res) => res.json({ ok: true, pool: null }));
+  app.get('/api/kugou/search', (_req, res) => res.json({ ok: true, tracks: [{ hash: 'preview-search', title: '晴天', artist: '周杰伦', album: '叶惠美', duration: 269000, cover: '' }] }));
+  app.post('/api/kugou/play', (req, res) => {
+    const track = req.body?.track || {};
+    const item = { title: track.title, artist: track.artist, album: track.album, duration: track.duration, kugouId: track.hash, audioUrl: '/preview-tone.wav', source: 'search' };
+    if (req.body?.mode === 'append') state.queue = [...state.queue, item];
+    else { state.queue = [item]; state.index = 0; }
+    state.paused = false;
+    broadcastState();
+    res.json({ ok: true, mode: req.body?.mode || 'replace', queue: state.queue, index: state.index });
+  });
   app.get('/api/lyric', (_req, res) => res.json({ lyric: Array.from({ length: 40 }, (_, index) => {
     const seconds = index * 5;
     const time = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;

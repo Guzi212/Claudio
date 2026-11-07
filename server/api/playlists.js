@@ -29,6 +29,20 @@ function toQueueItem(track) {
   };
 }
 
+function searchQueueItem(track) {
+  const item = {
+    title: track.title,
+    artist: track.artist || '',
+    album: track.album || '',
+    duration: track.duration || 0,
+    kugouId: track.hash || track.kugouId || '',
+    audioUrl: null,
+    source: 'search',
+  };
+  if (track.cover) item.cover = String(track.cover);
+  return item;
+}
+
 function playlistRef(playlist = {}) {
   const listid = String(playlist.listid || '');
   const explicitGcid = String(playlist.globalCollectionId || '');
@@ -157,6 +171,41 @@ export function mountPlaylistRoutes(app, deps = {}) {
       console.error('[playlists-api] play failed:', err.message);
       res.status(500).json({ ok: false, error: err.message });
     }
+  });
+
+  // 单曲播放：按用户选中的 hash 精确进队列，不再重新搜索打分。
+  app.post('/api/kugou/play', (req, res) => {
+    const track = req.body?.track || {};
+    const mode = req.body?.mode === 'append' ? 'append' : 'replace';
+    const hash = String(track.hash || track.kugouId || '').trim();
+    const title = String(track.title || '').trim();
+    if (!hash || !title) {
+      res.status(400).json({ ok: false, error: 'track.hash 和 track.title 必填' });
+      return;
+    }
+    const runtime = getRuntime();
+    if (!runtime) {
+      res.status(500).json({ ok: false, error: 'runtime 不可用' });
+      return;
+    }
+    const item = searchQueueItem({ ...track, hash, title });
+    if (mode === 'append') {
+      const wasEmpty = !Array.isArray(runtime.queue) || runtime.queue.length === 0;
+      runtime.queue = [...(runtime.queue || []), item];
+      if (wasEmpty) {
+        runtime.index = 0;
+        runtime.paused = false;
+      }
+    } else {
+      runtime.queue = [item];
+      runtime.queueOffset = 0;
+      runtime.index = 0;
+      runtime.paused = false;
+    }
+    markQueueSource(runtime, 'search');
+    runtime.lastSay = `播放《${title}》${item.artist ? ` — ${item.artist}` : ''}。`;
+    broadcast({ type: 'state', runtime });
+    res.json({ ok: true, mode, queue: runtime.queue, index: runtime.index });
   });
 
   // 直链懒解析：hash → 可播放代理 URL
