@@ -151,6 +151,7 @@
   <section id="view-playlists" class="view view-playlists hidden">
     <header class="view-head"><h2>歌单</h2><div class="view-actions"><button id="playlists-refresh" type="button" class="btn">刷新</button></div></header>
     <div class="view-content">
+      <section class="card search-card"><h3>搜索歌曲</h3><form id="search-form" class="search-row"><input id="search-input" type="search" placeholder="歌名 / 歌手" aria-label="搜索歌曲"><button type="submit" class="btn primary">搜索</button></form><ul id="search-results" class="search-results"></ul><p id="search-status" class="field-hint"></p></section>
       <section class="card pool-card"><h3>当前候选池</h3><div class="pool-row"><p id="pool-status" class="field-hint">加载中…</p><button id="pool-clear" type="button" class="btn ghost hidden">清除候选池</button></div></section>
       <section class="card"><h3>我的酷狗歌单</h3><p class="field-hint">设为候选池后，Claudio 推荐时至少 3 首会从该歌单选；点“整单播放”直接替换当前队列。</p><ul id="playlist-list" class="playlist-list"><li class="muted">加载中…</li></ul></section>
     </div>

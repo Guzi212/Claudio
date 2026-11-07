@@ -88,12 +88,22 @@ describe('radio visual contract', () => {
   });
 
   it('离线壳缓存覆盖新增资源', () => {
-    expect(sw).toContain('const CACHE = \'claudio-shell-v17\'');
+    expect(sw).toContain('const CACHE = \'claudio-shell-v18\'');
     expect(sw).toContain('\'/components/studio-visual.js\'');
     expect(sw).toContain('\'/external-playback.js\'');
     expect(sw).toContain('\'/boot-playback.js\'');
     expect(sw).toContain('\'/runtime-sync.js\'');
     expect(sw).toContain('\'/player-mode.js\'');
     expect(sw).toContain('\'/views/playlists.js\'');
+  });
+
+  it('歌单页可以搜索并精确播放单曲', () => {
+    expect(html).toContain('id="search-form"');
+    expect(html).toContain('id="search-input"');
+    expect(html).toContain('id="search-results"');
+    const playlistsJs = fs.readFileSync(path.resolve('pwa/views/playlists.js'), 'utf8');
+    expect(playlistsJs).toContain('/api/kugou/search?q=');
+    expect(playlistsJs).toContain('/api/kugou/play');
+    expect(playlistsJs).toContain('claudio:queue-replace');
   });
 });

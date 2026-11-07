@@ -4,11 +4,12 @@ export function mountSearchRoute(app, deps = {}) {
   const search = deps.search || defaultSearch;
 
   app.get('/api/kugou/search', async (req, res) => {
-    const title = String(req.query?.title || '').trim();
+    const q = String(req.query?.q || '').trim();
+    const title = q || String(req.query?.title || '').trim();
     const artist = String(req.query?.artist || '').trim();
     const hint = String(req.query?.hint || '').trim();
     if (!title) {
-      res.status(400).json({ ok: false, error: 'title 必填' });
+      res.status(400).json({ ok: false, error: 'title 或 q 必填' });
       return;
     }
     try {
@@ -19,6 +20,7 @@ export function mountSearchRoute(app, deps = {}) {
         artist: item.artist || '',
         album: item.album || '',
         duration: item.duration || 0,
+        cover: item.cover || '',
         score: item.score ?? null,
       }));
       res.json({ ok: true, tracks });
