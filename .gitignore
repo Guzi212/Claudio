@@ -25,6 +25,7 @@ Thumbs.db
 
 # 其它 agent 工具的本地目录
 .opencode/
+.serena/
 
 # Claude Code MCP (含本地路径和 token，不提交)
 .mcp.json
