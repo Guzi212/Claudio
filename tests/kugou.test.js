@@ -77,6 +77,21 @@ describe('services/kugou', () => {
     expect(list[1]).toMatchObject({ name: '别人的歌单', type: 1, writable: false });
   });
 
+  it('fresh 拉歌单曲目时带唯一参数，绕开上游缓存', async () => {
+    const post = vi.fn().mockResolvedValue({ data: { data: { info: [], count: 0 } } });
+    vi.doMock('axios', () => ({ default: { create: () => ({ post }) } }));
+    const { fetchUserPlaylistTracks } = await import('../server/services/kugou.js');
+
+    await fetchUserPlaylistTracks({ listid: '2', fresh: true });
+    const freshParams = post.mock.calls[0][2].params;
+    expect(freshParams).toMatchObject({ listid: '2', page: 1, pagesize: 300 });
+    expect(typeof freshParams._t).toBe('number');
+
+    post.mockClear();
+    await fetchUserPlaylistTracks({ listid: '2' });
+    expect(post.mock.calls[0][2].params).not.toHaveProperty('_t');
+  });
+
   it('导出 normalizeForMatch / parseNameField 供下游复用', async () => {
     const mod = await import('../server/services/kugou.js');
     expect(typeof mod.normalizeForMatch).toBe('function');

@@ -323,6 +323,7 @@ export async function fetchSharedPlaylist({
   pagesize = 300,
   maxPages = 50,
   retries = 2,
+  fresh = false,
 } = {}) {
   if (!globalCollectionId) {
     throw new Error('fetchSharedPlaylist: 必须提供 globalCollectionId');
@@ -335,7 +336,8 @@ export async function fetchSharedPlaylist({
     maxPages,
     retries,
     pageProvider: page => httpClient.get(ENDPOINTS.playlistTracks, {
-      params: { id: globalCollectionId, page, pagesize },
+      // fresh 时加一个唯一参数，绕开 KuGouMusicApi 的 2 分钟响应缓存。
+      params: { id: globalCollectionId, page, pagesize, ...(fresh ? { _t: Date.now() } : {}) },
     }),
     normalizer: response => {
       const data = response.data?.data || response.data || {};
@@ -394,13 +396,14 @@ export async function fetchUserPlaylistTracks({
   pagesize = 300,
   maxPages = 50,
   retries = 2,
+  fresh = false,
 } = {}) {
   if (!listid && !globalCollectionId) {
     throw new Error('fetchUserPlaylistTracks: 必须提供 listid 或 globalCollectionId');
   }
 
   if (globalCollectionId) {
-    return fetchSharedPlaylist({ globalCollectionId, pagesize, maxPages, retries });
+    return fetchSharedPlaylist({ globalCollectionId, pagesize, maxPages, retries, fresh });
   }
 
   const httpClient = client();
@@ -410,7 +413,8 @@ export async function fetchUserPlaylistTracks({
     maxPages,
     retries,
     pageProvider: page => httpClient.post(ENDPOINTS.playlistTracksNew, null, {
-      params: { listid, page, pagesize },
+      // fresh 时加一个唯一参数，绕开 KuGouMusicApi 的 2 分钟响应缓存。
+      params: { listid, page, pagesize, ...(fresh ? { _t: Date.now() } : {}) },
     }),
     normalizer: response => {
       const data = response.data?.data || response.data || {};
