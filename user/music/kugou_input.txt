@@ -1,0 +1,21 @@
+# 酷狗口味导入模板
+#
+# 复制成 user/music/kugou_input.local.txt（已被 git 忽略），把内容粘进去：
+#   cp user/music/kugou_input.txt user/music/kugou_input.local.txt
+#
+# 然后运行：
+#   npm run music:import:kugou
+#
+# 支持：分享链接、OCR 文本、复制出来的歌单。格式示例：
+#
+# https://www.kugou.com/playlist/xxxxx
+#
+# # 红心 3
+# 晴天 - 周杰伦
+# 夜曲 周杰伦 《十一月的萧邦》
+#
+# # 最近循环
+# Sweet Soul Revue - Pizzicato Five
+#
+# # 雷区
+# 土嗨电音 - 某某DJ

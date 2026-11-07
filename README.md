@@ -270,19 +270,20 @@ Content-Type: application/json
 | 播放控制 | `POST /api/control` | JSON：`command`=`next`\|`prev`\|`pause`\|`play`\|`toggle`\|`volume`\|`jump`，`value`（音量 0–100，或 jump 的从 0 开始的序号） | `ok`，`command`，`say`，`nowPlaying`，`queue`，`index`，`paused`，`volume`。`volume` 会立刻记住。`next` 真正切到下一首时，把刚离开的那首记成 `feedback.kind=skip`。`toggle` 播放中就暂停，暂停中就继续。最后一首已经结束时，状态算作已停，`toggle` 和 `play` 都从队列第一首重新开始。队列是空的就停在暂停。这些命令不改音量 |
 | 状态 | `GET /api/status`（`GET /api/now` 相同） | 无 | `brain`，`nowPlaying`，`queue`，`index`，`paused`，`volume`（0–100，会记住；没存过默认 30），`currentTime`（秒），`duration`（秒），`active`（有没有页面连着 WebSocket），`listeners`，`lastSay`，`reason`，`queuedAt`（最近一次外部点歌的 ISO 时间，没有则 `null`），`source`（那一次请求的 `source`，没有则空字符串）。队列里的歌若带了自己的 `reason` / `cover` / `queuedAt`，会原样出现在 `queue[]` |
 | 进度上报 | WebSocket `/stream`，客户端发 | `{ "type":"progress", "currentTime", "duration", "volume", "paused", "index", "queueOffset" }`，页面大约每 2 秒一次 | 服务端更新内存里的进度，不广播。音量有变化才写入，短时间连续拖动合并成一次。bot 用 `GET /api/status` 读 |
-| 搜歌 | `GET /api/kugou/search` | Query：`title` 必填，`artist`，`hint` | `ok`，`tracks[]`：`hash`，`title`，`artist`，`album`，`duration`，`score` |
+| 搜歌 | `GET /api/kugou/search` | Query：`title` 或 `q`（自由文本）必填一个，`artist`，`hint` | `ok`，`tracks[]`：`hash`，`title`，`artist`，`album`，`duration`，`cover`，`score` |
 | 酷狗歌单列表 | `GET /api/kugou/playlists` | Query：`page`，`pagesize` | `ok`，`playlists[]`：`id`，`listid`，`globalCollectionId`，`name`，`songCount`，`isPrivate` |
 | 歌单曲目 | `GET /api/kugou/playlists/tracks` | Query：`listid` 或 `gcid`，可选 `pagesize` | `ok`，以及曲目结果（含 `tracks`） |
 | 播放历史 | `GET /api/plays` | Query：`limit`（默认 20，最大 100） | `ok`，`plays[]`：`id`，`kugouId`，`title`，`artist`，`reason`，`source`，`ts`；`feedback[]`：`kind`（`skip` / `like` / `unlike`），`title`，`artist`，`kugouId`，`ts` |
 | 喜欢 / 不喜欢 | `POST /api/feedback` | JSON：`kind`=`like`\|`unlike`\|`skip`，`title` 或 `kugouId`，`artist` | `ok`，`id`，`kind`。页面上的 ♡ 也会写这里 |
 | 整单播放 | `POST /api/kugou/playlists/play` | JSON：`playlist`（要有 `listid` 或 `globalCollectionId`） | `ok`，`count`，`queue`。这是明确换队列 |
+| 单曲播放 | `POST /api/kugou/play` | JSON：`track`（`hash` 和 `title` 必填，`artist` / `album` / `duration` / `cover` 可选），`mode`=`replace`\|`append`（默认 `replace`） | `ok`，`mode`，`queue`，`index`。按选中的 hash 精确进队列，不再重新搜索打分；`append` 不打断当前曲目 |
 | 直链 | `GET /api/kugou/track-url` | Query：`hash` | `ok`，`url`（已经是 `/api/proxy?u=...`） |
 | 聊天（external） | `POST /api/chat` | JSON：`message` | 控制命令（`/skip` `/pause` `/play` `/toggle` `/vol N` `/prev` `/now` `/queue`）照常执行。普通文字返回「选歌请在 Grok Bot 里找 Claudio主持人。」，不调用 Claude |
 | 开机（external） | `POST /api/boot` | 无 | 不调用 Claude。返回当前 `queue` 和 `index`，`brain: "external"`，`skipped: true` |
 
 页面在 external 模式下只出声和显示。加载时，以及主持人投下新队列时，会先直接 `play()`。成功就不出遮罩；只有浏览器返回 `NotAllowedError` 才显示「点击开声」，点一下从当前队列和进度接着放。队列是空的就显示「等主持人点歌」，不盖遮罩。服务器记着暂停时，打开页面不会自己播；主持人用 replace 或 append 投下新队列，或者发 play，会再直接播。一首播完会放到队列里的下一首，整个队列播完就停。
 
-界面是宣纸水墨画风：浅色宣纸底配静态山水背景（宽屏和手机竖屏各一张），配色按时辰（清晨、午间、下午、傍晚、深夜）自动切换。Grokbot 头像是留白双眼的墨团。主持人口播显示外部点歌的 `say`，点歌时间显示在名字旁边。顶部导航可直接进入电台、歌单、品味和设置；右上角菜单也保留入口。音量沿用已保存的值，滑块旁边有数字。有歌词时出现「歌词」按钮，点击展开或收起，默认不挤占播放区。当前封面和待播封面加载失败时显示备用图。
+界面是宣纸水墨画风：浅色宣纸底配静态山水背景（宽屏和手机竖屏各一张），配色按时辰（清晨、午间、下午、傍晚、深夜）自动切换。Grokbot 头像是留白双眼的墨团。主持人口播显示外部点歌的 `say`，点歌时间显示在名字旁边。顶部导航可直接进入电台、歌单、品味和设置；右上角菜单也保留入口。音量沿用已保存的值，滑块旁边有数字。有歌词时出现「歌词」按钮，点击展开或收起，默认不挤占播放区。当前封面和待播封面加载失败时显示备用图。歌单页顶部可以按歌名 / 歌手搜索，点「播放」按选中的 hash 精确换队列，点「加入队列」接到队尾。
 
 external 模式隐藏点歌对话和播放模式选项。internal 模式显示点歌对话、列表循环 / 单曲循环 / 自动推歌，以及队列展开或收起按钮；冷启动只预加载音频元数据，不自动播放。设置里的 DeepSeek 卡片只在 external 模式隐藏。
 

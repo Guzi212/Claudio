@@ -60,6 +60,7 @@ describe('mountPlaylistRoutes · 注册', () => {
     expect(app.routes['GET /api/kugou/playlists/pool']).toBeTypeOf('function');
     expect(app.routes['POST /api/kugou/playlists/pool']).toBeTypeOf('function');
     expect(app.routes['POST /api/kugou/playlists/play']).toBeTypeOf('function');
+    expect(app.routes['POST /api/kugou/play']).toBeTypeOf('function');
     expect(app.routes['GET /api/kugou/track-url']).toBeTypeOf('function');
   });
 });
@@ -166,6 +167,56 @@ describe('POST /api/kugou/playlists/play', () => {
     expect(deps.runtime.queueOffset).toBe(0);
     expect(deps.runtime.queue[0]).toMatchObject({ title: 'A', kugouId: 'h1', audioUrl: null, source: 'playlist' });
     expect(deps.broadcast).toHaveBeenCalledWith(expect.objectContaining({ type: 'state' }));
+  });
+});
+
+describe('POST /api/kugou/play', () => {
+  it('缺 hash 或 title → 400', async () => {
+    const app = mockApp();
+    mountPlaylistRoutes(app, makeDeps());
+    const res = mockRes();
+    await app.routes['POST /api/kugou/play']({ body: { track: { hash: 'h1' } } }, res);
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('replace 用选中的 hash 精确替换队列', async () => {
+    const deps = makeDeps({ runtime: { queue: [{ title: '旧歌' }], index: 0, paused: true, lastSay: '' } });
+    const app = mockApp();
+    mountPlaylistRoutes(app, deps);
+    const res = mockRes();
+    await app.routes['POST /api/kugou/play']({
+      body: {
+        track: { hash: 'HASH', title: '晴天', artist: '周杰伦', album: '叶惠美', duration: 269000, cover: 'http://img/c.jpg' },
+        mode: 'replace',
+      },
+    }, res);
+    expect(res.body.ok).toBe(true);
+    expect(deps.runtime.queue).toHaveLength(1);
+    expect(deps.runtime.queue[0]).toMatchObject({
+      title: '晴天',
+      artist: '周杰伦',
+      album: '叶惠美',
+      kugouId: 'HASH',
+      audioUrl: null,
+      source: 'search',
+      cover: 'http://img/c.jpg',
+    });
+    expect(deps.runtime.index).toBe(0);
+    expect(deps.runtime.paused).toBe(false);
+    expect(deps.broadcast).toHaveBeenCalledWith(expect.objectContaining({ type: 'state' }));
+  });
+
+  it('append 接到队尾且不打断当前曲目', async () => {
+    const deps = makeDeps({ runtime: { queue: [{ title: '旧歌' }], index: 0, paused: false, lastSay: '' } });
+    const app = mockApp();
+    mountPlaylistRoutes(app, deps);
+    const res = mockRes();
+    await app.routes['POST /api/kugou/play']({
+      body: { track: { hash: 'HASH', title: '晴天' }, mode: 'append' },
+    }, res);
+    expect(res.body.ok).toBe(true);
+    expect(deps.runtime.queue.map(item => item.title)).toEqual(['旧歌', '晴天']);
+    expect(deps.runtime.index).toBe(0);
   });
 });
 

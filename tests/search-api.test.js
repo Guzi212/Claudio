@@ -38,8 +38,27 @@ describe('GET /api/kugou/search', () => {
       artist: '周杰伦',
       album: '叶惠美',
       duration: 269,
+      cover: '',
       score: 150,
     }]);
+  });
+
+  it('q 作为自由文本搜索，并透出封面', async () => {
+    const search = vi.fn(async () => [{
+      hash: 'HASH',
+      title: '晴天',
+      artist: '周杰伦',
+      album: '',
+      duration: 269,
+      cover: 'http://img/cover.jpg',
+      score: 70,
+    }]);
+    const app = mockApp();
+    mountSearchRoute(app, { search });
+    const res = mockRes();
+    await app.routes['GET /api/kugou/search']({ query: { q: '周杰伦 晴天' } }, res);
+    expect(search).toHaveBeenCalledWith({ title: '周杰伦 晴天', artist: '', hint: '' });
+    expect(res.body.tracks[0].cover).toBe('http://img/cover.jpg');
   });
 
   it('缺 title 返回 400', async () => {
