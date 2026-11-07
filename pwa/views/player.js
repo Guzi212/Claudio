@@ -52,6 +52,8 @@ let queuedAt = '';
 let lastProgressAt = 0;
 let queueVisible = true;
 const feedbackByTrack = new Map();
+const favoriteState = new Map();
+let favoriteCheckToken = 0;
 
 let chat, composer, input, submitBtn, audio, npBox, npTitle, npArtist, consolePlayBtn, consoleFavoriteBtn, queueBtn, loopBtn, queueList, npSeek, npTimeCur, npTimeDur, npVol;
 const STUDIO_THEME_KEY = 'claudio:studio-theme';
@@ -444,12 +446,52 @@ function currentTrack() {
   return state.queue[state.index] || null;
 }
 
+function paintFavorite(liked) {
+  if (!consoleFavoriteBtn) return;
+  consoleFavoriteBtn.setAttribute('aria-pressed', String(Boolean(liked)));
+  consoleFavoriteBtn.classList.toggle('active', Boolean(liked));
+}
+
+async function refreshFavoriteState(track = currentTrack()) {
+  if (!consoleFavoriteBtn) return;
+  const token = ++favoriteCheckToken;
+  const hash = String(track?.kugouId || '').trim();
+  if (!hash || track?.isTts) {
+    consoleFavoriteBtn.disabled = true;
+    paintFavorite(false);
+    return;
+  }
+  consoleFavoriteBtn.disabled = false;
+  const cached = favoriteState.get(hash);
+  if (typeof cached === 'boolean') {
+    consoleFavoriteBtn.disabled = false;
+    paintFavorite(cached);
+    return;
+  }
+  consoleFavoriteBtn.disabled = true;
+  try {
+    const r = await fetch(`/api/kugou/favorite?hash=${encodeURIComponent(hash)}`);
+    const data = await r.json();
+    if (token !== favoriteCheckToken) return;
+    if (data.ok) {
+      favoriteState.set(hash, Boolean(data.liked));
+      paintFavorite(Boolean(data.liked));
+    }
+  } catch {
+    // 查询失败时保持当前状态，用户仍可以点收藏。
+  } finally {
+    if (token === favoriteCheckToken && consoleFavoriteBtn) consoleFavoriteBtn.disabled = false;
+  }
+}
+
 function resetFavoriteState() {
   if (consoleFavoriteBtn) {
     consoleFavoriteBtn.setAttribute('aria-pressed', 'false');
     consoleFavoriteBtn.classList.remove('active');
+    consoleFavoriteBtn.disabled = true;
   }
   paintFeedback();
+  refreshFavoriteState();
 }
 
 function updatePlayButtons(isPlaying) {
@@ -747,26 +789,49 @@ function togglePlayback() {
   else audio.pause();
 }
 
-function toggleFavorite() {
-  if (!consoleFavoriteBtn) return;
-  const pressed = consoleFavoriteBtn.getAttribute('aria-pressed') === 'true';
-  const next = !pressed;
+async function toggleFavorite() {
   const track = currentTrack();
-  consoleFavoriteBtn.setAttribute('aria-pressed', String(next));
-  consoleFavoriteBtn.classList.toggle('active', next);
-  toast(next
-    ? `已收藏：${track?.title || '当前电台氛围'}`
-    : `已取消收藏：${track?.title || '当前电台氛围'}`);
-  fetch('/api/feedback', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      kind: next ? 'like' : 'unlike',
-      title: track?.title || '',
-      artist: track?.artist || '',
-      kugouId: track?.kugouId || '',
-    }),
-  }).catch(() => {});
+  const hash = String(track?.kugouId || '').trim();
+  if (!hash || track?.isTts) {
+    showAlert('这首没有可收藏的酷狗曲目');
+    return;
+  }
+  const current = consoleFavoriteBtn?.getAttribute('aria-pressed') === 'true';
+  const next = !current;
+  const stillCurrent = () => String(currentTrack()?.kugouId || '') === hash;
+  paintFavorite(next);
+  if (consoleFavoriteBtn) consoleFavoriteBtn.disabled = true;
+  try {
+    const r = await fetch('/api/kugou/favorite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: next ? 'add' : 'remove',
+        track: {
+          hash,
+          title: track.title || '',
+          artist: track.artist || '',
+          album: track.album || '',
+          albumId: track.albumId || '',
+          mixsongid: track.mixsongid || '',
+        },
+      }),
+    });
+    const data = await r.json();
+    if (!data.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    favoriteState.set(hash, Boolean(data.liked));
+    if (stillCurrent()) paintFavorite(Boolean(data.liked));
+    if (next) {
+      toast(data.duplicate ? `已在「我喜欢」：${track.title}` : `已加入「我喜欢」：${track.title}`);
+    } else {
+      toast(`已从「我喜欢」移除：${track.title}`);
+    }
+  } catch (err) {
+    if (stillCurrent()) paintFavorite(current);
+    showAlert(`收藏失败：${err.message}`);
+  } finally {
+    if (consoleFavoriteBtn && stillCurrent()) consoleFavoriteBtn.disabled = false;
+  }
 }
 
 function renderQueuePanel() {

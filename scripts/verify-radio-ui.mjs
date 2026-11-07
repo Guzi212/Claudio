@@ -106,6 +106,8 @@ function createPreview() {
   app.get('/api/kugou/playlists', (_req, res) => res.json({ ok: true, playlists: [{ listid: '1', name: '深夜循环', songCount: 28 }, { listid: '2', name: '通勤路上', songCount: 45 }, { listid: '3', name: '那些年的华语歌', songCount: 62 }] }));
   app.get('/api/kugou/playlists/pool', (_req, res) => res.json({ ok: true, pool: null }));
   app.get('/api/kugou/search', (_req, res) => res.json({ ok: true, tracks: [{ hash: 'preview-search', title: '晴天', artist: '周杰伦', album: '叶惠美', duration: 269000, cover: '' }] }));
+  app.get('/api/kugou/favorite', (_req, res) => res.json({ ok: true, liked: false }));
+  app.post('/api/kugou/favorite', (req, res) => res.json({ ok: true, liked: req.body?.action !== 'remove', duplicate: false, pendingId: 1 }));
   app.post('/api/kugou/play', (req, res) => {
     const track = req.body?.track || {};
     const item = { title: track.title, artist: track.artist, album: track.album, duration: track.duration, kugouId: track.hash, audioUrl: '/preview-tone.wav', source: 'search' };
@@ -312,6 +314,12 @@ try {
   const cancelled = await evaluate(`document.querySelector('[data-feedback="dislike"]').getAttribute('aria-pressed') === 'false'`);
   assert.equal(liked, 'true'); assert.equal(exclusive, true); assert.equal(cancelled, true);
 
+  const favoriteBefore = await evaluate(`document.querySelector('[data-console-control="favorite"]').getAttribute('aria-pressed')`);
+  await click('[data-console-control="favorite"]');
+  await waitFor(`document.querySelector('[data-console-control="favorite"]').getAttribute('aria-pressed') === 'true'`);
+  const favorited = await evaluate(`document.querySelector('[data-console-control="favorite"]').getAttribute('aria-pressed')`);
+  assert.equal(favoriteBefore, 'false'); assert.equal(favorited, 'true');
+
   await waitFor(`Number.isFinite(document.querySelector('#audio').duration) && document.querySelector('#audio').duration > 0`);
   await evaluate(`(() => { const el = document.querySelector('#np-seek'); el.value = '40'; el.dispatchEvent(new Event('input', { bubbles: true })); })()`);
   await waitFor(`document.querySelector('#np-time-cur').textContent === '1:36'`).catch(async error => {
@@ -456,7 +464,7 @@ try {
   await screenshot('mobile-empty');
 
   assert.equal(errors.length, 0, `Browser errors: ${errors.join('\n')}`);
-  await writeFile(path.join(output, 'verification.json'), JSON.stringify({ results, playback, motionPlaying, motionPaused, selected, liked, exclusive, cancelled, seek, rememberedVolume, nav, focus, consoleHidden, externalOptionsHidden, longQueue, internal, internalOptions, lyricPosition, lyricFollow, empty, errors }, null, 2));
+  await writeFile(path.join(output, 'verification.json'), JSON.stringify({ results, playback, motionPlaying, motionPaused, selected, liked, exclusive, cancelled, favorited, seek, rememberedVolume, nav, focus, consoleHidden, externalOptionsHidden, longQueue, internal, internalOptions, lyricPosition, lyricFollow, empty, errors }, null, 2));
   console.log(JSON.stringify({ ok: true, output, screenshots: 14, playback, motionPlaying, motionPaused, selected, seek, rememberedVolume, nav, errors }, null, 2));
 } finally {
   if (ws?.readyState === WebSocket.OPEN) { try { await send('Browser.close'); } catch {} ws.close(); }
