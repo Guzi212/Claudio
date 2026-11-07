@@ -40,6 +40,7 @@ import { mountSessionRoute } from './session.js';
 import { resolveListenHost } from './listen.js';
 import { axiosProxyOptions } from './outbound-proxy.js';
 import { checkProxyUrl, createRedirectGuard, findProxyBlock } from './proxy-guard.js';
+import { readUserFile } from './user-files.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -108,8 +109,8 @@ mountRuntimeRoutes(app, {
 
 app.get('/api/taste', (req, res) => {
   try {
-    const taste = fs.readFileSync(path.join(ROOT, 'user', 'taste.md'), 'utf8');
-    const routines = fs.readFileSync(path.join(ROOT, 'user', 'routines.md'), 'utf8');
+    const taste = readUserFile(ROOT, 'user/taste.md');
+    const routines = readUserFile(ROOT, 'user/routines.md');
     res.json({ taste, routines });
   } catch (err) {
     res.status(500).json({ error: err.message });

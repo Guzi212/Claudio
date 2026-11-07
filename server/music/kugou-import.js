@@ -139,7 +139,7 @@ export function buildRawMarkdown(tracks, { generatedAt = new Date() } = {}) {
   return [
     '# 酷狗原始音乐数据',
     '',
-    '> 这里保存从酷狗截图、分享链接、复制文本整理出来的歌曲级数据。先保留原始线索，再蒸馏进 `user/taste.md`。',
+    '> 这里保存从酷狗截图、分享链接、复制文本整理出来的歌曲级数据。先保留原始线索，再蒸馏进 `user/taste.local.md`。',
     '',
     `生成时间：${generatedAt.toISOString()}`,
     '',
@@ -450,7 +450,7 @@ export function buildTasteSummary(tracks, { maxTopArtists = 20, maxRepresentativ
   }
   rules.push(
     '写代码/专注场景优先少歌词或不抢注意力的歌；中文歌词只在用户明确想听歌时提高权重。',
-    '原始歌曲级数据保存在 `user/music/kugou_raw.md`，蒸馏不准时回看来源修正。',
+    '原始歌曲级数据保存在 `user/music/kugou_raw.local.md`，蒸馏不准时回看来源修正。',
   );
   rules.forEach(r => lines.push(`- ${r}`));
   lines.push('');

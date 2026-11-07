@@ -8,9 +8,24 @@ logs/
 *.log
 cache/
 
+# 个人语料与运行时数据（仓库里只提交模板）
+user/taste.local.md
+user/routines.local.md
+user/music/kugou_input.local.txt
+user/music/kugou_raw*.md
+user/music/kugou_taste_summary*.md
+claudio/journal.local.md
+
+# 本地开发日志（post-commit hook 自动追加）
+docs/devlog*.md
+
 # OS
 .DS_Store
 Thumbs.db
+
+# 其它 agent 工具的本地目录
+.opencode/
+.serena/
 
 # Claude Code MCP (含本地路径和 token，不提交)
 .mcp.json

@@ -6,6 +6,7 @@ import {
   buildRawMarkdown,
   buildTasteSummary,
 } from '../music/kugou-import.js';
+import { localUserPath } from '../user-files.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
@@ -25,12 +26,13 @@ export function applyImport(tracks, rootDir) {
   const musicDir = path.join(rootDir, 'user', 'music');
   fs.mkdirSync(musicDir, { recursive: true });
 
-  fs.writeFileSync(path.join(musicDir, 'kugou_raw.md'), buildRawMarkdown(tracks), 'utf8');
+  fs.writeFileSync(localUserPath(rootDir, 'user/music/kugou_raw.md'), buildRawMarkdown(tracks), 'utf8');
 
   const summary = buildTasteSummary(tracks);
-  fs.writeFileSync(path.join(musicDir, 'kugou_taste_summary.md'), summary, 'utf8');
+  fs.writeFileSync(localUserPath(rootDir, 'user/music/kugou_taste_summary.md'), summary, 'utf8');
 
-  const tastePath = path.join(rootDir, 'user', 'taste.md');
+  // 蒸馏结果写进个人覆盖文件，仓库里的 taste.md 保持模板状态。
+  const tastePath = localUserPath(rootDir, 'user/taste.md');
   const existing = fs.existsSync(tastePath) ? fs.readFileSync(tastePath, 'utf8') : '';
   fs.mkdirSync(path.dirname(tastePath), { recursive: true });
   fs.writeFileSync(tastePath, upsertDistilled(existing, summary), 'utf8');
