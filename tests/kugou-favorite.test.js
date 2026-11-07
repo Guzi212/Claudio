@@ -28,7 +28,7 @@ describe('createFavoriteStore', () => {
     const store = createFavoriteStore(deps);
     expect(await store.isFavorite('h1')).toBe(true);
     expect(await store.isFavorite('h2')).toBe(false);
-    expect(deps.fetchUserPlaylistTracks).toHaveBeenCalledWith({ listid: '2' });
+    expect(deps.fetchUserPlaylistTracks).toHaveBeenCalledWith({ listid: '2', fresh: true });
   });
 
   it('加入新歌时补全专辑 / mixsongid，并标记 duplicate', async () => {

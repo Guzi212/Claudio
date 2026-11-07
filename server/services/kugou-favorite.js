@@ -43,7 +43,8 @@ export function createFavoriteStore(deps = {}) {
     if (!playlist) throw new Error(`没有找到歌单「${name}」`);
     const listid = String(playlist.listid || playlist.id || '').trim();
     if (!listid) throw new Error(`歌单「${name}」没有 listid`);
-    const { tracks } = await fetchUserPlaylistTracks({ listid });
+    // 收藏列表必须读最新：KuGouMusicApi 会缓存 2 分钟，刚加/刚删的歌会看不到。
+    const { tracks } = await fetchUserPlaylistTracks({ listid, fresh: true });
     const files = new Map();
     for (const track of tracks) {
       if (track.hash) files.set(track.hash, track.fileid || '');
