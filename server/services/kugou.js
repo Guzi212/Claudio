@@ -107,6 +107,7 @@ export async function search({ title, artist = '', hint = '' }) {
       artist: item.SingerName || item.singername || item.artist || item.author_name || '',
       album: item.AlbumName || item.albumname || '',
       duration: item.Duration || item.duration || 0,
+      cover: coverUrlFromRaw(item),
       raw: item,
     })).filter(c => c.hash && c.title);
 
