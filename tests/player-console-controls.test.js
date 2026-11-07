@@ -37,12 +37,19 @@ describe('player console controls', () => {
       expect(indexHtml).toContain(`data-console-control="${control}"`);
       expect(indexHtml).toMatch(new RegExp(`<button[^>]+data-console-control="${control}"`));
     }
-    expect(indexHtml).not.toContain('data-console-control="favorite"');
+    expect(indexHtml).toContain('data-console-control="favorite"');
+    expect(indexHtml).toContain('<symbol id="heart"');
     for (const control of ['queue', 'loop']) {
       expect(indexHtml).toMatch(new RegExp(`<button[^>]+data-console-control="${control}"[^>]+data-internal-only`));
     }
     expect(stylesCss).toContain('body:not(.brain-internal) [data-internal-only]');
     expect(playerJs).toContain('btn.hidden = brain !== \'internal\'');
+  });
+
+  it('红心收藏按钮写酷狗「我喜欢」', () => {
+    expect(indexHtml).toMatch(/<button[^>]+data-console-control="favorite"[^>]+aria-label="收藏到我喜欢"/);
+    expect(playerJs).toContain('/api/kugou/favorite');
+    expect(playerJs).toContain('refreshFavoriteState');
   });
 
   it('待播封面加载失败时移除坏图并保留备用封面', () => {

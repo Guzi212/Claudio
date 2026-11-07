@@ -34,6 +34,8 @@ import { mountChatRoute } from './api/chat.js';
 import { mountControlRoute } from './api/control.js';
 import { mountPlaysRoutes } from './api/plays.js';
 import { mountSearchRoute } from './api/search.js';
+import { mountFavoriteRoutes } from './api/favorites.js';
+import { mountLikeRoutes } from './api/likes.js';
 import { authMiddleware, authorizeUpgrade } from './auth.js';
 import { hostGuard } from './host-guard.js';
 import { mountSessionRoute } from './session.js';
@@ -126,6 +128,8 @@ mountChatRoute(app, { ...brainDeps, rememberVolume });
 mountControlRoute(app, { getRuntime: () => runtime, broadcast, db: dbApi, rememberVolume });
 mountPlaysRoutes(app);
 mountSearchRoute(app);
+mountFavoriteRoutes(app, { db: dbApi });
+mountLikeRoutes(app, { db: dbApi });
 
 // 音频代理：破酷狗防盗链 + 支持 Range
 // timeout 只覆盖 connect 阶段（10s），body 流式读取不限时（长歌可能 5+ min）。
