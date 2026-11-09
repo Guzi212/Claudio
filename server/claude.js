@@ -199,9 +199,9 @@ export async function ask(systemPrompt, userMessage) {
     djJson.play.map(want => resolveTrack(want)),
   );
   const queue = resolved
-    .map((track, i) => track ? { track, comment: djJson.play[i].comment ?? '' } : null)
+    .map((track, i) => track ? { track, comment: djJson.play[i].comment ?? '', want: djJson.play[i] } : null)
     .filter(Boolean)
-    .map(({ track, comment }) => ({
+    .map(({ track, comment, want }) => ({
       title:    track.title,
       artist:   track.artist,
       album:    track.album,
@@ -209,6 +209,8 @@ export async function ask(systemPrompt, userMessage) {
       kugouId:  track.kugouId,
       audioUrl: `/api/proxy?u=${encodeURIComponent(track.upstreamUrl)}`,
       comment,
+      // 模型原本要的是哪首。resolveTrack 偶尔张冠李戴，调用方可以据此校验。
+      requested: { title: want?.title || '', artist: want?.artist || '' },
     }));
 
   return {

@@ -18,6 +18,13 @@ export function trackKey(title, artist) {
   return `${normalizeForMatch(title)}|${normalizeForMatch(artist)}`;
 }
 
+// 用户上传的杂项条目歌名就是文件名（`说散就散.mp3`），统计时剔掉，免得污染画像。
+const AUDIO_FILE_EXT = /\.(mp3|flac|wav|m4a|ape|ogg|aac|wma)$/i;
+
+export function isJunkTitle(title) {
+  return AUDIO_FILE_EXT.test(String(title || '').trim());
+}
+
 function hourBucket(hour) {
   if (hour < 6) return '深夜 0-6';
   if (hour < 9) return '清晨 6-9';
@@ -38,8 +45,8 @@ function hourBucket(hour) {
  */
 export function computeTasteStats({ plays = [], feedback = [], now = Date.now(), days = 30 } = {}) {
   const since = now - days * DAY_MS;
-  const inWindow = plays.filter(p => Number(p?.ts) >= since);
-  const fbInWindow = feedback.filter(f => Number(f?.ts) >= since);
+  const inWindow = plays.filter(p => Number(p?.ts) >= since && !isJunkTitle(p?.title));
+  const fbInWindow = feedback.filter(f => Number(f?.ts) >= since && !isJunkTitle(f?.title));
 
   const artists = new Map();
   const tracks = new Map();

@@ -23,7 +23,7 @@ export const DJ_DEFAULTS = {
   batchSize: 5,            // 一次补几首
   yieldMs: 180_000,        // 外部刚投过歌，多久内让位
   cooldownMs: 90_000,      // 失败后多久再试
-  recentLimit: 40,         // 去重时看最近多少首
+  recentLimit: 25,         // 去重时看最近多少首
   tasteEveryPlays: 15,     // 新增多少条播放后重新蒸馏品味
   tasteMinIntervalMs: 6 * 3_600_000,
   tasteDays: 30,
@@ -94,9 +94,12 @@ export function buildRefillPrompt({ remainingSeconds = 0, batchSize = 5, recent 
     : '  （还没有）';
   return [
     `【自动续播】队列里大概还剩 ${minutes} 分钟。`,
-    `接着排 ${batchSize} 首，保持现在的氛围，但不要和最近播过的重复：`,
+    `接着排 ${batchSize} 首，保持现在的氛围。`,
+    '',
+    '下面是他最近听过的，**一首都不要出现在这次 play 里**，也不要给同名的 live / 翻唱 / 钢琴改编版：',
     recentLines,
     '',
+    '从你自己的音乐知识里找没出现过的曲目，宁可换一个相近的作曲家和风格，也不要重复上面的。',
     'say 用一两句话顺口接上，像电台里换气，不要写成节目介绍或歌单推荐文案。',
     `play 给满 ${batchSize} 首，reason 写 5 字以内的氛围标签。`,
   ].join('\n');
@@ -117,6 +120,28 @@ export function pickFreshTracks(queue, recentKeys) {
   return out;
 }
 
+/** 两段文本是否指同一个东西：包含关系，或字符重叠 60% 以上（容忍繁简、后缀差异）。 */
+function similarText(a, b) {
+  if (!a || !b) return true;
+  if (a === b || a.includes(b) || b.includes(a)) return true;
+  const setA = new Set([...a]);
+  const hit = [...b].filter(c => setA.has(c)).length;
+  return hit / Math.max(a.length, b.length) >= 0.6;
+}
+
+/** 解析结果和模型要的是不是同一首。resolveTrack 偶尔张冠李戴，宁可少补也不要投错。 */
+export function isFaithfulMatch(track) {
+  const gotTitle = normalizeForMatch(track?.title || '');
+  if (!gotTitle) return false;
+  if (!similarText(gotTitle, normalizeForMatch(track?.requested?.title || ''))) return false;
+
+  const wantArtist = normalizeForMatch(track?.requested?.artist || '');
+  const gotArtist = normalizeForMatch(track?.artist || '');
+  if (wantArtist && gotArtist && !similarText(gotArtist, wantArtist)) return false;
+
+  return true;
+}
+
 function toQueueItem(track, { queuedAt, reason }) {
   const item = {
     title: track.title,
@@ -129,6 +154,7 @@ function toQueueItem(track, { queuedAt, reason }) {
     source: DJ_SOURCE,
     queuedAt,
   };
+  if (track.requested) item.requested = track.requested;
   if (track.cover) item.cover = track.cover;
   if (reason) item.reason = reason;
   return item;
@@ -222,11 +248,17 @@ export function startResidentDj({
       });
 
       const { say, queue, reason } = await ask(systemPrompt, userMessage);
-      const fresh = pickFreshTracks(queue, recentKeys);
+      const deduped = pickFreshTracks(queue, recentKeys);
+      const fresh = deduped.filter(isFaithfulMatch);
+      const dupDropped = (queue || []).length - deduped.length;
+      const unfaithfulDropped = deduped.length - fresh.length;
       if (!fresh.length) {
         state.lastError = 'no-fresh-tracks';
-        log('refill skipped: 模型给的全是最近播过的');
+        log(`refill skipped: ${dupDropped} 首重复、${unfaithfulDropped} 首解析对不上`);
         return { ok: false, reason: 'no-fresh-tracks' };
+      }
+      if (dupDropped || unfaithfulDropped) {
+        log(`refill: 丢弃 ${dupDropped} 首重复、${unfaithfulDropped} 首解析对不上`);
       }
 
       const queuedAt = new Date(now()).toISOString();
@@ -287,7 +319,18 @@ export function startResidentDj({
       state.lastRefillTracks = items.filter(i => !i.isTts).length;
       state.lastError = null;
       log(`refill(${trigger}): +${state.lastRefillTracks} 首，剩 ${Math.round(queueRemainingSeconds(runtime) / 60)} 分钟`);
-      return { ok: true, added: state.lastRefillTracks, say, reason, trigger };
+      return {
+        ok: true,
+        added: state.lastRefillTracks,
+        say,
+        reason,
+        trigger,
+        tracks: items.filter(i => !i.isTts).map(t => ({
+          title: t.title,
+          artist: t.artist,
+          requested: t.requested || null,
+        })),
+      };
     } catch (err) {
       state.lastError = err.message;
       log(`refill failed: ${err.message}`);

@@ -6,6 +6,7 @@ import {
   pickFreshTracks,
   startResidentDj,
   djEnabled,
+  isFaithfulMatch,
   DJ_SOURCE,
 } from '../server/dj/resident.js';
 import { trackKey } from '../server/dj/taste-memory.js';
@@ -265,6 +266,40 @@ describe('dj · startResidentDj', () => {
     expect(st.remainingSeconds).toBe(600);
     expect(st.config.batchSize).toBe(3);
     dj.stop();
+  });
+});
+
+describe('dj · isFaithfulMatch', () => {
+  it('歌名和歌手都对得上就通过', () => {
+    expect(isFaithfulMatch({
+      title: 'Spiegel im Spiegel', artist: 'Arvo Pärt',
+      requested: { title: 'Spiegel im Spiegel', artist: 'Arvo Pärt' },
+    })).toBe(true);
+  });
+
+  it('解析成完全不同的歌就拦下', () => {
+    expect(isFaithfulMatch({
+      title: '说散就散.mp3', artist: '袁娅维TIA RAY',
+      requested: { title: 'Spiegel im Spiegel', artist: 'Arvo Pärt' },
+    })).toBe(false);
+  });
+
+  it('歌名对但歌手完全不对也拦下', () => {
+    expect(isFaithfulMatch({
+      title: 'Experience', artist: '某个翻唱歌手',
+      requested: { title: 'Experience', artist: 'Ludovico Einaudi' },
+    })).toBe(false);
+  });
+
+  it('模型没给歌手时只看歌名', () => {
+    expect(isFaithfulMatch({
+      title: 'Experience', artist: 'Ludovico Einaudi',
+      requested: { title: 'Experience', artist: '' },
+    })).toBe(true);
+  });
+
+  it('没有 requested 信息时放行（兼容旧调用）', () => {
+    expect(isFaithfulMatch({ title: 'Experience', artist: 'X' })).toBe(true);
   });
 });
 

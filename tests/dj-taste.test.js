@@ -79,6 +79,17 @@ describe('taste · computeTasteStats', () => {
     expect(stats.topArtists).toEqual([]);
     expect(formatStatsForPrompt(stats)).toContain('共 0 次播放');
   });
+
+  it('歌名是文件名的杂项不进统计', () => {
+    const stats = computeTasteStats({
+      plays: [play('说散就散.mp3', '袁娅维', 0, 21), play('晴天', '周杰' + '伦', 0, 21)],
+      feedback: [{ kind: 'skip', title: '一万次悲伤.mp3', artist: '逃跑计划', ts: NOW }],
+      now: NOW,
+    });
+    expect(stats.totalPlays).toBe(1);
+    expect(stats.topArtists.map(a => a.artist)).toEqual(['周杰' + '伦']);
+    expect(stats.skipped).toEqual([]);
+  });
 });
 
 describe('taste · formatStatsForPrompt', () => {
