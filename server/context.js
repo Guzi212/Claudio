@@ -61,6 +61,7 @@ export async function buildSystemPrompt({ now = new Date() } = {}) {
 
   // ② 用户语料
   const taste = readSafe('user/taste.md').trim();
+  const learnedTaste = readSafe('user/taste.learned.md').trim();
   const routines = readSafe('user/routines.md').trim();
 
   // ③ 环境：时间 + 天气 + 今日日程
@@ -119,6 +120,9 @@ export async function buildSystemPrompt({ now = new Date() } = {}) {
     '',
     '=== ② 用户品味语料 (taste.md) ===',
     taste || '(用户还没填 taste.md)',
+    '',
+    '=== ② 自动学到的品味 (taste.learned.md，机器总结，可信度低于上面的 taste.md) ===',
+    learnedTaste || '(还没有足够播放数据)',
     '',
     '=== ② 用户日程语料 (routines.md) ===',
     routines || '(用户还没填 routines.md)',

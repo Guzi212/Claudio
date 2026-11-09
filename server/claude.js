@@ -11,7 +11,7 @@ const IS_WIN = process.platform === 'win32';
 // 调用 claude CLI 子进程，返回它写在 stdout 的文本。
 // claude -p --output-format json 会把整个回答打包成 { type, subtype, result, session_id, ... }
 // Windows 上 claude 可能是 .cmd（npm 全局装）或 .exe（native install），shell:true 让 cmd.exe 走 PATH 解析。
-function runClaudeCli(prompt) {
+function runClaudeCli(prompt, timeoutMs = TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
     const args = ['-p', '--output-format', 'json'];
     const child = spawn('claude', args, {
@@ -23,8 +23,8 @@ function runClaudeCli(prompt) {
     let stderr = '';
     const timer = setTimeout(() => {
       child.kill('SIGTERM');
-      reject(new Error(`claude CLI timeout after ${TIMEOUT_MS}ms`));
-    }, TIMEOUT_MS);
+      reject(new Error(`claude CLI timeout after ${timeoutMs}ms`));
+    }, timeoutMs);
 
     child.stdout.on('data', d => { stdout += d.toString('utf8'); });
     child.stderr.on('data', d => { stderr += d.toString('utf8'); });
@@ -146,6 +146,24 @@ async function callDeepSeek(systemPrompt, userMessage) {
 }
 
 /**
+ * 只调一次模型，返回原始文本。选歌走 ask()，整理品味这类纯文本任务走这里。
+ * @param {string} systemPrompt
+ * @param {string} userMessage
+ * @param {{json?: boolean}} [opts] json=true 时在结尾加一句「JSON 回复」的引导
+ */
+export async function complete(systemPrompt, userMessage, { json = false, timeoutMs } = {}) {
+  if (getSetting('deepseek_api_key') || process.env.DEEPSEEK_API_KEY) {
+    console.log('[claude] using DeepSeek API');
+    return callDeepSeek(systemPrompt, userMessage);
+  }
+  const fullPrompt = json
+    ? `${systemPrompt}\n\n用户：${userMessage}\n\nClaudio 的 JSON 回复：`
+    : `${systemPrompt}\n\n${userMessage}`;
+  const stdout = await runClaudeCli(fullPrompt, timeoutMs || TIMEOUT_MS);
+  return extractResultField(stdout);
+}
+
+/**
  * 完整链路：systemPrompt + 用户输入 → LLM → 解析 → 翻译成可播放队列
  * 优先用 DeepSeek（settings 或 DEEPSEEK_API_KEY），否则回退到 claude -p
  * @returns {Promise<{say, queue, reason, raw}>}
@@ -153,15 +171,7 @@ async function callDeepSeek(systemPrompt, userMessage) {
 export async function ask(systemPrompt, userMessage) {
   let djJson;
   try {
-    let resultText;
-    if (getSetting('deepseek_api_key')) {
-      console.log('[claude] using DeepSeek API');
-      resultText = await callDeepSeek(systemPrompt, userMessage);
-    } else {
-      const fullPrompt = `${systemPrompt}\n\n用户：${userMessage}\n\nClaudio 的 JSON 回复：`;
-      const stdout = await runClaudeCli(fullPrompt);
-      resultText = extractResultField(stdout);
-    }
+    const resultText = await complete(systemPrompt, userMessage, { json: true });
     djJson = parseDjJson(resultText);
   } catch (err) {
     console.error('[claude] failure, falling back:', err.message);

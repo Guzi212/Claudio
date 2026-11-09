@@ -25,3 +25,6 @@ design-preview/
 .vscode/
 .idea/
 *.swp
+
+# 常驻主持人自动生成的品味档案（个人数据，不进仓库）
+user/taste.learned.md

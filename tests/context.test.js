@@ -84,4 +84,13 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('① Claudio 的关系记忆');
     expect(prompt).toContain('我叫 Claudio'); // identity.md 内容片段
   });
+
+  it('注入常驻主持人学到的品味（taste.learned.md）', async () => {
+    const { buildSystemPrompt } = await import('../server/context.js');
+    const prompt = await buildSystemPrompt({ now: new Date('2026-05-26T20:00:00') });
+
+    expect(prompt).toContain('自动学到的品味');
+    // 文件不存在时也要有占位，不能让整段消失
+    expect(prompt).toMatch(/自动学到的品味[\s\S]{0,200}(近 30 天|还没有足够播放数据)/);
+  });
 });
