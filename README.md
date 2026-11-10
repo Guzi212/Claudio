@@ -118,10 +118,28 @@ npm run dev:app
 ## 验证（end-to-end）
 
 - [ ] 控制台显示 `KuGou login OK · 8080 ready`，以及 `CLAUDIO_BRAIN=external，跳过定时推歌`
-- [ ] 浏览器加载 PWA。允许自动播放时会直接出声；只有浏览器拒绝时才出现「点击开声」
+- [ ] 浏览器加载 PWA。允许自动播放时会直接出声；只有浏览器拒绝时才出现「点击开声」（Chrome 要用 `scripts/open-player.ps1` 打开，见下）
 - [ ] `POST /api/queue/external` 点一首歌，页面开始播，串场面板显示 `say`
 - [ ] 无续播池时队尾停下；设置续播池后，最后一首自然结束会自动续播
 - [ ] 控制台 `npm test` 全绿
+
+## 用哪个浏览器打开播放页
+
+统一用 **Chrome**。但 Chrome 默认的 autoplay policy 会拒绝没有用户手势的有声自动播放，`play()` 抛 `NotAllowedError`，媒体元素连数据都不开始拉（`audio.readyState` 一直是 0、`networkState` 1-2）。这不是代理或 Range 的问题——同一个 `/api/proxy` URL 用 `curl` 拿到的是 206 + `audio/mpeg`。
+
+所以打开播放页时带上 `--autoplay-policy=no-user-gesture-required`，Chrome 就和 Edge 一样打开即播：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "D:\Claude code\works\Claudio\scripts\open-player.ps1"
+```
+
+脚本默认用 app 模式（无地址栏）和独立 profile（`%LOCALAPPDATA%\Claudio\chrome-profile`），不碰日常 Chrome 配置。要普通标签页加 `-Tab`。
+
+不这么启动也不会坏：页面在 `play()` 被拒时会显示「点击开声」遮罩，点一下就能播。只是不点就不出声。
+
+## 断线重连
+
+页面和 `/stream` 之间是长连的 WebSocket。socket 断了（服务重启、休眠唤醒、切网）页面会按 1s → 2s → 4s … 最多 30s 退避重连，并在重连成功后拉一次 `/api/now` 把断线期间漏掉的队列补回来。页面回到前台、网络恢复、从 bfcache 回来时也会立刻补一次连接。不需要手动刷新。
 
 ## 调试小技巧
 
