@@ -7,6 +7,10 @@
 # loading (readyState stays 0), so the page just sits on the unlock overlay.
 # With this switch Chrome behaves like Edge and plays on open.
 #
+# --disable-backgrounding-occluded-windows: Chrome throttles media loading in a
+# window it thinks is occluded (behind another window, or off-screen). Without
+# this, audio readyState stays 0 while the page is covered.
+#
 # Uses its own profile dir so the daily Chrome profile is left alone.
 
 param(
@@ -32,6 +36,8 @@ New-Item -ItemType Directory -Force -Path $ProfileDir | Out-Null
 
 $chromeArgs = @(
   '--autoplay-policy=no-user-gesture-required',
+  '--disable-backgrounding-occluded-windows',
+  '--disable-renderer-backgrounding',
   "--user-data-dir=$ProfileDir",
   '--no-first-run',
   '--no-default-browser-check'
