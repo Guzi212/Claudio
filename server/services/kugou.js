@@ -51,6 +51,9 @@ const DJ_MARKERS = ['dj', 'dj版', 'dj mix', 'djmix'];
 // 非原版变体标记：目标没有指定时扣分
 const VERSION_MARKERS = ['现场', '演唱会', 'concert', 'live', 'remix', '混音', '钢琴', 'piano', 'cover', '翻唱', '演奏版', '纯音乐', 'instrumental', 'acoustic', 'unplugged', '清唱', '无伴奏', '伴奏版'];
 
+// 用户上传的杂项条目常把文件名当歌名：`说散就散.mp3`。这类条目音质和元数据都不可靠。
+const AUDIO_FILE_EXT = /\.(mp3|flac|wav|m4a|ape|ogg|aac|wma)$/i;
+
 function hasDjMarker(normalizedTitle) {
   return DJ_MARKERS.some(kw => normalizedTitle.includes(kw));
 }
@@ -65,6 +68,9 @@ function scoreCandidate(target, cand) {
   const ct = normalizeForMatch(cand.title);
   const ca = normalizeForMatch(cand.artist);
 
+  // 歌名就是文件名（带 .mp3 之类）→ 用户上传的杂项，直接排除
+  if (AUDIO_FILE_EXT.test(String(cand.title || '').trim())) return 0;
+
   // 目标没有指定 DJ 版，候选是 DJ 版 → 直接 0 分
   if (!hasDjMarker(t) && hasDjMarker(ct)) return 0;
 
@@ -76,6 +82,8 @@ function scoreCandidate(target, cand) {
   if (a) {
     if (ca === a) score += 50;
     else if (ca.includes(a) || a.includes(ca)) score += 30;
+    // 指定了歌手却完全对不上：多半是张冠李戴，别再只靠歌名过关
+    else score -= 50;
   } else {
     score += 10;
   }

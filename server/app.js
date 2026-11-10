@@ -29,6 +29,8 @@ import { mountStudioRoutes } from './api/studio.js';
 import { mountTestRoutes } from './api/test.js';
 import { mountPlaylistRoutes } from './api/playlists.js';
 import { mountExternalQueueRoutes } from './api/external-queue.js';
+import { startResidentDj, djEnabled } from './dj/resident.js';
+import { mountDjRoutes } from './dj/api.js';
 import { mountBootRoute } from './api/boot.js';
 import { mountChatRoute } from './api/chat.js';
 import { mountControlRoute } from './api/control.js';
@@ -231,6 +233,10 @@ mountPlaylistRoutes(app, { runtime, broadcast });
 mountExternalQueueRoutes(app, { runtime, broadcast });
 mountContinuePoolRoutes(app, { runtime, broadcast });
 
+// 常驻主持人：CLAUDIO_DJ=1 时启动，句柄在 start() 里赋值。
+let djHandle = null;
+mountDjRoutes(app, { getDj: () => djHandle });
+
 // ────────────────────────────────────────────────────────
 // HTTP server + WS upgrade
 // ────────────────────────────────────────────────────────
@@ -297,8 +303,21 @@ async function start() {
     ? '[claudio] scheduler 已挂 cron'
     : '[claudio] CLAUDIO_BRAIN=external，跳过定时推歌');
 
-  process.on('SIGINT', () => { stopAutoRefresh(); scheduler.stop(); process.exit(0); });
-  process.on('SIGTERM', () => { stopAutoRefresh(); scheduler.stop(); process.exit(0); });
+  // 常驻主持人：跟 brain 模式无关，external 下也能自己补歌。
+  if (djEnabled()) {
+    djHandle = startResidentDj({
+      runtime,
+      broadcast,
+      db: dbApi,
+      rootDir: ROOT,
+      log: (...args) => console.log('[dj]', ...args),
+    });
+  } else {
+    console.log('[claudio] CLAUDIO_DJ 未开启，常驻主持人待命');
+  }
+
+  process.on('SIGINT', () => { stopAutoRefresh(); scheduler.stop(); djHandle?.stop(); process.exit(0); });
+  process.on('SIGTERM', () => { stopAutoRefresh(); scheduler.stop(); djHandle?.stop(); process.exit(0); });
 
   server.listen(PORT, HOST, () => {
     const shownHost = HOST === '0.0.0.0' || HOST === '::' ? '127.0.0.1' : HOST;
