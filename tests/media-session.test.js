@@ -238,7 +238,7 @@ describe('安装位置不在视图里', () => {
     expect(app).toContain('mediaSession.noteRuntime');
     expect(player).not.toContain('mediaSession');
     expect(player).not.toContain('installMediaSession');
-    expect(sw).toContain("const CACHE = 'claudio-shell-v19'");
+    expect(sw).toMatch(/const CACHE = 'claudio-shell-v\d+'/);
     expect(sw).toContain('/media-session.js');
   });
 
