@@ -95,6 +95,7 @@ export function buildRefillPrompt({ remainingSeconds = 0, batchSize = 5, recent 
   return [
     `【自动续播】队列里大概还剩 ${minutes} 分钟。`,
     `接着排 ${batchSize} 首，保持现在的氛围。`,
+    '如果 system prompt 里有【★ 当前听众要求】那一段，这一批必须先满足它：它说的是「他现在想听什么」，优先级高于长期品味、最近播放和候选歌单。没有那一段，才按「保持现在的氛围」来。',
     '',
     '下面是他最近听过的，**一首都不要出现在这次 play 里**，也不要给同名的 live / 翻唱 / 钢琴改编版：',
     recentLines,
