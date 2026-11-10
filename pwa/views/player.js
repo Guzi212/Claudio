@@ -1234,7 +1234,12 @@ export function initPlayer() {
   bootCurrent();
 }
 
-async function bootCurrent() {
+// 重连 / 回到前台时用：拉一次服务端全量状态。silent 不弹错误，keepOverlay 不关「点击开声」遮罩。
+export async function syncFromServer(options = {}) {
+  return bootCurrent(options);
+}
+
+async function bootCurrent({ silent = false, keepOverlay = false } = {}) {
   if (location.protocol === 'file:') return;
 
   try {
@@ -1262,7 +1267,7 @@ async function bootCurrent() {
       serverProgress = Number(data.currentTime) || 0;
       const plan = planExternalBoot({ queue: data.queue, paused: data.paused === true });
       if (plan.dialog) setConsoleDialog(plan.dialog);
-      dismissBootOverlay();
+      if (!keepOverlay) dismissBootOverlay();
       if (!data.queue?.length) {
         state.queue = [];
         if (data.lastSay) {
@@ -1322,6 +1327,6 @@ async function bootCurrent() {
       paintHostChrome();
     }
   } catch (err) {
-    showAlert(`无法连接服务：${err.message}`);
+    if (!silent) showAlert(`无法连接服务：${err.message}`);
   }
 }
