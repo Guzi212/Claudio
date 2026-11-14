@@ -1,4 +1,4 @@
-# Open the Claudio player in Chrome.
+# Open the Claudio desktop player (Electron native window) or Chrome fallback.
 # PowerShell 5 compatible. Keep this file ASCII.
 #
 # Why --autoplay-policy=no-user-gesture-required:
@@ -16,10 +16,22 @@
 param(
   [string]$BaseUrl = 'http://127.0.0.1:8080',
   [string]$ProfileDir = (Join-Path $env:LOCALAPPDATA 'Claudio\chrome-profile'),
-  [switch]$Tab
+  [switch]$Tab,
+  [switch]$Browser
 )
 
 $ErrorActionPreference = 'Stop'
+
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$electronExe = Join-Path $repoRoot 'node_modules\electron\dist\electron.exe'
+$desktopMain = Join-Path $repoRoot 'desktop\main.cjs'
+
+if (-not $Tab -and -not $Browser -and (Test-Path $electronExe) -and (Test-Path $desktopMain)) {
+  $env:CLAUDIO_SERVER_URL = $BaseUrl
+  Start-Process -FilePath $electronExe -ArgumentList @($desktopMain) -WorkingDirectory $repoRoot
+  Write-Host "Claudio desktop opened: $BaseUrl"
+  exit 0
+}
 
 $roots = @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:LOCALAPPDATA) | Where-Object { $_ }
 $chrome = $null
