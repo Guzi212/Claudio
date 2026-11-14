@@ -8,6 +8,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { normalizeForMatch } from '../services/kugou.js';
+import { resolveReadUserFile } from '../services/user-files.js';
 
 export const LEARNED_TASTE_FILE = 'user/taste.learned.md';
 export const TASTE_STATE_KEY = 'dj_taste_state';
@@ -80,6 +81,7 @@ export function computeTasteStats({ plays = [], feedback = [], now = Date.now(),
   const skips = [];
   const likes = [];
   const unlikes = [];
+  const dislikes = [];
   for (const f of fbInWindow) {
     const kind = String(f.kind || '');
     const title = String(f.title || '').trim();
@@ -87,6 +89,7 @@ export function computeTasteStats({ plays = [], feedback = [], now = Date.now(),
     if (kind === 'skip') skips.push({ title, artist, ts: f.ts });
     else if (kind === 'like') likes.push({ title, artist, ts: f.ts });
     else if (kind === 'unlike') unlikes.push({ title, artist, ts: f.ts });
+    else if (kind === 'dislike') dislikes.push({ title, artist, ts: f.ts });
   }
 
   // 跳过按歌名+歌手匹配；只有曲目对得上才算到歌手头上。
@@ -134,6 +137,7 @@ export function computeTasteStats({ plays = [], feedback = [], now = Date.now(),
     byHour,
     liked: likes.slice(0, 20),
     unliked: unlikes.slice(0, 20),
+    disliked: dislikes.slice(0, 20),
     skipped: skips.slice(0, 20),
     recent: inWindow.slice(0, 20).map(p => ({ title: p.title, artist: p.artist, ts: p.ts })),
   };
@@ -171,8 +175,11 @@ export function formatStatsForPrompt(stats) {
   if (stats.liked.length) {
     lines.push(`点过喜欢：${stats.liked.map(s => `${s.title}${s.artist ? ` — ${s.artist}` : ''}`).join('、')}`);
   }
+  if (stats.disliked?.length) {
+    lines.push(`明确避开（点踩）：${stats.disliked.map(s => `${s.title}${s.artist ? ` — ${s.artist}` : ''}`).join('、')}`);
+  }
   if (stats.unliked.length) {
-    lines.push(`点过不喜欢：${stats.unliked.map(s => `${s.title}${s.artist ? ` — ${s.artist}` : ''}`).join('、')}`);
+    lines.push(`取消喜欢：${stats.unliked.map(s => `${s.title}${s.artist ? ` — ${s.artist}` : ''}`).join('、')}`);
   }
   if (stats.recent.length) {
     lines.push('');
@@ -211,7 +218,7 @@ export async function distillTaste({ stats, complete, existingTaste = '' }) {
 }
 
 /**
- * 读库里的原始记录。优先直接查 SQL（能拿全窗口），查不了就退回 recentPlays。
+ * 读库里的原始记录。优先使用真实播放会话 `playback_sessions` 与有效 `plays`，剔除脏历史与未播排队。
  */
 export function readTasteInputs(db, { days = 30, now = Date.now(), fallbackLimit = 300 } = {}) {
   const since = now - days * DAY_MS;
@@ -219,9 +226,35 @@ export function readTasteInputs(db, { days = 30, now = Date.now(), fallbackLimit
   let feedback = null;
   try {
     if (db?.raw?.prepare) {
-      plays = db.raw.prepare(
-        'SELECT id, kugou_id, title, artist, reason, source, ts FROM plays WHERE ts >= ? ORDER BY ts DESC',
+      let realSessions = [];
+      try {
+        realSessions = db.raw.prepare(`
+          SELECT kugou_id, title, artist, source, agent_id, started_ts AS ts, outcome, listened_sec, duration_sec
+          FROM playback_sessions
+          WHERE started_ts >= ?
+            AND (outcome = 'completed' OR listened_sec >= 25 OR (duration_sec > 0 AND listened_sec / duration_sec >= 0.35))
+          ORDER BY started_ts DESC
+        `).all(since);
+      } catch {
+        realSessions = [];
+      }
+
+      const rawPlays = db.raw.prepare(
+        `SELECT id, kugou_id, title, artist, reason, source, quality, ts
+         FROM plays
+         WHERE ts >= ? AND (quality IS NULL OR quality NOT IN ('invalid', 'queued', 'legacy_queued'))
+         ORDER BY ts DESC`,
       ).all(since);
+
+      if (realSessions.length >= 3) {
+        // 真实播放会话与手动选歌合并，避免旧排队列回声室覆盖真实行为
+        const manual = rawPlays.filter(p => p.quality === 'manual_pick' || p.source === 'manual' || p.source === 'search');
+        plays = [...realSessions, ...manual]
+          .sort((a, b) => Number(b.ts) - Number(a.ts));
+      } else {
+        plays = rawPlays;
+      }
+
       feedback = db.raw.prepare(
         'SELECT kind, kugou_id, title, artist, ts FROM feedback WHERE ts >= ? ORDER BY ts DESC',
       ).all(since);
@@ -230,7 +263,7 @@ export function readTasteInputs(db, { days = 30, now = Date.now(), fallbackLimit
     plays = null;
     feedback = null;
   }
-  if (!Array.isArray(plays)) plays = db.recentPlays(fallbackLimit) || [];
+  if (!Array.isArray(plays)) plays = (db.recentPlays(fallbackLimit) || []).filter(p => p?.quality !== 'invalid' && p?.quality !== 'legacy_queued');
   if (!Array.isArray(feedback)) feedback = db.recentFeedback(200) || [];
   return { plays, feedback };
 }
@@ -265,10 +298,9 @@ export async function updateLearnedTaste({
     return { ok: false, reason: 'not-enough-data', stats };
   }
 
-  let existingTaste = '';
-  try {
-    existingTaste = fs.readFileSync(path.join(rootDir, 'user', 'taste.md'), 'utf8');
-  } catch { /* 没有就算了 */ }
+  const existingTaste = rootDir
+    ? resolveReadUserFile(rootDir, 'user/taste.md').content
+    : '';
 
   const markdown = await distillTaste({ stats, complete, existingTaste });
   if (!markdown) return { ok: false, reason: 'empty-output', stats };

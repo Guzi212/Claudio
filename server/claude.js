@@ -118,7 +118,7 @@ function fallbackFromHistory(reason) {
 async function callDeepSeek(systemPrompt, userMessage) {
   const { default: axios } = await import('axios');
   const apiKey = getSetting('deepseek_api_key') || process.env.DEEPSEEK_API_KEY;
-  const model  = getSetting('deepseek_model')   || process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
+  const model  = getSetting('deepseek_model')   || process.env.DEEPSEEK_MODEL || 'deepseek-chat';
   const r = await axios.post(
     'https://api.deepseek.com/chat/completions',
     {
@@ -176,14 +176,6 @@ export async function ask(systemPrompt, userMessage) {
   } catch (err) {
     console.error('[claude] failure, falling back:', err.message);
     djJson = fallbackFromHistory(err.message);
-  }
-
-  // 候选池兜底：正常推荐（非解析失败 / 非历史兜底）时，保证至少 3 首来自用户选中的歌单。
-  if (!djJson._parseFailed && !djJson._fallback) {
-    const poolTracks = getPoolTracks();
-    if (poolTracks.length) {
-      djJson.play = ensureMinimumFromPool(djJson.play, poolTracks, { min: 3 });
-    }
   }
 
   // 候选池兜底：正常推荐（非解析失败 / 非历史兜底）时，保证至少 3 首来自用户选中的歌单。

@@ -43,8 +43,8 @@ export function mountPlaysRoutes(app, deps = {}) {
 
   app.post('/api/feedback', (req, res) => {
     const kind = String(req.body?.kind || '').trim();
-    if (kind !== 'like' && kind !== 'unlike' && kind !== 'skip') {
-      res.status(400).json({ ok: false, error: 'kind 只能是 like、unlike 或 skip' });
+    if (kind !== 'like' && kind !== 'unlike' && kind !== 'skip' && kind !== 'dislike') {
+      res.status(400).json({ ok: false, error: 'kind 只能是 like、unlike、skip 或 dislike' });
       return;
     }
     const title = String(req.body?.title || '').trim();

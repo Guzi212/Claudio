@@ -8,6 +8,8 @@ import { dbApi as defaultDb } from '../db.js';
 import { synthesize as defaultSynthesize } from '../tts.js';
 import { normalizeForMatch } from '../services/kugou.js';
 import { markQueueSource } from '../queue-source.js';
+import { syncLearnedTraits } from '../memory/learner.js';
+import { get as getSetting, getBoolean as getBoolSetting, getNumber as getNumSetting } from '../services/settings.js';
 import {
   updateLearnedTaste,
   readTasteState,
@@ -35,15 +37,22 @@ function envNumber(name, fallback) {
 }
 
 export function readDjOptions(env = process.env) {
+  const usePrefs = env === process.env;
+  const pollSec = usePrefs ? getNumSetting('dj_poll_seconds', 0) : 0;
+  const minMin = usePrefs ? getNumSetting('dj_min_remaining_minutes', 0) : 0;
+  const batch = usePrefs ? getNumSetting('dj_batch_size', 0) : 0;
   return {
-    tickMs: envNumber('CLAUDIO_DJ_TICK_MS', DJ_DEFAULTS.tickMs),
-    refillBelowSeconds: envNumber('CLAUDIO_DJ_REFILL_BELOW', DJ_DEFAULTS.refillBelowSeconds),
-    batchSize: envNumber('CLAUDIO_DJ_BATCH', DJ_DEFAULTS.batchSize),
+    tickMs: pollSec > 0 ? Math.max(5, pollSec) * 1000 : envNumber('CLAUDIO_DJ_TICK_MS', DJ_DEFAULTS.tickMs),
+    refillBelowSeconds: minMin > 0 ? Math.max(1, minMin) * 60 : envNumber('CLAUDIO_DJ_REFILL_BELOW', DJ_DEFAULTS.refillBelowSeconds),
+    batchSize: batch > 0 ? Math.max(1, Math.min(20, Math.trunc(batch))) : envNumber('CLAUDIO_DJ_BATCH', DJ_DEFAULTS.batchSize),
     yieldMs: envNumber('CLAUDIO_DJ_YIELD_MS', DJ_DEFAULTS.yieldMs),
   };
 }
 
 export function djEnabled(env = process.env) {
+  if (env === process.env && getSetting('dj_enabled') !== '') {
+    return getBoolSetting('dj_enabled', false);
+  }
   const raw = String(env?.CLAUDIO_DJ ?? '').trim().toLowerCase();
   return raw === '1' || raw === 'true' || raw === 'on' || raw === 'yes';
 }
@@ -225,6 +234,9 @@ export function startResidentDj({
       } else {
         state.tasteError = result.reason || 'failed';
       }
+      if (typeof db?.upsertMemoryTrait === 'function') {
+        try { syncLearnedTraits(db, { now: now(), days: cfg.tasteDays }); } catch { /* */ }
+      }
       return result;
     } catch (err) {
       state.tasteError = err.message;
@@ -300,6 +312,7 @@ export function startResidentDj({
       if (reason) runtime.lastReason = reason;
       runtime.queuedAt = queuedAt;
       runtime.queuedSource = DJ_SOURCE;
+      runtime.activeAgent = { id: DJ_SOURCE, name: 'Claudio 常驻 DJ', updatedAt: queuedAt };
 
       for (const item of items) {
         if (item.isTts) continue;
@@ -309,6 +322,8 @@ export function startResidentDj({
           artist: item.artist,
           reason: reason || null,
           source: 'bot',
+          quality: 'queued',
+          agentId: DJ_SOURCE,
         });
       }
 
