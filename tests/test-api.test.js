@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { testWeather, testTts, mountTestRoutes } from '../server/api/test.js';
+import { testWeather, testTts, testCalendar, testAi, mountTestRoutes } from '../server/api/test.js';
 
 function mockApp() {
   const routes = {};
@@ -58,11 +58,35 @@ describe('testTts', () => {
 });
 
 describe('mountTestRoutes', () => {
-  it('注册 POST /api/test/weather 和 /api/test/tts', () => {
+  it('注册 /api/test/weather、tts、calendar 与 ai', () => {
     const app = mockApp();
     mountTestRoutes(app);
     expect(app.routes['POST /api/test/weather']).toBeTypeOf('function');
     expect(app.routes['POST /api/test/tts']).toBeTypeOf('function');
+    expect(app.routes['POST /api/test/calendar']).toBeTypeOf('function');
+    expect(app.routes['POST /api/test/ai']).toBeTypeOf('function');
+  });
+
+  it('testCalendar 按 provider 校验日历连通性', async () => {
+    const off = await testCalendar({ provider: 'none' });
+    expect(off.ok).toBe(false);
+
+    const google = await testCalendar({
+      provider: 'google',
+      getGoogleEvents: async () => [{ title: 'Meeting' }],
+    });
+    expect(google).toEqual({ ok: true, provider: 'google', count: 1 });
+
+    const larkFail = await testCalendar({
+      provider: 'lark',
+      getLarkEvents: async () => null,
+    });
+    expect(larkFail.ok).toBe(false);
+  });
+
+  it('testAi 验证模型可回复', async () => {
+    const res = await testAi({ complete: async () => 'OK' });
+    expect(res).toEqual({ ok: true, reply: 'OK' });
   });
 
   it('路由调用 testWeather 并把结果 json 返回', async () => {

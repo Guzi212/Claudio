@@ -4,12 +4,28 @@ import { showAlert, toast } from './ui.js';
 const MASK = '****已配置';
 
 const fields = {
-  weatherKey:    '#set-weather-key',
-  weatherCity:   '#set-weather-city',
-  ttsKey:        '#set-tts-key',
-  ttsVoice:      '#set-tts-voice',
-  deepseekKey:   '#set-deepseek-key',
-  deepseekModel: '#set-deepseek-model',
+  brainMode:        '#set-brain-mode',
+  djEnabled:        '#set-dj-enabled',
+  djPoll:           '#set-dj-poll',
+  djMinRem:         '#set-dj-min-rem',
+  djBatch:          '#set-dj-batch',
+  deepseekKey:      '#set-deepseek-key',
+  deepseekModel:    '#set-deepseek-model',
+  adaptiveVol:      '#set-adaptive-vol',
+  volMax:           '#set-vol-max',
+  likeTargetName:   '#set-like-target-name',
+  likeTargetId:     '#set-like-target-id',
+  ttsKey:           '#set-tts-key',
+  ttsVoice:         '#set-tts-voice',
+  weatherEnabled:   '#set-weather-enabled',
+  weatherKey:       '#set-weather-key',
+  weatherCity:      '#set-weather-city',
+  calendarProvider: '#set-calendar-provider',
+  uiTheme:          '#set-ui-theme',
+  globalHotkey:     '#set-global-hotkey',
+  hotkeyMedia:      '#set-hotkey-media',
+  closeToTray:      '#set-close-to-tray',
+  alwaysTopMini:    '#set-always-top-mini',
 };
 
 let nodes = {};
@@ -19,11 +35,13 @@ let loading = false;
 let reloginState = null;  // { key, pollId, modal } 当前活的扫码会话
 
 const HEALTH_KEYS = [
-  { key: 'kugou',   label: 'KuGou'   },
-  { key: 'weather', label: 'Weather' },
-  { key: 'tts',     label: 'TTS'     },
-  { key: 'ai',      label: 'AI'      },
-  { key: 'lark',    label: 'Lark'    },
+  { key: 'kugou',    label: 'KuGou'    },
+  { key: 'weather',  label: 'Weather'  },
+  { key: 'tts',      label: 'TTS'      },
+  { key: 'ai',       label: 'AI'       },
+  { key: 'lark',     label: 'Lark'     },
+  { key: 'calendar', label: 'Calendar' },
+  { key: 'dj',       label: 'DJ'       },
 ];
 
 export function renderHealthItems(container, items) {
@@ -132,30 +150,77 @@ function pickSetting(s, flatKey, groupKey, nestedKey) {
   return s?.[flatKey] ?? s?.[groupKey]?.[nestedKey] ?? '';
 }
 
+function boolFrom(raw, fallback) {
+  const s = String(raw ?? '').trim().toLowerCase();
+  if (!s) return fallback;
+  if (['true', '1', 'yes', 'on'].includes(s)) return true;
+  if (['false', '0', 'no', 'off'].includes(s)) return false;
+  return fallback;
+}
+
 function applySettings(s) {
-  nodes.weatherKey.value  = pickSetting(s, 'openweather_api_key', 'weather', 'apiKey');
-  nodes.weatherCity.value = pickSetting(s, 'openweather_city', 'weather', 'city');
-  nodes.ttsKey.value      = pickSetting(s, 'fish_api_key', 'tts', 'apiKey');
-  nodes.ttsVoice.value    = pickSetting(s, 'fish_voice_id', 'tts', 'voiceId');
-  nodes.deepseekKey.value = s?.deepseek_api_key || '';
-  const savedModel = s?.deepseek_model;
-  if (savedModel) nodes.deepseekModel.value = savedModel;
+  if (nodes.brainMode) nodes.brainMode.value = s?.brain_mode || 'external';
+  if (nodes.djEnabled) nodes.djEnabled.checked = boolFrom(s?.dj_enabled, false);
+  if (nodes.djPoll) nodes.djPoll.value = s?.dj_poll_seconds || '20';
+  if (nodes.djMinRem) nodes.djMinRem.value = s?.dj_min_remaining_minutes || '10';
+  if (nodes.djBatch) nodes.djBatch.value = s?.dj_batch_size || '5';
+  if (nodes.deepseekKey) nodes.deepseekKey.value = s?.deepseek_api_key || '';
+  if (nodes.deepseekModel) nodes.deepseekModel.value = s?.deepseek_model || 'deepseek-chat';
+  if (nodes.adaptiveVol) nodes.adaptiveVol.checked = boolFrom(s?.adaptive_volume_enabled, true);
+  if (nodes.volMax) nodes.volMax.value = s?.volume_safe_max || '85';
+  if (nodes.likeTargetId) nodes.likeTargetId.value = s?.like_target_listid || '';
+  if (nodes.likeTargetName) nodes.likeTargetName.value = s?.like_target_name || '';
+  if (nodes.ttsKey) nodes.ttsKey.value = pickSetting(s, 'fish_api_key', 'tts', 'apiKey');
+  if (nodes.ttsVoice) nodes.ttsVoice.value = pickSetting(s, 'fish_voice_id', 'tts', 'voiceId');
+  if (nodes.weatherEnabled) nodes.weatherEnabled.checked = boolFrom(s?.weather_enabled, true);
+  if (nodes.weatherKey) nodes.weatherKey.value = pickSetting(s, 'openweather_api_key', 'weather', 'apiKey');
+  if (nodes.weatherCity) nodes.weatherCity.value = pickSetting(s, 'openweather_city', 'weather', 'city');
+  if (nodes.calendarProvider) nodes.calendarProvider.value = s?.calendar_provider || 'none';
+  if (nodes.uiTheme) {
+    nodes.uiTheme.value = s?.ui_theme || 'auto';
+    window.dispatchEvent(new CustomEvent('claudio:theme', { detail: nodes.uiTheme.value }));
+  }
+  if (nodes.globalHotkey) nodes.globalHotkey.value = s?.global_hotkey || 'CTRL+ALT+K';
+  if (nodes.hotkeyMedia) nodes.hotkeyMedia.checked = boolFrom(s?.hotkey_media_key, false);
+  if (nodes.closeToTray) nodes.closeToTray.checked = boolFrom(s?.close_to_tray, true);
+  if (nodes.alwaysTopMini) nodes.alwaysTopMini.checked = boolFrom(s?.always_on_top_mini, true);
 }
 
 // 构造 PUT body：跳过 mask 占位（避免覆盖原 key）
 function buildPayload() {
   const payload = {};
-  const wk = nodes.weatherKey.value;
-  if (wk !== MASK) payload.openweather_api_key = wk;
-  payload.openweather_city = nodes.weatherCity.value;
+  if (nodes.brainMode) payload.brain_mode = nodes.brainMode.value || 'external';
+  if (nodes.djEnabled) payload.dj_enabled = String(Boolean(nodes.djEnabled.checked));
+  if (nodes.djPoll) payload.dj_poll_seconds = String(nodes.djPoll.value || '20').trim();
+  if (nodes.djMinRem) payload.dj_min_remaining_minutes = String(nodes.djMinRem.value || '10').trim();
+  if (nodes.djBatch) payload.dj_batch_size = String(nodes.djBatch.value || '5').trim();
 
-  const tk = nodes.ttsKey.value;
-  if (tk !== MASK) payload.fish_api_key = tk;
-  payload.fish_voice_id = nodes.ttsVoice.value;
+  if (nodes.deepseekKey && nodes.deepseekKey.value !== MASK) {
+    payload.deepseek_api_key = nodes.deepseekKey.value;
+  }
+  if (nodes.deepseekModel) payload.deepseek_model = nodes.deepseekModel.value || 'deepseek-chat';
 
-  const dk = nodes.deepseekKey.value;
-  if (dk !== MASK) payload.deepseek_api_key = dk;
-  payload.deepseek_model = nodes.deepseekModel.value;
+  if (nodes.adaptiveVol) payload.adaptive_volume_enabled = String(Boolean(nodes.adaptiveVol.checked));
+  if (nodes.volMax) payload.volume_safe_max = String(nodes.volMax.value || '85').trim();
+  if (nodes.likeTargetId) payload.like_target_listid = nodes.likeTargetId.value.trim();
+  if (nodes.likeTargetName) payload.like_target_name = nodes.likeTargetName.value.trim();
+
+  if (nodes.ttsKey && nodes.ttsKey.value !== MASK) {
+    payload.fish_api_key = nodes.ttsKey.value;
+  }
+  if (nodes.ttsVoice) payload.fish_voice_id = nodes.ttsVoice.value.trim();
+
+  if (nodes.weatherEnabled) payload.weather_enabled = String(Boolean(nodes.weatherEnabled.checked));
+  if (nodes.weatherKey && nodes.weatherKey.value !== MASK) {
+    payload.openweather_api_key = nodes.weatherKey.value;
+  }
+  if (nodes.weatherCity) payload.openweather_city = nodes.weatherCity.value.trim();
+  if (nodes.calendarProvider) payload.calendar_provider = nodes.calendarProvider.value || 'none';
+  if (nodes.uiTheme) payload.ui_theme = nodes.uiTheme.value || 'auto';
+  if (nodes.globalHotkey) payload.global_hotkey = nodes.globalHotkey.value.trim() || 'CTRL+ALT+K';
+  if (nodes.hotkeyMedia) payload.hotkey_media_key = String(Boolean(nodes.hotkeyMedia.checked));
+  if (nodes.closeToTray) payload.close_to_tray = String(Boolean(nodes.closeToTray.checked));
+  if (nodes.alwaysTopMini) payload.always_on_top_mini = String(Boolean(nodes.alwaysTopMini.checked));
   return payload;
 }
 
@@ -191,13 +256,18 @@ async function save() {
   const original = btnSave.textContent;
   btnSave.textContent = '保存中…';
   try {
+    const payload = buildPayload();
     const r = await fetch('/api/settings', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(buildPayload()),
+      body: JSON.stringify(payload),
     });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    toast('已保存');
+    if (payload.ui_theme) {
+      window.dispatchEvent(new CustomEvent('claudio:theme', { detail: payload.ui_theme }));
+    }
+    window.claudioDesktop?.syncSettings?.(payload);
+    toast('已保存并生效');
     // 保存后刷新健康（key 填上后可能从 ○ 变 ✓）
     load(true);
   } catch (err) {
@@ -393,7 +463,71 @@ export function initSettings() {
     });
   }
 
+  const btnAiTest = document.querySelector('button[data-test="ai"]');
+  if (btnAiTest) {
+    btnAiTest.addEventListener('click', async () => {
+      btnAiTest.disabled = true;
+      const original = btnAiTest.textContent;
+      btnAiTest.textContent = '测试中…';
+      try {
+        const r = await fetch('/api/test/ai', { method: 'POST' });
+        const data = await r.json();
+        if (!data.ok) throw new Error(data.error || '连接失败');
+        toast(`AI 响应正常：${data.reply}`);
+      } catch (err) {
+        showAlert(`AI 测试失败：${err.message}`);
+      } finally {
+        btnAiTest.textContent = original;
+        btnAiTest.disabled = false;
+      }
+    });
+  }
+
+  const btnCalTest = document.querySelector('button[data-test="calendar"]');
+  if (btnCalTest) {
+    btnCalTest.addEventListener('click', async () => {
+      btnCalTest.disabled = true;
+      const original = btnCalTest.textContent;
+      btnCalTest.textContent = '检测中…';
+      try {
+        const provider = nodes.calendarProvider?.value || 'none';
+        const r = await fetch('/api/test/calendar', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ provider }),
+        });
+        const data = await r.json();
+        if (!data.ok) throw new Error(data.error || '连接失败');
+        toast(`${data.provider} 日历正常（今日 ${data.count} 条日程）`);
+      } catch (err) {
+        showAlert(`日历测试失败：${err.message}`);
+      } finally {
+        btnCalTest.textContent = original;
+        btnCalTest.disabled = false;
+      }
+    });
+  }
+
+  const btnClearLike = document.getElementById('btn-clear-like-target');
+  if (btnClearLike) {
+    btnClearLike.addEventListener('click', () => {
+      if (nodes.likeTargetName) nodes.likeTargetName.value = '';
+      if (nodes.likeTargetId) nodes.likeTargetId.value = '';
+    });
+  }
+  nodes.likeTargetName?.addEventListener('input', () => {
+    if (!nodes.likeTargetName.value.trim() && nodes.likeTargetId) {
+      nodes.likeTargetId.value = '';
+    }
+  });
+  nodes.uiTheme?.addEventListener('change', () => {
+    window.dispatchEvent(new CustomEvent('claudio:theme', { detail: nodes.uiTheme.value }));
+  });
+
   window.addEventListener('claudio:view-shown', e => {
     if (e.detail === 'settings') load();
+  });
+  window.addEventListener('claudio:settings-updated', () => {
+    loaded = false;
   });
 }

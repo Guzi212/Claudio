@@ -38,6 +38,10 @@ import { mountPlaysRoutes } from './api/plays.js';
 import { mountSearchRoute } from './api/search.js';
 import { mountFavoriteRoutes } from './api/favorites.js';
 import { mountLikeRoutes } from './api/likes.js';
+import { mountKugouImportApiRoute } from './api/kugou-import-api.js';
+import { mountUnmatchedRoute } from './api/unmatched.js';
+import { mountMemoryRoutes } from './api/memory.js';
+import { resolveReadUserFile } from './services/user-files.js';
 import { authMiddleware, authorizeUpgrade } from './auth.js';
 import { hostGuard } from './host-guard.js';
 import { mountSessionRoute } from './session.js';
@@ -112,8 +116,8 @@ mountRuntimeRoutes(app, {
 
 app.get('/api/taste', (req, res) => {
   try {
-    const taste = fs.readFileSync(path.join(ROOT, 'user', 'taste.md'), 'utf8');
-    const routines = fs.readFileSync(path.join(ROOT, 'user', 'routines.md'), 'utf8');
+    const taste = resolveReadUserFile(ROOT, 'user/taste.md').content;
+    const routines = resolveReadUserFile(ROOT, 'user/routines.md').content;
     res.json({ taste, routines });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -221,20 +225,55 @@ app.get('/api/proxy', async (req, res) => {
 mountTtsRoutes(app);
 
 // W2/W3 视图依赖的扩展 API
-mountSettingsRoutes(app);
+let djHandle = null;
+let schedulerHandle = null;
+
+function applyLiveSettings(applied = []) {
+  if (applied.includes('brain_mode')) {
+    schedulerHandle?.stop?.();
+    schedulerHandle = startBrainServices({
+      brain: brainMode(),
+      startScheduler,
+      schedulerOptions: {
+        runtime,
+        broadcast,
+        log: (...args) => console.log('[scheduler]', ...args),
+        ask: claudeAsk,
+        buildSystemPrompt,
+      },
+    });
+  }
+  if (applied.some(k => k.startsWith('dj_'))) {
+    djHandle?.stop?.();
+    djHandle = djEnabled()
+      ? startResidentDj({
+          runtime,
+          broadcast,
+          db: dbApi,
+          rootDir: ROOT,
+          log: (...args) => console.log('[dj]', ...args),
+        })
+      : null;
+  }
+  broadcast({ type: 'settings-updated', applied });
+}
+
+mountSettingsRoutes(app, { onSettingsSaved: applyLiveSettings });
 mountLyricRoute(app);
 mountWeatherRoute(app);
 mountTasteRoutes(app, { rootDir: ROOT });
-mountHealthRoute(app);
+mountHealthRoute(app, { getDj: () => djHandle });
 mountKugouReloginRoutes(app);
 mountStudioRoutes(app, { getRuntime: () => runtime });
 mountTestRoutes(app);
 mountPlaylistRoutes(app, { runtime, broadcast });
 mountExternalQueueRoutes(app, { runtime, broadcast });
 mountContinuePoolRoutes(app, { runtime, broadcast });
+mountKugouImportApiRoute(app, { rootDir: ROOT });
+mountUnmatchedRoute(app, { db: dbApi });
+mountMemoryRoutes(app, { runtime, broadcast, db: dbApi, rootDir: ROOT });
 
-// 常驻主持人：CLAUDIO_DJ=1 时启动，句柄在 start() 里赋值。
-let djHandle = null;
+// 常驻主持人：可通过 settings 或 CLAUDIO_DJ=1 开启，句柄在 start() 或设置热重载里赋值。
 mountDjRoutes(app, { getDj: () => djHandle });
 
 // ────────────────────────────────────────────────────────
@@ -287,8 +326,8 @@ async function start() {
   // 时才真正调 /login/token，避免「每次启动都登录」被上游风控。
   startAutoRefresh();
 
-  // 定时推歌只在 CLAUDIO_BRAIN=internal 时挂上。external 不调用 Claude。
-  const scheduler = startBrainServices({
+  // 定时推歌只在 brainMode() === internal 时挂上。external 不调用 Claude。
+  schedulerHandle = startBrainServices({
     brain: brainMode(),
     startScheduler,
     schedulerOptions: {
@@ -299,7 +338,7 @@ async function start() {
       buildSystemPrompt,
     },
   });
-  console.log(scheduler.started
+  console.log(schedulerHandle.started
     ? '[claudio] scheduler 已挂 cron'
     : '[claudio] CLAUDIO_BRAIN=external，跳过定时推歌');
 
@@ -316,8 +355,8 @@ async function start() {
     console.log('[claudio] CLAUDIO_DJ 未开启，常驻主持人待命');
   }
 
-  process.on('SIGINT', () => { stopAutoRefresh(); scheduler.stop(); djHandle?.stop(); process.exit(0); });
-  process.on('SIGTERM', () => { stopAutoRefresh(); scheduler.stop(); djHandle?.stop(); process.exit(0); });
+  process.on('SIGINT', () => { stopAutoRefresh(); schedulerHandle?.stop(); djHandle?.stop(); process.exit(0); });
+  process.on('SIGTERM', () => { stopAutoRefresh(); schedulerHandle?.stop(); djHandle?.stop(); process.exit(0); });
 
   server.listen(PORT, HOST, () => {
     const shownHost = HOST === '0.0.0.0' || HOST === '::' ? '127.0.0.1' : HOST;
