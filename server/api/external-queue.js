@@ -78,6 +78,9 @@ export function mountExternalQueueRoutes(app, deps = {}) {
     const say = clipText(body.say, MAX_SAY);
     const reason = clipText(body.reason, MAX_REASON);
     const requestSource = clipText(body.source, MAX_SOURCE) || 'bot';
+    const agentId = clipText(body.agentId, 60) || requestSource;
+    const agentName = clipText(body.agentName, 60)
+      || (body.agentId ? agentId : (requestSource === 'bot' ? '外部 Agent' : requestSource));
     const queuedAt = new Date().toISOString();
 
     if (!TARGETS.has(target)) {
@@ -203,6 +206,7 @@ export function mountExternalQueueRoutes(app, deps = {}) {
       if (reason) runtime.lastReason = reason;
       runtime.queuedAt = queuedAt;
       runtime.queuedSource = requestSource;
+      runtime.activeAgent = { id: agentId, name: agentName, updatedAt: queuedAt };
       for (const item of queueItems) {
         if (item.isTts) continue;
         db.addPlay({
@@ -211,6 +215,8 @@ export function mountExternalQueueRoutes(app, deps = {}) {
           artist: item.artist,
           reason: reason || null,
           source: 'bot',
+          quality: 'queued',
+          agentId,
         });
       }
       // 缺省、null、空字符串都不是调音量。这个接口不写 prefs。

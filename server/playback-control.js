@@ -3,7 +3,7 @@ import { defaultVolume } from './volume-store.js';
 import { continuePoolView } from './continue-pool.js';
 import { reportedQueueIndex } from './queue-source.js';
 
-export const EXTERNAL_CHAT_HINT = '选歌请在 Grok Bot 里找 Claudio主持人。';
+export const EXTERNAL_CHAT_HINT = '当前为外部主持模式，请通过已接入的 Agent 或常驻 DJ 点歌。';
 
 export function clampVolume(value) {
   const n = Number(value);
@@ -32,6 +32,7 @@ export function playbackStatus(runtime = {}, { listeners = 0, brain = 'external'
     reason: runtime.lastReason || '',
     queuedAt: runtime.queuedAt || null,
     source: runtime.queuedSource || '',
+    activeAgent: runtime.activeAgent || null,
     continuePool: continuePoolView(runtime),
   };
 }
