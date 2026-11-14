@@ -46,6 +46,9 @@ let bootReady = false;
 let bootData = null;
 let bootClicked = false;
 let brain = 'external';
+let activeAgent = null;
+let activeSession = null;
+let volumeReportTimer = null;
 let appliedSay = '';
 let lastReason = '';
 let queuedAt = '';
@@ -56,8 +59,6 @@ const favoriteState = new Map();
 let favoriteCheckToken = 0;
 
 let chat, composer, input, submitBtn, audio, npBox, npTitle, npArtist, consolePlayBtn, consoleFavoriteBtn, queueBtn, loopBtn, queueList, npSeek, npTimeCur, npTimeDur, npVol;
-const STUDIO_THEME_KEY = 'claudio:studio-theme';
-const STUDIO_THEMES = new Set(['dark', 'poetry', 'focus']);
 
 function fmtTime(s) {
   if (!isFinite(s) || s < 0) return '0:00';
@@ -125,11 +126,10 @@ function applyBrainChrome() {
   const consoleChat = document.getElementById('console-chat');
   if (consoleChat) consoleChat.hidden = brain !== 'internal';
   document.querySelectorAll('[data-internal-only]').forEach(btn => { btn.hidden = brain !== 'internal'; });
-  const label = document.querySelector('.poem-panel > span');
-  if (label) label.textContent = brain === 'internal' ? 'AI RADIO' : '串场';
   if (brain !== 'internal' && bootBtn && bootOverlay && !bootOverlay.classList.contains('hidden')) {
     bootBtn.textContent = '▶ 点击开声';
   }
+  paintHostChrome();
 }
 
 function syncVolumeChrome(volume) {
@@ -209,36 +209,6 @@ function setConsoleDialog(text) {
   el.textContent = text.length > 72 ? `${text.slice(0, 70)}…` : text;
 }
 
-function editionLabelFor(date = new Date()) {
-  const hour = date.getHours();
-  if (hour >= 5 && hour < 11) return '清晨场';
-  if (hour >= 11 && hour < 14) return '午间场';
-  if (hour >= 14 && hour < 17) return '下午场';
-  if (hour >= 17 && hour < 21) return '傍晚场';
-  return '深夜场';
-}
-
-// Ink palette follows the same hour bands as the edition label.
-function daypartFor(date = new Date()) {
-  const hour = date.getHours();
-  if (hour >= 5 && hour < 11) return 'dawn';
-  if (hour >= 11 && hour < 14) return 'noon';
-  if (hour >= 14 && hour < 17) return 'afternoon';
-  if (hour >= 17 && hour < 21) return 'dusk';
-  return 'night';
-}
-
-function paintEdition() {
-  const now = new Date();
-  const el = document.getElementById('edition-label');
-  if (el) el.textContent = editionLabelFor(now);
-  const daypart = daypartFor(now);
-  const root = document.documentElement;
-  if (root.dataset.daypart !== daypart) root.dataset.daypart = daypart;
-  const symbol = document.getElementById('edition-symbol');
-  if (symbol) symbol.setAttribute('href', daypart === 'night' ? '#moon' : '#sun');
-}
-
 let inkedTrackKey = '';
 // One-shot fade on track change; Web Animations keeps it on the compositor without forcing a reflow.
 function inkInTrack(track) {
@@ -267,6 +237,16 @@ function rememberQueueMeta(data) {
 }
 
 function paintHostChrome() {
+  const agentName = activeAgent?.name || (brain === 'internal' ? 'Claudio DJ' : 'Claudio');
+  const agentNameEl = document.getElementById('host-agent-name');
+  if (agentNameEl) agentNameEl.textContent = agentName;
+  const roleChipEl = document.getElementById('host-role-chip');
+  if (roleChipEl) {
+    roleChipEl.textContent = activeAgent?.name ? '外部接入' : (brain === 'internal' ? '内置主持' : '私人频率');
+  }
+  const footerStatusEl = document.getElementById('footer-agent-status');
+  if (footerStatusEl) footerStatusEl.textContent = `${agentName} 在线`;
+
   const line = document.getElementById('host-line');
   const time = document.getElementById('host-time');
   if (line) {
@@ -371,10 +351,18 @@ function bindFeedback() {
       if (current === choice) {
         feedbackByTrack.delete(key);
         if (choice === 'like') postFeedback('unlike', track);
-      } else {
-        feedbackByTrack.set(key, choice);
-        postFeedback(choice === 'dislike' ? 'unlike' : 'like', track);
+        paintFeedback();
+        return;
       }
+      feedbackByTrack.set(key, choice);
+      if (choice === 'dislike') {
+        postFeedback('dislike', track);
+        reportDislikeTelemetry(track);
+        paintFeedback();
+        if (state.index < state.queue.length - 1) goNext();
+        return;
+      }
+      postFeedback('like', track);
       paintFeedback();
     });
   });
@@ -382,16 +370,6 @@ function bindFeedback() {
 
 function setStudioTrack(track) {
   if (!track) return;
-  const meta = document.getElementById('studio-track-meta');
-  const comment = document.getElementById('studio-track-comment');
-  if (meta) {
-    meta.textContent = (track.title && track.artist)
-      ? `${track.title} · ${track.artist}`
-      : (track.title || 'Now Tuning');
-  }
-  if (comment) {
-    comment.textContent = track.comment || '';
-  }
   if (npTitle) npTitle.textContent = track.title || '';
   if (npArtist) npArtist.textContent = track.artist || '';
   const info = document.querySelector('#now-playing .track-info');
@@ -399,47 +377,6 @@ function setStudioTrack(track) {
   paintTrackReason(track);
   paintCover(track);
   inkInTrack(track);
-}
-
-function normalizeStudioTheme(theme) {
-  const value = String(theme || '').trim().toLowerCase();
-  return STUDIO_THEMES.has(value) ? value : 'focus';
-}
-
-function savedStudioTheme() {
-  try {
-    return localStorage.getItem(STUDIO_THEME_KEY);
-  } catch {
-    return null;
-  }
-}
-
-function setStudioTheme(theme, { persist = true } = {}) {
-  const next = normalizeStudioTheme(theme);
-  const stage = document.querySelector('.studio-stage');
-  if (stage) stage.dataset.theme = next;
-
-  document.querySelectorAll('[data-studio-theme]').forEach(btn => {
-    const active = btn.dataset.studioTheme === next;
-    btn.classList.toggle('active', active);
-    btn.setAttribute('aria-pressed', String(active));
-  });
-
-  if (persist) {
-    try {
-      localStorage.setItem(STUDIO_THEME_KEY, next);
-    } catch {
-      // 浏览器禁用存储时，主题仍在当前页面生效。
-    }
-  }
-}
-
-function bindStudioThemes() {
-  document.querySelectorAll('[data-studio-theme]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      setStudioTheme(btn.dataset.studioTheme);
-    });
-  });
 }
 
 function currentTrack() {
@@ -505,28 +442,6 @@ function updatePlayButtons(isPlaying) {
   if (playingLabel) playingLabel.textContent = isPlaying ? '正在播放' : '已暂停';
   document.body?.classList.toggle('paused', state.queue.length > 0 && !isPlaying);
   document.body?.classList.toggle('is-playing', isPlaying);
-}
-
-function applyStudioState(studio) {
-  if (!studio) return;
-  setStudioTheme(savedStudioTheme() || studio.activeMode, { persist: false });
-  if (studio.displayTrack) setStudioTrack(studio.displayTrack);
-  if (studio.dialog) setConsoleDialog(studio.dialog);
-
-  const clock = document.getElementById('studio-clock');
-  const weekday = document.getElementById('studio-weekday');
-  const date = document.getElementById('studio-date');
-  if (studio.clock) {
-    if (clock) clock.textContent = studio.clock.hhmm || clock.textContent;
-    if (weekday) weekday.textContent = studio.clock.weekday || weekday.textContent;
-    if (date) date.textContent = studio.clock.date || date.textContent;
-  }
-
-  const onAir = document.querySelector('.on-air');
-  if (onAir) {
-    onAir.textContent = studio.onAir ? '● ON AIR' : 'Ⅱ PAUSED';
-    onAir.classList.toggle('paused', !studio.onAir);
-  }
 }
 
 async function preFetchBoot() {
@@ -699,6 +614,7 @@ async function playIndex(i, { autoplay = true, startAt = 0, resume = false, rest
   if (!claim.accept) return;
   playLoadIndex = claim.loading;
   const loadToken = i + state.offset;
+  settleActiveSession('switch');
   suppressPauseSync = true;
   try {
     state.index = i;
@@ -710,9 +626,6 @@ async function playIndex(i, { autoplay = true, startAt = 0, resume = false, rest
     setStudioTrack(t);
     if (!t.isTts) {
       setConsoleDialog(`接下来播放 ${t.title} — ${t.artist}。`);
-    } else {
-      const comment = document.getElementById('studio-track-comment');
-      if (comment) comment.textContent = t.title || '';
     }
 
     const src = await resolveAudioSrc(t);
@@ -963,6 +876,10 @@ async function send(message) {
     }
 
     addBubble('assistant', data.say || '(无回应)', metaHtml || null);
+    if (data.say) {
+      appliedSay = data.say;
+      paintHostChrome();
+    }
     setConsoleDialog(data.say || '我已经整理好这一轮电台推荐。');
 
     if (data.queue && data.queue.length) {
@@ -986,11 +903,173 @@ async function send(message) {
   }
 }
 
+async function postMemoryTelemetry(payload, { keepalive = false } = {}) {
+  if (location.protocol === 'file:') return null;
+  try {
+    const r = await fetch('/api/memory/telemetry', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      ...(keepalive ? { keepalive: true } : {}),
+    });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch {
+    return null;
+  }
+}
+
+function reportDislikeTelemetry(track) {
+  if (!track || track.isTts) return;
+  const sessionId = activeSession?.sessionId || null;
+  activeSession = null;
+  postMemoryTelemetry({
+    event: 'dislike',
+    sessionId,
+    title: track.title || '',
+    artist: track.artist || '',
+    kugouId: track.kugouId || '',
+    listenedSec: Math.round(Number(audio?.currentTime) || 0),
+    durationSec: Math.round(Number(audio?.duration) || Number(track.duration) || 0),
+    finalVolume: npVol ? Number(npVol.value) : null,
+  }, { keepalive: true });
+}
+
+function settleActiveSession(outcomeHint = 'switch') {
+  const session = activeSession;
+  if (!session) return;
+  activeSession = null;
+  const listenedSec = Math.max(0, Math.round(Number(audio?.currentTime) || 0));
+  const durationSec = Math.max(0, Math.round(Number(audio?.duration) || Number(session.durationSec) || 0));
+  let outcome = outcomeHint;
+  if (outcomeHint === 'switch') {
+    if ((durationSec > 0 && listenedSec / durationSec >= 0.65) || listenedSec >= 90) {
+      outcome = 'completed';
+    } else if (listenedSec < 25) {
+      outcome = 'skipped';
+    } else {
+      outcome = 'interrupted';
+    }
+  }
+  postMemoryTelemetry({
+    event: 'session_end',
+    sessionId: session.sessionId,
+    title: session.title,
+    artist: session.artist,
+    kugouId: session.kugouId,
+    listenedSec,
+    durationSec,
+    outcome,
+    finalVolume: npVol ? Number(npVol.value) : null,
+  }, { keepalive: true });
+}
+
+async function startTelemetrySession(track) {
+  if (!track || track.isTts) return;
+  const key = trackKey(track);
+  if (!key) return;
+  if (activeSession && activeSession.key === key) return;
+  const pendingKey = key;
+  activeSession = {
+    key,
+    sessionId: null,
+    title: track.title || '',
+    artist: track.artist || '',
+    kugouId: track.kugouId || '',
+    durationSec: Number(track.duration) || 0,
+  };
+  const data = await postMemoryTelemetry({
+    event: 'session_start',
+    title: track.title || '',
+    artist: track.artist || '',
+    kugouId: track.kugouId || '',
+    reason: track.reason || lastReason || '',
+    source: track.source || (brain === 'internal' ? 'internal' : 'external'),
+    agentId: activeAgent?.id || null,
+    durationSec: Number(track.duration) || 0,
+    initialVolume: npVol ? Number(npVol.value) : null,
+  });
+  if (data?.sessionId && activeSession && activeSession.key === pendingKey) {
+    activeSession.sessionId = data.sessionId;
+  }
+}
+
+function syncIntentUi(text) {
+  const intentInput = document.getElementById('intent-input');
+  const intentClear = document.getElementById('intent-clear');
+  if (intentInput && document.activeElement !== intentInput) {
+    intentInput.value = text || '';
+  }
+  if (intentClear) {
+    intentClear.classList.toggle('hidden', !String(text || '').trim());
+  }
+}
+
+function bindIntentForm() {
+  const form = document.getElementById('intent-form');
+  const intentInput = document.getElementById('intent-input');
+  const intentClear = document.getElementById('intent-clear');
+  if (!form || !intentInput) return;
+
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    const text = intentInput.value.trim();
+    if (!text) return;
+    try {
+      const r = await fetch('/api/memory/intent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, source: 'ui' }),
+      });
+      const data = await r.json();
+      if (!data.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      syncIntentUi(data.intent?.text || text);
+      toast('已更新当前意图');
+    } catch (err) {
+      showAlert(`更新意图失败：${err.message}`);
+    }
+  });
+
+  intentClear?.addEventListener('click', async () => {
+    try {
+      const r = await fetch('/api/memory/intent', { method: 'DELETE' });
+      const data = await r.json();
+      if (!data.ok) throw new Error(data.error || `HTTP ${r.status}`);
+      intentInput.value = '';
+      syncIntentUi('');
+      toast('已清除当前意图');
+    } catch (err) {
+      showAlert(`清除意图失败：${err.message}`);
+    }
+  });
+}
+
+async function hydrateMemoryContext({ hasServerVolume = false } = {}) {
+  if (location.protocol === 'file:') return;
+  try {
+    const [briefRes, settingsRes] = await Promise.allSettled([
+      fetch('/api/memory/brief').then(r => (r.ok ? r.json() : null)),
+      fetch('/api/settings').then(r => (r.ok ? r.json() : null)),
+    ]);
+    const brief = briefRes.status === 'fulfilled' ? briefRes.value : null;
+    const settings = settingsRes.status === 'fulfilled' ? settingsRes.value : null;
+    if (brief) {
+      syncIntentUi(brief.activeIntent?.text || '');
+      const adaptiveOn = settings?.adaptive_volume_enabled !== 'false';
+      const suggested = brief.context?.suggestedVolume;
+      if (!hasServerVolume && adaptiveOn && !brief.context?.coldStart && Number.isFinite(suggested)) {
+        applyHeardVolume(suggested);
+      }
+    }
+  } catch { /* ignore */ }
+}
+
 // 服务端 WS 推 runtime 时同步进本地状态（仅当本地没有超前播放）
 export function applyRuntime(runtime, { origin } = {}) {
   if (!runtime) return;
   // 自己刚 POST 出去的状态又广播回来时，不再 play / pause / playIndex。
   if (isOwnEcho(origin, getClientId())) return;
+  if ('activeAgent' in runtime) activeAgent = runtime.activeAgent || null;
   if (runtime.brain === 'internal' || runtime.brain === 'external') {
     brain = runtime.brain;
     state.brain = brain;
@@ -1046,16 +1125,20 @@ export function applyRuntime(runtime, { origin } = {}) {
 }
 
 // 外部 bot 推来的歌。replace 接管当前队列；append 只在没在播时开播。
-export function applyExternalQueue({ mode, tracks, say, reason, queuedAt: at } = {}) {
+export function applyExternalQueue({ mode, tracks, say, reason, queuedAt: at, agentId, agentName } = {}) {
   const list = Array.isArray(tracks) ? tracks.filter(track => track && track.title) : [];
   if (!list.length) return;
+  if (agentName || agentId) {
+    activeAgent = { id: agentId || null, name: agentName || agentId || null };
+  }
   if (say) {
     appliedSay = say;
     setConsoleDialog(say);
-    if (chat && brain === 'internal') addBubble('assistant', say, '(外部电台)');
+    if (chat && brain === 'internal') addBubble('assistant', say, `(${agentName || '外部电台'})`);
   }
   if (reason) lastReason = reason;
   if (at) queuedAt = at;
+  paintHostChrome();
   const plan = planExternalPlayback({
     queueLength: state.queue.length,
     hasSrc: Boolean(audio?.getAttribute?.('src') || audio?.src),
@@ -1100,6 +1183,7 @@ export function initPlayer() {
   document.addEventListener('keydown', markActivated, { capture: true, once: true });
 
   audio.addEventListener('ended', async () => {
+    settleActiveSession('completed');
     if (state.brain === 'internal' && state.loopMode === 'one') {
       audio.currentTime = 0;
       audio.play().catch(() => {});
@@ -1132,7 +1216,11 @@ export function initPlayer() {
   audio.addEventListener('play',  () => {
     syncToServer(state.index, { paused: false });
     updatePlayButtons(true);
-    if (!state.queue[state.index]?.isTts) clearAlert();
+    const cur = currentTrack();
+    if (!cur?.isTts) {
+      clearAlert();
+      startTelemetrySession(cur);
+    }
   });
   audio.addEventListener('pause', () => {
     updatePlayButtons(false);
@@ -1175,16 +1263,18 @@ export function initPlayer() {
       syncVolumeChrome(volume);
       writeLocalVolume(volume);
       reportProgress(true);
+      clearTimeout(volumeReportTimer);
+      volumeReportTimer = setTimeout(() => {
+        postMemoryTelemetry({ event: 'volume', volume, trigger: 'manual' });
+      }, 600);
     });
   }
 
   bindConsoleControls();
-  bindStudioThemes();
   bindFeedback();
-  setStudioTheme(savedStudioTheme() || 'focus', { persist: false });
+  bindIntentForm();
   updatePlayButtons(false);
-  paintEdition();
-  setInterval(paintEdition, 60 * 1000);
+  paintHostChrome();
 
   bootOverlay = document.getElementById('boot-overlay');
   bootBtn = document.getElementById('boot-btn');
@@ -1230,6 +1320,16 @@ export function initPlayer() {
     });
   }
 
+  window.addEventListener('claudio:settings-updated', e => {
+    const applied = Array.isArray(e.detail) ? e.detail : [];
+    if (applied.includes('brain_mode')) {
+      syncFromServer({ silent: true, keepOverlay: true });
+    }
+  });
+  window.addEventListener('claudio:view-shown', e => {
+    if (e.detail === 'player') hydrateMemoryContext({ hasServerVolume: true });
+  });
+
   // 启动时拉一下当前队列 / 上次会话
   bootCurrent();
 }
@@ -1243,26 +1343,18 @@ async function bootCurrent({ silent = false, keepOverlay = false } = {}) {
   if (location.protocol === 'file:') return;
 
   try {
-    try {
-      const studioRes = await fetch('/api/studio/state');
-      if (studioRes.ok) {
-        const data = await studioRes.json();
-        applyStudioState(data.studio);
-      }
-    } catch {
-      // 视觉接口不可用时继续走旧的播放状态接口。
-    }
-
     const r = await fetch('/api/now');
     if (!r.ok) return;
     const data = await r.json();
     brain = data.brain === 'internal' ? 'internal' : 'external';
     state.brain = brain;
     state.offset = data.queueOffset || 0;
+    activeAgent = data.activeAgent || null;
     applyBrainChrome();
     rememberQueueMeta(data);
     if (Number.isFinite(data.volume)) applyHeardVolume(data.volume);
     else ensurePlaybackVolume();
+    hydrateMemoryContext({ hasServerVolume: Number.isFinite(data.volume) });
     if (brain !== 'internal') {
       serverProgress = Number(data.currentTime) || 0;
       const plan = planExternalBoot({ queue: data.queue, paused: data.paused === true });

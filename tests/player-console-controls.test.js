@@ -7,7 +7,7 @@ const playerJs = fs.readFileSync(path.resolve('pwa/views/player.js'), 'utf8');
 const stylesCss = fs.readFileSync(path.resolve('pwa/styles.css'), 'utf8');
 
 describe('player console controls', () => {
-  it('播放页使用夜间广播台壳，不再内嵌旧控制台', () => {
+  it('播放页采用极简现代舞台，不内嵌旧控制台', () => {
     const playerStart = indexHtml.indexOf('id="view-player"');
     const playerEnd = indexHtml.indexOf('id="view-playlists"', playerStart);
     const playerHtml = indexHtml.slice(playerStart, playerEnd);
@@ -16,6 +16,7 @@ describe('player console controls', () => {
     expect(playerHtml).toContain('id="host-line"');
     expect(playerHtml).toContain('id="queue-list"');
     expect(playerHtml).toContain('id="np-vol"');
+    expect(playerHtml).toContain('id="intent-form"');
     expect(playerHtml).not.toContain('class="radio-console"');
     expect(indexHtml).not.toContain('class="np-controls"');
   });
@@ -25,25 +26,27 @@ describe('player console controls', () => {
     expect(stylesCss).toContain('body:not(.brain-internal) #console-chat');
   });
 
-  it('主题切换不再放在播放页上', () => {
-    const playerStart = indexHtml.indexOf('id="view-player"');
-    const playerEnd = indexHtml.indexOf('id="view-playlists"', playerStart);
-    const playerHtml = indexHtml.slice(playerStart, playerEnd);
-    expect(playerHtml).not.toContain('data-studio-theme=');
-  });
-
-  it('播放控制是上一首、暂停和下一首', () => {
+  it('播放控制包含上一首、播放/暂停、下一首与喜欢/不喜欢/收藏', () => {
     for (const control of ['prev', 'play-pause', 'next']) {
       expect(indexHtml).toContain(`data-console-control="${control}"`);
       expect(indexHtml).toMatch(new RegExp(`<button[^>]+data-console-control="${control}"`));
     }
+    expect(indexHtml).toContain('data-feedback="like"');
+    expect(indexHtml).toContain('data-feedback="dislike"');
     expect(indexHtml).toContain('data-console-control="favorite"');
     expect(indexHtml).toContain('<symbol id="heart"');
     for (const control of ['queue', 'loop']) {
       expect(indexHtml).toMatch(new RegExp(`<button[^>]+data-console-control="${control}"[^>]+data-internal-only`));
     }
     expect(stylesCss).toContain('body:not(.brain-internal) [data-internal-only]');
-    expect(playerJs).toContain('btn.hidden = brain !== \'internal\'');
+    expect(playerJs).toContain("btn.hidden = brain !== 'internal'");
+  });
+
+  it('点踩真实上报 dislike 遥测与 feedback 并切下一首', () => {
+    expect(playerJs).toContain("postFeedback('dislike', track)");
+    expect(playerJs).toContain('reportDislikeTelemetry');
+    expect(playerJs).toContain("event: 'dislike'");
+    expect(playerJs).not.toContain("choice === 'dislike' ? 'unlike'");
   });
 
   it('红心收藏按钮写酷狗「我喜欢」', () => {
@@ -58,21 +61,12 @@ describe('player console controls', () => {
     expect(playerJs).toContain('img.remove()');
   });
 
-  it('player 逻辑绑定电台控制台按钮', () => {
+  it('player 逻辑绑定电台控制台按钮与当前活跃 Agent 标识', () => {
     expect(playerJs).toContain('data-console-control');
     expect(playerJs).toContain('bindConsoleControls');
-  });
-
-  it('player 逻辑绑定主题切换按钮', () => {
-    expect(playerJs).toContain('data-studio-theme');
-    expect(playerJs).toContain('bindStudioThemes');
-  });
-
-  it('电台主持人使用 Grokbot 身份和专属头像', () => {
-    expect(indexHtml).toContain('id="grokbot-avatar"');
-    expect(indexHtml).toContain('id="host-speaking"');
-    expect(indexHtml).toMatch(/<span class="agent-name">Grokbot/);
-    expect(indexHtml).not.toContain('id="pumpkin"');
+    expect(playerJs).toContain('activeAgent');
+    expect(indexHtml).toContain('id="host-agent-name"');
+    expect(indexHtml).not.toMatch(/Grokbot/i);
   });
 
   it('播放页能直接导航到全部四个视图', () => {
@@ -88,25 +82,10 @@ describe('player console controls', () => {
     expect(indexHtml).toContain('aria-label="电台导航"');
   });
 
-  it('播放页角落能打开歌单和设置', () => {
-    expect(indexHtml).toContain('id="corner-menu-btn"');
-    expect(indexHtml).toContain('data-view-jump="playlists"');
-    expect(indexHtml).toContain('data-view-jump="settings"');
-    const appJs = fs.readFileSync(path.resolve('pwa/app.js'), 'utf8');
-    expect(appJs).toContain('data-view-jump');
-    expect(appJs).toContain('bindCornerMenu');
-  });
-
-  it('DeepSeek 设置只在 external 模式隐藏', () => {
-    expect(stylesCss).toContain('body:not(.brain-internal) #settings-ai');
-    expect(stylesCss).not.toContain('#settings-ai { display: none !important; }');
+  it('DeepSeek 与电台模式设置项在设置页始终可见', () => {
+    expect(indexHtml).toContain('id="settings-ai"');
+    expect(indexHtml).toContain('id="set-brain-mode"');
+    expect(stylesCss).not.toContain('#settings-ai { display: none');
     expect(playerJs).toContain("classList.toggle('brain-internal'");
-  });
-
-  it('样式定义了不同主题色', () => {
-    expect(stylesCss).toContain('.studio-stage[data-theme="dark"]');
-    expect(stylesCss).toContain('.studio-stage[data-theme="poetry"]');
-    expect(stylesCss).toContain('.studio-stage[data-theme="focus"]');
-    expect(stylesCss).toContain('--theme-accent-rgb');
   });
 });

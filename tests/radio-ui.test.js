@@ -7,11 +7,12 @@ const css = fs.readFileSync(path.resolve('pwa/styles.css'), 'utf8');
 const sw = fs.readFileSync(path.resolve('pwa/sw.js'), 'utf8');
 const manifest = JSON.parse(fs.readFileSync(path.resolve('pwa/manifest.json'), 'utf8'));
 
-describe('radio visual contract', () => {
-  it('保留跨视图统一导航，播放页不能只靠隐藏的旧顶栏', () => {
+describe('minimalist dual-theme radio contract', () => {
+  it('保留跨视图统一导航与无框桌面标题栏', () => {
     expect(css).not.toMatch(/body\.view-player\s+#topbar\s*\{\s*display:\s*none/);
     expect(html).toContain('id="topbar"');
     expect(html).toContain('aria-label="电台导航"');
+    expect(html).toContain('id="desktop-titlebar"');
   });
 
   it('歌词是播放舞台的一部分，internal 聊天保留独立入口', () => {
@@ -23,87 +24,65 @@ describe('radio visual contract', () => {
     expect(css).toContain('body:not(.brain-internal) #console-chat');
   });
 
-  it('宣纸底、墨色字、朱砂印章色', () => {
-    expect(css).toContain('--canvas: #f2ede1');
-    expect(css).toContain('--ink: #1f1c18');
-    expect(css).toContain('--muted: #6f675b');
-    expect(css).toContain('--seal: #b4432d');
-    expect(css).toContain('color-scheme: light');
-    expect(css).toContain('url("assets/ink/paper.webp")');
-    expect(manifest.background_color).toBe('#f2ede1');
-    expect(html).toContain('<meta name="theme-color" content="#f2ede1">');
+  it('浅色暖纸 + 深色冷静双主题随系统切换并同步 manifest', () => {
+    expect(html).toContain('<html lang="zh-cn" data-theme="auto">');
+    expect(css).toContain('--bg: #F7F6F2');
+    expect(css).toContain(':root[data-theme="dark"]');
+    expect(css).toContain('--bg: #121316');
+    expect(css).toContain('@media (prefers-color-scheme: dark)');
+    expect(manifest.background_color).toBe('#F7F6F2');
+    expect(manifest.theme_color).toBe('#F7F6F2');
+    expect(html).toContain('<meta name="theme-color" content="#F7F6F2">');
   });
 
-  it('配色随时辰切换，五个时段都有色板且与场次划分一致', () => {
-    expect(html).toContain('<html lang="zh-cn" data-daypart="night">');
-    for (const part of ['dawn', 'noon', 'afternoon', 'dusk', 'night']) {
-      expect(css).toContain(`:root[data-daypart="${part}"]`);
-    }
-    expect(css).toMatch(/\.ink-tint\s*\{[^}]*background:\s*var\(--tint\)/);
-    const playerJs = fs.readFileSync(path.resolve('pwa/views/player.js'), 'utf8');
-    expect(playerJs).toContain('function daypartFor(');
-    expect(playerJs).toContain('root.dataset.daypart = daypart');
-    expect(playerJs).toContain("daypart === 'night' ? '#moon' : '#sun'");
-    expect(html).toContain('<symbol id="moon"');
-    expect(html).toContain('id="edition-symbol"');
-  });
-
-  it('水墨山水是固定静态背景，动画只走 transform/opacity，不用实时滤镜', () => {
-    expect(html).toContain('class="ink-scene" aria-hidden="true"');
-    expect(css).toContain('url("assets/ink/landscape-wide.webp")');
-    expect(css).toContain('url("assets/ink/landscape-tall.webp")');
-    for (const asset of ['landscape-wide.webp', 'landscape-tall.webp', 'paper.webp', 'cover.webp', 'grokbot.webp', 'icon-512.png']) {
-      expect(fs.existsSync(path.resolve('pwa/assets/ink', asset))).toBe(true);
-      expect(sw).toContain(`'/assets/ink/${asset}'`);
-    }
-    expect(css).not.toContain('background-attachment: fixed');
-    expect(css).toMatch(/\.ink-scene\s*\{[^}]*position:\s*fixed[^}]*pointer-events:\s*none/);
-    expect(css).toMatch(/\.ink-mist\s*\{[^}]*will-change:\s*transform/);
+  it('Grok 风格合成器级微动效，无 backdrop-filter 与冗余 helper 文案', () => {
+    expect(css).toContain('--ease-out: cubic-bezier(0.23, 1, 0.32, 1)');
+    expect(css).toContain('@media (prefers-reduced-motion: reduce)');
+    expect(css).toContain(':focus-visible');
     expect(css).not.toContain('backdrop-filter');
     expect(css).not.toMatch(/@keyframes[^{]+\{[^}]*filter:/);
-    expect(html).not.toContain('feTurbulence');
-    expect(html).not.toContain('feGaussianBlur');
+    expect(html).not.toContain('class="field-hint"');
+    expect(html).not.toContain('ink-scene');
   });
 
-  it('Grokbot 是一团墨加两道留白眼，图标与头像同一身份', () => {
-    expect(html).toMatch(/class="[^"]*\bbot-mark\b[^"]*"/);
-    expect(html).toContain('href="#grokbot"');
-    const grokbot = html.slice(html.indexOf('<symbol id="grokbot"'), html.indexOf('</symbol>', html.indexOf('<symbol id="grokbot"')));
-    expect(grokbot).toContain('href="assets/ink/grokbot.webp"');
-    const icon = fs.readFileSync(path.resolve('pwa/icon.svg'), 'utf8');
-    expect(icon).toContain('#f2ede1');
-    expect(icon).toContain('#1a1815');
-    expect(icon).toContain('rotate(-30');
-    expect(manifest.icons.map(i => i.src)).toContain('/assets/ink/icon-512.png');
-    expect(css).toMatch(/\.is-playing\s+#host-speaking\s+i\s*\{[^}]*animation:/);
-    expect(css).toMatch(/#host-speaking\s+i\s*\{[^}]*animation:\s*none/);
+  it('Agent 解耦身份、即时意图与记忆洞察入口就位', () => {
+    expect(html).toContain('id="host-agent-name"');
+    expect(html).toContain('id="intent-form"');
+    expect(html).toContain('id="memory-insights"');
+    expect(html).toContain('id="trait-form"');
+    expect(html).toContain('id="trait-list"');
+    expect(html).not.toMatch(/Grokbot/i);
+    expect(manifest.description).not.toMatch(/Grok/i);
   });
 
-  it('桌面双栏与手机紧凑舞台由明确断点切换', () => {
-    expect(css).toMatch(/\.stage\s*\{[^}]*grid-template-columns:\s*minmax\(280px,\s*420px\)/);
-    expect(css).toMatch(/@media\s*\(max-width:\s*700px\)[\s\S]*?\.stage\s*\{[^}]*grid-template-areas:\s*"art info"/);
-    expect(css).toContain('@media (prefers-reduced-motion: reduce)');
+  it('桌面双栏、手机单列及 380x136 迷你陪伴态均有明确断点', () => {
+    expect(css).toMatch(/\.stage\s*\{[^}]*grid-template-columns:\s*minmax\(220px,\s*320px\)/);
+    expect(css).toMatch(/@media\s*\(max-height:\s*220px\)/);
+    expect(css).toMatch(/@media\s*\(max-width:\s*720px\)[\s\S]*?\.stage\s*\{[^}]*grid-template-columns:\s*1fr/);
     expect(css).toMatch(/\.queue-title-line\s*\{[^}]*flex-wrap:\s*wrap/);
     expect(css).toMatch(/\.queue-title\s*\{[^}]*overflow-wrap:\s*anywhere/);
   });
 
-  it('离线壳缓存覆盖新增资源', () => {
-    expect(sw).toMatch(/const CACHE = 'claudio-shell-v\d+'/);
-    expect(sw).toContain('\'/components/studio-visual.js\'');
+  it('离线壳缓存覆盖新增资源并移除已淘汰视觉模块', () => {
+    expect(sw).toMatch(/const CACHE = 'claudio-shell-v21'/);
+    expect(sw).toContain('\'/theme-store.js\'');
     expect(sw).toContain('\'/external-playback.js\'');
     expect(sw).toContain('\'/boot-playback.js\'');
     expect(sw).toContain('\'/runtime-sync.js\'');
     expect(sw).toContain('\'/player-mode.js\'');
     expect(sw).toContain('\'/views/playlists.js\'');
+    expect(sw).not.toContain('studio-visual.js');
+    expect(sw).not.toContain('env-strip.js');
   });
 
-  it('歌单页可以搜索并精确播放单曲', () => {
+  it('歌单页支持搜索、设置默认红心单并精确播放单曲', () => {
     expect(html).toContain('id="search-form"');
     expect(html).toContain('id="search-input"');
     expect(html).toContain('id="search-results"');
     const playlistsJs = fs.readFileSync(path.resolve('pwa/views/playlists.js'), 'utf8');
     expect(playlistsJs).toContain('/api/kugou/search?q=');
     expect(playlistsJs).toContain('/api/kugou/play');
+    expect(playlistsJs).toContain('like_target_listid');
     expect(playlistsJs).toContain('claudio:queue-replace');
   });
 });

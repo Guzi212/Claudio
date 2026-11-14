@@ -24,6 +24,24 @@ async function setPool(playlist) {
   }
 }
 
+async function setLikeTarget(playlist) {
+  try {
+    const r = await fetch('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        like_target_listid: String(playlist?.listid || ''),
+        like_target_name: String(playlist?.name || ''),
+      }),
+    });
+    const data = await r.json();
+    if (!data.ok) throw new Error(data.error || `HTTP ${r.status}`);
+    toast(`已设为默认红心歌单：《${playlist.name}》`);
+  } catch (err) {
+    showAlert(`设置默认红心歌单失败：${err.message}`);
+  }
+}
+
 async function clearPool() {
   try {
     const r = await fetch('/api/kugou/playlists/pool', {
@@ -204,6 +222,11 @@ function renderList(items) {
 
     const actions = document.createElement('div');
     actions.className = 'playlist-actions';
+    const likeBtn = document.createElement('button');
+    likeBtn.type = 'button';
+    likeBtn.className = 'btn ghost';
+    likeBtn.textContent = '设为喜欢单';
+    likeBtn.addEventListener('click', () => setLikeTarget(playlists[idx]));
     const poolBtn = document.createElement('button');
     poolBtn.type = 'button';
     poolBtn.className = 'btn ghost';
@@ -214,6 +237,7 @@ function renderList(items) {
     playBtn.className = 'btn primary';
     playBtn.textContent = '整单播放';
     playBtn.addEventListener('click', () => playPlaylist(playlists[idx]));
+    actions.appendChild(likeBtn);
     actions.appendChild(poolBtn);
     actions.appendChild(playBtn);
 

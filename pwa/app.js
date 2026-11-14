@@ -1,5 +1,4 @@
-// 三视图编排器：tab 切换 + URL 同步 + 全局 WS。
-// chat / audio 逻辑搬到 views/player.js；这里只负责导航和跨视图的状态推送。
+// 顶层视图协调器：tab 切换 + 主题同步 + 全局 WS + 桌面壳桥接。
 import { initPlayer, applyRuntime, appendToQueue, applyExternalQueue, syncFromServer } from './views/player.js';
 import { installMediaSession } from './media-session.js';
 import { initPlaylists } from './views/playlists.js';
@@ -7,48 +6,18 @@ import { initProfile } from './views/profile.js';
 import { initSettings } from './views/settings.js';
 import { setStatus, showAlert } from './views/ui.js';
 import { urlWithoutToken } from './session-url.js';
-// 增量组件 · DOMContentLoaded 自动 attach 到 #env-strip / #lyrics-panel
-// player.js 会 dispatchEvent('claudio:trackchange') 给 lyrics 当作切歌信号
-import './components/env-strip.js';
+import { applyTheme, readSavedTheme } from './theme-store.js';
 import './components/lyrics.js';
-import './components/studio-visual.js';
 
 const VIEWS = ['player', 'playlists', 'profile', 'settings'];
 const DEFAULT_VIEW = 'player';
 let mediaSession = { noteRuntime() {} };
 
+export { applyTheme };
+
 function currentViewFromUrl() {
   const v = new URLSearchParams(location.search).get('view');
   return VIEWS.includes(v) ? v : DEFAULT_VIEW;
-}
-
-function bindCornerMenu() {
-  const btn = document.getElementById('corner-menu-btn');
-  const panel = document.getElementById('corner-panel');
-  if (!btn || !panel) return;
-  const close = () => {
-    panel.hidden = true;
-    btn.setAttribute('aria-expanded', 'false');
-  };
-  btn.addEventListener('click', (event) => {
-    event.stopPropagation();
-    const open = panel.hidden;
-    panel.hidden = !open;
-    btn.setAttribute('aria-expanded', String(open));
-  });
-  panel.addEventListener('click', (event) => {
-    const jump = event.target.closest('[data-view-jump]');
-    if (!jump) return;
-    close();
-    setView(jump.dataset.viewJump, { push: true });
-  });
-  document.addEventListener('click', (event) => {
-    if (panel.hidden || event.target.closest('.corner-menu')) return;
-    close();
-  });
-  document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') close();
-  });
 }
 
 function setView(name, { push = false } = {}) {
@@ -67,9 +36,35 @@ function setView(name, { push = false } = {}) {
   window.dispatchEvent(new CustomEvent('claudio:view-shown', { detail: name }));
 }
 
-// CLAUDIO_REQUIRE_TOKEN 打开时，回环也要凭证。静态页面不写密钥：
-// 第一次用 ?token= 打开，换成 HttpOnly cookie，再从地址栏去掉 token。
-// 必须在 initPlayer / WebSocket 之前做完，否则 /api/now 会先 401。
+function initDesktopChrome() {
+  const desktop = window.claudioDesktop;
+  if (!desktop?.isDesktop) return;
+  document.documentElement.classList.add('is-desktop');
+  const titlebar = document.getElementById('desktop-titlebar');
+  if (titlebar) titlebar.hidden = false;
+
+  document.getElementById('win-min-btn')?.addEventListener('click', () => desktop.minimize?.());
+  document.getElementById('win-close-btn')?.addEventListener('click', () => desktop.close?.());
+  document.getElementById('win-mini-btn')?.addEventListener('click', () => desktop.toggleMini?.());
+  document.getElementById('mini-expand-btn')?.addEventListener('click', () => desktop.setMini?.(false));
+
+  desktop.onMiniChanged?.(isMini => {
+    document.documentElement.classList.toggle('is-mini', Boolean(isMini));
+  });
+}
+
+async function loadInitialTheme() {
+  const saved = readSavedTheme();
+  if (saved) applyTheme(saved, { persist: false });
+  try {
+    const r = await fetch('/api/settings');
+    if (r.ok) {
+      const s = await r.json();
+      if (s?.ui_theme) applyTheme(s.ui_theme);
+    }
+  } catch { /* */ }
+}
+
 async function adoptUrlToken() {
   if (location.protocol === 'file:') return;
   const token = new URLSearchParams(location.search).get('token')?.trim() || '';
@@ -102,11 +97,11 @@ async function adoptUrlToken() {
 }
 
 async function startApp() {
+  initDesktopChrome();
+  await loadInitialTheme();
   await adoptUrlToken();
-  // 媒体键挂在播放运行时，不挂进视图。换掉播放页界面也不要拆这层。
   mediaSession = installMediaSession();
 
-  // 各视图自己负责懒加载，初始化只挂事件
   initPlayer();
   initPlaylists();
   initProfile();
@@ -115,25 +110,20 @@ async function startApp() {
   document.querySelectorAll('.tab').forEach(btn => {
     btn.addEventListener('click', () => setView(btn.dataset.view, { push: true }));
   });
-  bindCornerMenu();
 
-  // 视图内部（如 Playlists 整单播放后）请求跳转
+  window.addEventListener('claudio:theme', e => applyTheme(e.detail));
   window.addEventListener('claudio:navigate', e => setView(e.detail, { push: true }));
-
   window.addEventListener('popstate', () => setView(currentViewFromUrl()));
 
-  // 启动时根据 URL 落到对应 tab（默认 player）
   setView(currentViewFromUrl());
   connectWs();
+  document.documentElement.dataset.appReady = 'true';
 
   if (location.protocol !== 'file:' && 'serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js').catch(() => { /* 静默 */ });
   }
 }
 
-// ──────────────── 全局 WS（所有 tab 都保持连接） ────────────────
-// 断线要自己接回来：服务重启、休眠唤醒、切网都会让 socket 直接 close。
-// 重连成功后主动拉一次 /api/now 全量对齐——断线期间服务端广播的状态补不回来。
 function connectWs() {
   if (location.protocol === 'file:') return;
   const url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/stream`;
@@ -157,7 +147,7 @@ function connectWs() {
 
   function open() {
     clearRetry();
-    if (ws && (ws.readyState === 0 || ws.readyState === 1)) return; // 已经在连/已连上
+    if (ws && (ws.readyState === 0 || ws.readyState === 1)) return;
     try {
       ws = new WebSocket(url);
     } catch {
@@ -169,7 +159,6 @@ function connectWs() {
       everConnected = true;
       attempt = 0;
       setStatus('● 在线');
-      // 断线期间漏掉的广播不会重放，重连后拉一次全量
       if (reconnected) syncFromServer({ silent: true, keepOverlay: true });
     });
     ws.addEventListener('close', () => {
@@ -177,13 +166,11 @@ function connectWs() {
       scheduleRetry();
     });
     ws.addEventListener('error', () => {
-      // error 后面一定跟 close，重连交给 close 处理
       try { ws.close(); } catch { /* ignore */ }
     });
     ws.addEventListener('message', ev => {
       let evt;
       try { evt = JSON.parse(ev.data); } catch { return; }
-      // 服务端连上就推一份完整 runtime（hello），重连后靠它接上
       if ((evt.type === 'hello' || evt.type === 'state') && evt.runtime) {
         mediaSession.noteRuntime(evt.runtime, { origin: evt.origin });
         applyRuntime(evt.runtime, { origin: evt.origin });
@@ -192,6 +179,10 @@ function connectWs() {
       if (evt.type === 'queue-append' && evt.tracks) appendToQueue(evt.tracks);
       if (evt.type === 'external-queue') applyExternalQueue(evt);
       if (evt.type === 'continue-pool') applyRuntime({ continuePool: evt.continuePool });
+      if (evt.type === 'settings-updated') {
+        loadInitialTheme();
+        window.dispatchEvent(new CustomEvent('claudio:settings-updated', { detail: evt.applied || [] }));
+      }
     });
   }
 
@@ -200,7 +191,6 @@ function connectWs() {
     try { ws.send(JSON.stringify({ type: 'progress', ...ev.detail })); } catch { /* ignore */ }
   });
 
-  // 页面回到前台 / 网络恢复 / 从 bfcache 回来：连接断着就立刻重连，不等退避
   const kick = () => {
     if (document.visibilityState === 'hidden') return;
     if (ws && (ws.readyState === 0 || ws.readyState === 1)) return;
@@ -214,4 +204,5 @@ function connectWs() {
 
   open();
 }
+
 startApp();
