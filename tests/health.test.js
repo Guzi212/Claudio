@@ -69,7 +69,9 @@ describe('mountHealthRoute', () => {
     expect(r.body).toHaveProperty('weather');
     expect(r.body).toHaveProperty('tts');
     expect(r.body).toHaveProperty('lark');
-    for (const k of ['kugou', 'weather', 'tts', 'lark']) {
+    expect(r.body).toHaveProperty('calendar');
+    expect(r.body).toHaveProperty('dj');
+    for (const k of ['kugou', 'weather', 'tts', 'ai', 'lark', 'calendar', 'dj']) {
       expect(typeof r.body[k].ok).toBe('boolean');
       expect(typeof r.body[k].detail).toBe('string');
     }

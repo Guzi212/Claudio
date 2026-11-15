@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const prefMem = vi.hoisted(() => new Map());
 const invalidateCacheMock = vi.hoisted(() => vi.fn());
+const invalidateFavoriteMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../server/db.js', () => ({
   dbApi: {
@@ -15,9 +16,14 @@ vi.mock('../server/services/weather.js', () => ({
   invalidateCache: invalidateCacheMock,
 }));
 
+vi.mock('../server/services/kugou-favorite.js', () => ({
+  favoriteStore: { invalidate: invalidateFavoriteMock },
+}));
+
 beforeEach(() => {
   prefMem.clear();
   invalidateCacheMock.mockReset();
+  invalidateFavoriteMock.mockReset();
   delete process.env.OPENWEATHER_API_KEY;
   delete process.env.OPENWEATHER_CITY;
   delete process.env.FISH_API_KEY;
@@ -68,13 +74,15 @@ describe('mountSettingsRoutes', () => {
     const r = mockRes();
     await app.routes['GET /api/settings']({}, r);
 
-    expect(r.body).toEqual({
+    expect(r.body).toMatchObject({
       openweather_api_key: '****已配置',
       openweather_city: 'Shanghai',
       fish_api_key: '',
       fish_voice_id: 'voice-x',
       deepseek_api_key: '',
       deepseek_model: '',
+      calendar_provider: '',
+      ui_theme: '',
     });
   });
 
@@ -128,17 +136,48 @@ describe('mountSettingsRoutes', () => {
     expect(prefMem.has('openweather_api_key')).toBe(false);
   });
 
-  it('PUT 改了 openweather_* 时调 weather.invalidateCache', async () => {
+  it('PUT 改了 openweather_* 或 weather_enabled 时调 weather.invalidateCache', async () => {
+    const { mountSettingsRoutes } = await import('../server/api/settings.js');
+    const app = mockApp();
+    const onSettingsSaved = vi.fn();
+    mountSettingsRoutes(app, { onSettingsSaved });
+
+    const r = mockRes();
+    await app.routes['PUT /api/settings']({
+      body: { openweather_city: 'Chengdu', brain_mode: 'internal', calendar_provider: 'lark' },
+    }, r);
+
+    expect(invalidateCacheMock).toHaveBeenCalledTimes(1);
+    expect(onSettingsSaved).toHaveBeenCalledWith(
+      expect.arrayContaining(['openweather_city', 'brain_mode', 'calendar_provider']),
+      expect.any(Object),
+    );
+  });
+
+  it('PUT 改了 like_target_* 时让红心歌单缓存失效', async () => {
     const { mountSettingsRoutes } = await import('../server/api/settings.js');
     const app = mockApp();
     mountSettingsRoutes(app);
 
     const r = mockRes();
     await app.routes['PUT /api/settings']({
-      body: { openweather_city: 'Chengdu' },
+      body: { like_target_listid: '99', like_target_name: '我的收藏' },
     }, r);
 
-    expect(invalidateCacheMock).toHaveBeenCalledTimes(1);
+    expect(invalidateFavoriteMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('PUT 只动其他字段时不失效红心歌单缓存', async () => {
+    const { mountSettingsRoutes } = await import('../server/api/settings.js');
+    const app = mockApp();
+    mountSettingsRoutes(app);
+
+    const r = mockRes();
+    await app.routes['PUT /api/settings']({
+      body: { fish_voice_id: 'v' },
+    }, r);
+
+    expect(invalidateFavoriteMock).not.toHaveBeenCalled();
   });
 
   it('PUT 只动了非 weather 字段时不调 invalidateCache', async () => {

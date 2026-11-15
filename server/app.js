@@ -17,7 +17,7 @@ import { applyProgress } from './playback-control.js';
 import { readContinuePool } from './continue-pool.js';
 import { mountContinuePoolRoutes } from './api/continue-pool.js';
 import { mountRuntimeRoutes } from './api/runtime.js';
-import { readSavedVolume, createVolumeSaver } from './volume-store.js';
+import { readSavedVolume, hasSavedVolume, createVolumeSaver } from './volume-store.js';
 import { mountTtsRoutes } from './tts.js';
 import { mountSettingsRoutes } from './api/settings.js';
 import { mountLyricRoute } from './api/lyric.js';
@@ -29,6 +29,8 @@ import { mountStudioRoutes } from './api/studio.js';
 import { mountTestRoutes } from './api/test.js';
 import { mountPlaylistRoutes } from './api/playlists.js';
 import { mountExternalQueueRoutes } from './api/external-queue.js';
+import { startResidentDj, djEnabled } from './dj/resident.js';
+import { mountDjRoutes } from './dj/api.js';
 import { mountBootRoute } from './api/boot.js';
 import { mountChatRoute } from './api/chat.js';
 import { mountControlRoute } from './api/control.js';
@@ -36,6 +38,10 @@ import { mountPlaysRoutes } from './api/plays.js';
 import { mountSearchRoute } from './api/search.js';
 import { mountFavoriteRoutes } from './api/favorites.js';
 import { mountLikeRoutes } from './api/likes.js';
+import { mountKugouImportApiRoute } from './api/kugou-import-api.js';
+import { mountUnmatchedRoute } from './api/unmatched.js';
+import { mountMemoryRoutes } from './api/memory.js';
+import { resolveReadUserFile } from './services/user-files.js';
 import { authMiddleware, authorizeUpgrade } from './auth.js';
 import { hostGuard } from './host-guard.js';
 import { mountSessionRoute } from './session.js';
@@ -64,6 +70,7 @@ const runtime = {
   queueSource: null, // bot | boot | claude | playlist | scheduler
   trackEnded: false, // 当前这首已自然结束；外部队列要到最后一首结束才算放完
   volume: readSavedVolume(dbApi), // 0-100，prefs 里的上次音量；没有则默认 30
+  volumeExplicit: hasSavedVolume(dbApi), // false 表示 30 只是默认值，用户没显式设过
   currentTime: 0,
   duration: 0,
   lastReason: '',
@@ -110,8 +117,8 @@ mountRuntimeRoutes(app, {
 
 app.get('/api/taste', (req, res) => {
   try {
-    const taste = fs.readFileSync(path.join(ROOT, 'user', 'taste.md'), 'utf8');
-    const routines = fs.readFileSync(path.join(ROOT, 'user', 'routines.md'), 'utf8');
+    const taste = resolveReadUserFile(ROOT, 'user/taste.md').content;
+    const routines = resolveReadUserFile(ROOT, 'user/routines.md').content;
     res.json({ taste, routines });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -219,17 +226,56 @@ app.get('/api/proxy', async (req, res) => {
 mountTtsRoutes(app);
 
 // W2/W3 视图依赖的扩展 API
-mountSettingsRoutes(app);
+let djHandle = null;
+let schedulerHandle = null;
+
+function applyLiveSettings(applied = []) {
+  if (applied.includes('brain_mode')) {
+    schedulerHandle?.stop?.();
+    schedulerHandle = startBrainServices({
+      brain: brainMode(),
+      startScheduler,
+      schedulerOptions: {
+        runtime,
+        broadcast,
+        log: (...args) => console.log('[scheduler]', ...args),
+        ask: claudeAsk,
+        buildSystemPrompt,
+      },
+    });
+  }
+  if (applied.some(k => k.startsWith('dj_'))) {
+    djHandle?.stop?.();
+    djHandle = djEnabled()
+      ? startResidentDj({
+          runtime,
+          broadcast,
+          db: dbApi,
+          rootDir: ROOT,
+          log: (...args) => console.log('[dj]', ...args),
+        })
+      : null;
+  }
+  broadcast({ type: 'settings-updated', applied });
+}
+
+mountSettingsRoutes(app, { onSettingsSaved: applyLiveSettings });
 mountLyricRoute(app);
 mountWeatherRoute(app);
 mountTasteRoutes(app, { rootDir: ROOT });
-mountHealthRoute(app);
+mountHealthRoute(app, { getDj: () => djHandle });
 mountKugouReloginRoutes(app);
 mountStudioRoutes(app, { getRuntime: () => runtime });
 mountTestRoutes(app);
 mountPlaylistRoutes(app, { runtime, broadcast });
 mountExternalQueueRoutes(app, { runtime, broadcast });
 mountContinuePoolRoutes(app, { runtime, broadcast });
+mountKugouImportApiRoute(app, { rootDir: ROOT });
+mountUnmatchedRoute(app, { db: dbApi });
+mountMemoryRoutes(app, { runtime, broadcast, db: dbApi, rootDir: ROOT });
+
+// 常驻主持人：可通过 settings 或 CLAUDIO_DJ=1 开启，句柄在 start() 或设置热重载里赋值。
+mountDjRoutes(app, { getDj: () => djHandle });
 
 // ────────────────────────────────────────────────────────
 // HTTP server + WS upgrade
@@ -281,8 +327,8 @@ async function start() {
   // 时才真正调 /login/token，避免「每次启动都登录」被上游风控。
   startAutoRefresh();
 
-  // 定时推歌只在 CLAUDIO_BRAIN=internal 时挂上。external 不调用 Claude。
-  const scheduler = startBrainServices({
+  // 定时推歌只在 brainMode() === internal 时挂上。external 不调用 Claude。
+  schedulerHandle = startBrainServices({
     brain: brainMode(),
     startScheduler,
     schedulerOptions: {
@@ -293,12 +339,25 @@ async function start() {
       buildSystemPrompt,
     },
   });
-  console.log(scheduler.started
+  console.log(schedulerHandle.started
     ? '[claudio] scheduler 已挂 cron'
     : '[claudio] CLAUDIO_BRAIN=external，跳过定时推歌');
 
-  process.on('SIGINT', () => { stopAutoRefresh(); scheduler.stop(); process.exit(0); });
-  process.on('SIGTERM', () => { stopAutoRefresh(); scheduler.stop(); process.exit(0); });
+  // 常驻主持人：跟 brain 模式无关，external 下也能自己补歌。
+  if (djEnabled()) {
+    djHandle = startResidentDj({
+      runtime,
+      broadcast,
+      db: dbApi,
+      rootDir: ROOT,
+      log: (...args) => console.log('[dj]', ...args),
+    });
+  } else {
+    console.log('[claudio] CLAUDIO_DJ 未开启，常驻主持人待命');
+  }
+
+  process.on('SIGINT', () => { stopAutoRefresh(); schedulerHandle?.stop(); djHandle?.stop(); process.exit(0); });
+  process.on('SIGTERM', () => { stopAutoRefresh(); schedulerHandle?.stop(); djHandle?.stop(); process.exit(0); });
 
   server.listen(PORT, HOST, () => {
     const shownHost = HOST === '0.0.0.0' || HOST === '::' ? '127.0.0.1' : HOST;

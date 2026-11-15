@@ -4,6 +4,7 @@ import {
   VOLUME_PREF_KEY,
   createVolumeSaver,
   defaultVolume,
+  hasSavedVolume,
   readSavedVolume,
 } from '../server/volume-store.js';
 
@@ -42,6 +43,15 @@ describe('音量默认值和已保存值', () => {
     expect(readSavedVolume(db, { CLAUDIO_DEFAULT_VOLUME: '80' })).toBe(12);
     expect(readSavedVolume(memoryDb({ [VOLUME_PREF_KEY]: '0' }).db, {})).toBe(0);
     expect(readSavedVolume(memoryDb({ [VOLUME_PREF_KEY]: 'abc' }).db, {})).toBe(30);
+  });
+
+  it('hasSavedVolume 只认用户显式存过的合法音量', () => {
+    expect(hasSavedVolume(memoryDb().db)).toBe(false);
+    expect(hasSavedVolume(memoryDb({ [VOLUME_PREF_KEY]: '' }).db)).toBe(false);
+    expect(hasSavedVolume(memoryDb({ [VOLUME_PREF_KEY]: 'abc' }).db)).toBe(false);
+    expect(hasSavedVolume(memoryDb({ [VOLUME_PREF_KEY]: '0' }).db)).toBe(true);
+    expect(hasSavedVolume(memoryDb({ [VOLUME_PREF_KEY]: '42' }).db)).toBe(true);
+    expect(hasSavedVolume(null)).toBe(false);
   });
 });
 

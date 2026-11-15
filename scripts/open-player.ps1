@@ -1,4 +1,4 @@
-# Open the Claudio player in Chrome.
+# Open the Claudio desktop player (Electron native window) or Chrome fallback.
 # PowerShell 5 compatible. Keep this file ASCII.
 #
 # Why --autoplay-policy=no-user-gesture-required:
@@ -16,10 +16,38 @@
 param(
   [string]$BaseUrl = 'http://127.0.0.1:8080',
   [string]$ProfileDir = (Join-Path $env:LOCALAPPDATA 'Claudio\chrome-profile'),
-  [switch]$Tab
+  [switch]$Tab,
+  [switch]$Browser
 )
 
 $ErrorActionPreference = 'Stop'
+
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$electronExe = Join-Path $repoRoot 'node_modules\electron\dist\electron.exe'
+$desktopMain = Join-Path $repoRoot 'desktop\main.cjs'
+
+if (-not $Tab -and -not $Browser -and (Test-Path $electronExe) -and (Test-Path $desktopMain)) {
+  # Only an explicit -BaseUrl should bypass the desktop supervisor's backend auto-start.
+  # Set it on the child process only, so this PowerShell session stays clean.
+  $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+  $startInfo.FileName = $electronExe
+  $startInfo.Arguments = '"' + $desktopMain + '"'
+  $startInfo.WorkingDirectory = $repoRoot
+  $startInfo.UseShellExecute = $false
+  if ($PSBoundParameters.ContainsKey('BaseUrl')) {
+    $startInfo.EnvironmentVariables['CLAUDIO_SERVER_URL'] = $BaseUrl
+  } else {
+    # Inherited env must not silently bypass the supervisor either.
+    $startInfo.EnvironmentVariables.Remove('CLAUDIO_SERVER_URL') | Out-Null
+  }
+  [System.Diagnostics.Process]::Start($startInfo) | Out-Null
+  if ($PSBoundParameters.ContainsKey('BaseUrl')) {
+    Write-Host "Claudio desktop opened: $BaseUrl"
+  } else {
+    Write-Host 'Claudio desktop opened (backend auto-start)'
+  }
+  exit 0
+}
 
 $roots = @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:LOCALAPPDATA) | Where-Object { $_ }
 $chrome = $null

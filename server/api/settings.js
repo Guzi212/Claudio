@@ -1,5 +1,6 @@
 import { KEYS, get, set, isSensitive } from '../services/settings.js';
 import { invalidateCache as invalidateWeatherCache } from '../services/weather.js';
+import { favoriteStore as defaultFavoriteStore } from '../services/kugou-favorite.js';
 
 const MASK = '****已配置';
 
@@ -9,14 +10,17 @@ function viewKey(key) {
   return isSensitive(key) ? MASK : value;
 }
 
-export function mountSettingsRoutes(app) {
+export function mountSettingsRoutes(app, deps = {}) {
+  const onSettingsSaved = typeof deps.onSettingsSaved === 'function' ? deps.onSettingsSaved : null;
+  const favoriteStore = deps.favoriteStore || defaultFavoriteStore;
+
   app.get('/api/settings', (req, res) => {
     const out = {};
     for (const k of KEYS) out[k] = viewKey(k);
     res.json(out);
   });
 
-  app.put('/api/settings', (req, res) => {
+  app.put('/api/settings', async (req, res) => {
     const body = req.body || {};
     const applied = [];
     let weatherTouched = false;
@@ -29,10 +33,21 @@ export function mountSettingsRoutes(app) {
 
       set(key, value);
       applied.push(key);
-      if (key.startsWith('openweather_')) weatherTouched = true;
+      if (key.startsWith('openweather_') || key === 'weather_enabled') weatherTouched = true;
     }
 
     if (weatherTouched) invalidateWeatherCache();
+    if (applied.includes('like_target_listid') || applied.includes('like_target_name')) {
+      // 红心目标歌单变了，旧的歌单缓存必须立刻作废。
+      favoriteStore.invalidate?.();
+    }
+    if (onSettingsSaved && applied.length) {
+      try {
+        await onSettingsSaved(applied, body);
+      } catch (err) {
+        console.warn('[settings-api] onSettingsSaved warning:', err.message);
+      }
+    }
 
     res.json({ ok: true, applied });
   });

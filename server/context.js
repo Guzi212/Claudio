@@ -4,8 +4,12 @@ import { fileURLToPath } from 'node:url';
 import 'dotenv/config';
 import { dbApi } from './db.js';
 import { getCurrent as getWeather } from './services/weather.js';
-import { getTodayEvents } from './services/google-calendar.js';
+import { getTodayEvents as getGoogleEvents } from './services/google-calendar.js';
+import { getTodayEvents as getLarkEvents } from './services/lark-calendar.js';
+import { get as getSetting, getBoolean as getBoolSetting } from './services/settings.js';
 import { getPool, getPoolTracks, formatPoolForPrompt } from './services/candidate-pool.js';
+import { resolveReadUserFile } from './services/user-files.js';
+import { getContextSuggestion } from './memory/learner.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -18,6 +22,32 @@ function readSafe(relPath, fallback = '') {
   } catch {
     return fallback;
   }
+}
+
+// 当前听众要求：主持人临时写的「现在想听什么」，盖过长期品味。
+// 用文件 mtime 判新鲜度，超过 TTL 就当没写过，避免昨天的要求今天还在生效。
+const SESSION_NOTE_FILE = 'user/session-note.md';
+const SESSION_NOTE_TTL_MS = 6 * 3_600_000;
+
+export function readSessionNote({ now = Date.now() } = {}) {
+  const full = path.join(ROOT, SESSION_NOTE_FILE);
+  let stat;
+  let raw;
+  try {
+    stat = fs.statSync(full);
+    raw = fs.readFileSync(full, 'utf8');
+  } catch {
+    return null;
+  }
+  const ageMs = now - stat.mtimeMs;
+  if (ageMs > SESSION_NOTE_TTL_MS) return null;
+  const text = raw
+    .split('\n')
+    .filter(line => !line.trim().startsWith('<!--') && !line.trim().endsWith('-->'))
+    .join('\n')
+    .trim();
+  if (!text) return null;
+  return { text, ageMinutes: Math.max(0, Math.round(ageMs / 60000)) };
 }
 
 function formatNow(date = new Date()) {
@@ -56,17 +86,62 @@ export async function buildSystemPrompt({ now = new Date() } = {}) {
   const persona = readSafe('prompts/dj-persona.md').trim();
 
   // ① Claudio 自我认知
-  const identity = readSafe('claudio/identity.md').trim();
-  const journal  = readSafe('claudio/journal.md').trim();
+  const identity = resolveReadUserFile(ROOT, 'claudio/identity.md').content.trim() || readSafe('claudio/identity.md').trim();
+  const journal  = resolveReadUserFile(ROOT, 'claudio/journal.md').content.trim() || readSafe('claudio/journal.md').trim();
 
   // ② 用户语料
-  const taste = readSafe('user/taste.md').trim();
-  const routines = readSafe('user/routines.md').trim();
+  const taste = resolveReadUserFile(ROOT, 'user/taste.md').content.trim() || readSafe('user/taste.md').trim();
+  const learnedTaste = readSafe('user/taste.learned.md').trim();
+  const routines = resolveReadUserFile(ROOT, 'user/routines.md').content.trim() || readSafe('user/routines.md').trim();
 
-  // ③ 环境：时间 + 天气 + 今日日程
+  // ②-0 当前听众要求：数据库即时意图优先，其次主持人手写 session-note.md
+  const nowMs = now.getTime();
+  const activeIntent = dbApi.getActiveSessionIntent?.({ now: nowMs });
+  const fileNote = readSessionNote({ now: nowMs });
+  const sessionNote = activeIntent
+    ? { text: activeIntent.text, ageMinutes: Math.max(0, Math.round((nowMs - activeIntent.created_ts) / 60000)) }
+    : fileNote;
+
+  const since30d = nowMs - 30 * 86_400_000;
+  const ctxSuggestion = getContextSuggestion({
+    sessions: dbApi.recentPlaybackSessions?.({ sinceTs: since30d, limit: 400 }) || [],
+    volumeObs: dbApi.recentVolumeObservations?.({ sinceTs: since30d, limit: 400 }) || [],
+    feedback: dbApi.recentFeedback?.(100) || [],
+    traits: dbApi.listMemoryTraits?.() || [],
+    tasteText: taste,
+    now: nowMs,
+  });
+
+  const memoryTraitLines = [];
+  if (ctxSuggestion.confidence >= 0.3 || ctxSuggestion.activeTraits.length > 0 || ctxSuggestion.avoided.length > 0) {
+    if (ctxSuggestion.suggestedVolume != null) {
+      memoryTraitLines.push(`· 当前时段常见音量：约 ${ctxSuggestion.suggestedVolume}%`);
+    }
+    if (ctxSuggestion.vocalPreference !== 'neutral') {
+      memoryTraitLines.push(`· 当前人声倾向：${ctxSuggestion.vocalPreference === 'prefer_vocal' ? '偏好人声' : '偏好纯音乐/器乐'}`);
+    }
+    if (ctxSuggestion.energyTarget !== 'neutral') {
+      memoryTraitLines.push(`· 当前能量目标：${ctxSuggestion.energyTarget === 'calm' ? '舒缓平静' : ctxSuggestion.energyTarget === 'energetic' ? '有活力/节奏感' : '适中'}`);
+    }
+    if (ctxSuggestion.avoided.length) {
+      memoryTraitLines.push(`· 明确避开（点踩）：${ctxSuggestion.avoided.join('、')}`);
+    }
+    for (const t of ctxSuggestion.activeTraits.slice(0, 6)) {
+      memoryTraitLines.push(`· [${t.status === 'pinned' ? '用户置顶' : '记忆规律'}] ${t.summary}`);
+    }
+  }
+
+  // ③ 环境：时间 + 天气 + 今日日程（受 settings 开关与日历来源控制）
+  const weatherEnabled = getBoolSetting('weather_enabled', true);
+  const calendarProvider = String(getSetting('calendar_provider') || 'none').trim().toLowerCase();
+  const fetchCalendar = () => {
+    if (calendarProvider === 'google') return getGoogleEvents();
+    if (calendarProvider === 'lark') return getLarkEvents();
+    return Promise.resolve(null);
+  };
   const [weather, events] = await Promise.all([
-    getWeather(),
-    getTodayEvents(),
+    weatherEnabled ? getWeather() : Promise.resolve(null),
+    fetchCalendar(),
   ]);
 
   const envLines = [
@@ -117,8 +192,28 @@ export async function buildSystemPrompt({ now = new Date() } = {}) {
     '=== ① Claudio 的关系记忆 (journal.md) ===',
     journal || '(journal.md 不存在)',
     '',
+    ...(sessionNote
+      ? [
+        '=== ★ 当前听众要求（临时，最高优先级）===',
+        `（${sessionNote.ageMinutes} 分钟前更新，6 小时内有效）`,
+        sessionNote.text,
+        '',
+        '这一节和下面任何长期品味、最近播放、候选歌单冲突时，一律以这一节为准。它说的是「现在想听什么」，不是「一贯喜欢什么」。',
+        '',
+      ]
+      : []),
     '=== ② 用户品味语料 (taste.md) ===',
     taste || '(用户还没填 taste.md)',
+    '',
+    ...(memoryTraitLines.length
+      ? [
+        '=== ② 动态情境与长期记忆 (自适应画像) ===',
+        ...memoryTraitLines,
+        '',
+      ]
+      : []),
+    '=== ② 自动学到的品味 (taste.learned.md，机器总结，可信度低于上面的 taste.md) ===',
+    learnedTaste || '(还没有足够播放数据)',
     '',
     '=== ② 用户日程语料 (routines.md) ===',
     routines || '(用户还没填 routines.md)',

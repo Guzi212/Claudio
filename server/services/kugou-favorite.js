@@ -7,6 +7,7 @@ import {
   deletePlaylistTracks as defaultDeletePlaylistTracks,
   resolveTrackMeta as defaultResolveTrackMeta,
 } from './kugou.js';
+import { get as defaultGetSetting } from './settings.js';
 
 const PAGE_SIZE = 100;
 const MAX_PAGES = 10;
@@ -14,6 +15,14 @@ const CACHE_TTL_MS = 2 * 60 * 1000;
 
 export function favoritePlaylistName() {
   return String(process.env.CLAUDIO_FAVORITE_PLAYLIST || '我喜欢').trim() || '我喜欢';
+}
+
+// 设置页选中的红心歌单：listid 优先，名称兜底，都没有时回退到环境变量/「我喜欢」。
+export function favoritePlaylistTarget(readSetting = defaultGetSetting) {
+  const listid = String(readSetting('like_target_listid') || '').trim();
+  const name = String(readSetting('like_target_name') || '').trim();
+  if (listid) return { listid, name: name || listid };
+  return { listid: '', name: name || favoritePlaylistName() };
 }
 
 async function findPlaylist(name, fetchUserPlaylists) {
@@ -33,16 +42,21 @@ export function createFavoriteStore(deps = {}) {
   const addPlaylistTracks = deps.addPlaylistTracks || defaultAddPlaylistTracks;
   const deletePlaylistTracks = deps.deletePlaylistTracks || defaultDeletePlaylistTracks;
   const resolveTrackMeta = deps.resolveTrackMeta || defaultResolveTrackMeta;
+  const readSetting = typeof deps.getSetting === 'function' ? deps.getSetting : defaultGetSetting;
   const now = deps.now || (() => Date.now());
   let cache = null;
 
   async function load(force = false) {
     if (!force && cache && now() - cache.loadedAt < CACHE_TTL_MS) return cache;
-    const name = favoritePlaylistName();
-    const playlist = await findPlaylist(name, fetchUserPlaylists);
-    if (!playlist) throw new Error(`没有找到歌单「${name}」`);
-    const listid = String(playlist.listid || playlist.id || '').trim();
-    if (!listid) throw new Error(`歌单「${name}」没有 listid`);
+    const target = favoritePlaylistTarget(readSetting);
+    const name = target.name;
+    let listid = target.listid;
+    if (!listid) {
+      const playlist = await findPlaylist(name, fetchUserPlaylists);
+      if (!playlist) throw new Error(`没有找到歌单「${name}」`);
+      listid = String(playlist.listid || playlist.id || '').trim();
+      if (!listid) throw new Error(`歌单「${name}」没有 listid`);
+    }
     // 收藏列表必须读最新：KuGouMusicApi 会缓存 2 分钟，刚加/刚删的歌会看不到。
     const { tracks } = await fetchUserPlaylistTracks({ listid, fresh: true });
     const files = new Map();
@@ -121,4 +135,4 @@ export function createFavoriteStore(deps = {}) {
 
 export const favoriteStore = createFavoriteStore();
 
-export default { favoriteStore, createFavoriteStore, favoritePlaylistName };
+export default { favoriteStore, createFavoriteStore, favoritePlaylistName, favoritePlaylistTarget };

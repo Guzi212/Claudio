@@ -1,11 +1,10 @@
 // 极简 service worker：只缓存壳层（HTML/CSS/JS），不缓存音频和 /api/*
-const CACHE = 'claudio-shell-v20';
+const CACHE = 'claudio-shell-v22';
 const SHELL = [
-  '/', '/index.html', '/app.js', '/session-url.js', '/volume-memory.js', '/client-id.js', '/media-session.js', '/styles.css', '/manifest.json', '/icon.svg',
+  '/', '/index.html', '/app.js', '/session-url.js', '/theme-store.js', '/volume-memory.js', '/client-id.js', '/media-session.js', '/styles.css', '/manifest.json', '/icon.svg',
   '/external-playback.js', '/boot-playback.js', '/runtime-sync.js', '/player-mode.js',
   '/views/ui.js', '/views/player.js', '/views/playlists.js', '/views/profile.js', '/views/settings.js',
-  '/components/lyrics.js', '/components/env-strip.js', '/components/studio-visual.js',
-  '/assets/ink/landscape-wide.webp', '/assets/ink/landscape-tall.webp', '/assets/ink/paper.webp', '/assets/ink/cover.webp', '/assets/ink/grokbot.webp', '/assets/ink/icon-512.png',
+  '/components/lyrics.js',
 ];
 
 self.addEventListener('install', e => {
@@ -22,14 +21,11 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
-  // /api/* 和音频代理永远不走缓存
   if (url.pathname.startsWith('/api/')) return;
-  // 一次性 ?token= 不能进缓存键，否则密钥会留在 Cache Storage 里
   if (url.searchParams.has('token')) {
     e.respondWith(fetch(e.request));
     return;
   }
-  // GET 走 network-first：开发时优先拿最新壳层，离线时再回退缓存
   if (e.request.method !== 'GET') return;
 
   e.respondWith(

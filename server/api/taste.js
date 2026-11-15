@@ -1,15 +1,7 @@
 import fs from 'node:fs';
-import path from 'node:path';
+import { resolveReadUserFile, writeUserFile } from '../services/user-files.js';
 
 const DISTILLED_RE = /<!--\s*kugou-distilled:start\s*-->[\s\S]*?<!--\s*kugou-distilled:end\s*-->/;
-
-function readIfExists(filePath) {
-  try {
-    return fs.readFileSync(filePath, 'utf8');
-  } catch {
-    return '';
-  }
-}
 
 function mergeTaste(incoming, existing) {
   // 用户回传内容里已经含蒸馏区 → 直接按用户给的写
@@ -22,21 +14,16 @@ function mergeTaste(incoming, existing) {
 }
 
 export function mountTasteRoutes(app, { rootDir }) {
-  const userDir = path.join(rootDir, 'user');
-  const tastePath = path.join(userDir, 'taste.md');
-  const routinesPath = path.join(userDir, 'routines.md');
-
   app.put('/api/taste', (req, res) => {
     try {
       const body = req.body || {};
-      fs.mkdirSync(userDir, { recursive: true });
 
       if (typeof body.taste === 'string') {
-        const existing = readIfExists(tastePath);
-        fs.writeFileSync(tastePath, mergeTaste(body.taste, existing));
+        const existing = resolveReadUserFile(rootDir, 'user/taste.md').content;
+        writeUserFile(rootDir, 'user/taste.md', mergeTaste(body.taste, existing));
       }
       if (typeof body.routines === 'string') {
-        fs.writeFileSync(routinesPath, body.routines);
+        writeUserFile(rootDir, 'user/routines.md', body.routines);
       }
       res.json({ ok: true });
     } catch (err) {

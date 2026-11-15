@@ -22,30 +22,51 @@ beforeEach(() => {
 });
 
 describe('services/settings', () => {
-  it('导出 KEYS / getAll / get / set', async () => {
+  it('导出 KEYS / DEFAULTS / getAll / get / set / getBoolean / getNumber', async () => {
     const mod = await import('../server/services/settings.js');
     expect(Array.isArray(mod.KEYS)).toBe(true);
-    expect(mod.KEYS).toEqual([
-      'openweather_api_key',
-      'openweather_city',
-      'fish_api_key',
-      'fish_voice_id',
+    expect(mod.KEYS).toEqual(expect.arrayContaining([
+      'brain_mode',
+      'dj_enabled',
+      'dj_poll_seconds',
+      'dj_min_remaining_minutes',
+      'dj_batch_size',
       'deepseek_api_key',
       'deepseek_model',
-    ]);
+      'adaptive_volume_enabled',
+      'volume_safe_max',
+      'like_target_listid',
+      'like_target_name',
+      'fish_api_key',
+      'fish_voice_id',
+      'weather_enabled',
+      'openweather_api_key',
+      'openweather_city',
+      'calendar_provider',
+      'ui_theme',
+      'global_hotkey',
+      'hotkey_media_key',
+      'close_to_tray',
+      'always_on_top_mini',
+    ]));
     expect(typeof mod.getAll).toBe('function');
     expect(typeof mod.get).toBe('function');
     expect(typeof mod.set).toBe('function');
+    expect(mod.getBoolean('weather_enabled', true)).toBe(true);
+    expect(mod.getNumber('volume_safe_max', 85)).toBe(85);
   });
 
-  it('get 优先返回 prefs，没有则回退 .env（同名大写）', async () => {
+  it('get 优先返回 prefs，没有则回退 .env（同名大写或别名）', async () => {
     process.env.OPENWEATHER_CITY = 'Shanghai';
     process.env.OPENWEATHER_API_KEY = 'env-key';
+    process.env.CLAUDIO_BRAIN = 'internal';
     mem.set('openweather_api_key', 'pref-key');
 
     const { get } = await import('../server/services/settings.js');
     expect(get('openweather_api_key')).toBe('pref-key');
     expect(get('openweather_city')).toBe('Shanghai');
+    expect(get('brain_mode')).toBe('internal');
+    delete process.env.CLAUDIO_BRAIN;
   });
 
   it('get 两边都没值返回空字符串', async () => {
@@ -53,19 +74,17 @@ describe('services/settings', () => {
     expect(get('fish_api_key')).toBe('');
   });
 
-  it('getAll 返回六个 key 的当前值', async () => {
+  it('getAll 包含所有对齐 key 的当前值', async () => {
     process.env.OPENWEATHER_CITY = 'Beijing';
     mem.set('fish_voice_id', 'voice-x');
 
-    const { getAll } = await import('../server/services/settings.js');
-    expect(getAll()).toEqual({
-      openweather_api_key: '',
-      openweather_city: 'Beijing',
-      fish_api_key: '',
-      fish_voice_id: 'voice-x',
-      deepseek_api_key: '',
-      deepseek_model: '',
-    });
+    const { KEYS, getAll } = await import('../server/services/settings.js');
+    const all = getAll();
+    expect(Object.keys(all)).toEqual(KEYS);
+    expect(all.openweather_city).toBe('Beijing');
+    expect(all.fish_voice_id).toBe('voice-x');
+    expect(all.openweather_api_key).toBe('');
+    expect(all.deepseek_model).toBe('');
   });
 
   it('set 校验 key 在白名单内，未知 key 抛错', async () => {
