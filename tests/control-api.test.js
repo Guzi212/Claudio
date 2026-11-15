@@ -253,6 +253,12 @@ describe('播放进度', () => {
     expect(runtime.duration).toBe(180);
     expect(runtime.volume).toBe(25);
     expect(runtime.paused).toBe(true);
+    expect(runtime.volumeExplicit).toBe(true);
+  });
+
+  it('status 区分默认音量与用户显式音量', () => {
+    expect(playbackStatus({ volume: 30 }).volumeExplicit).toBe(false);
+    expect(playbackStatus({ volume: 30, volumeExplicit: true }).volumeExplicit).toBe(true);
   });
 
   it('status 带上进度、音量和在线人数', () => {

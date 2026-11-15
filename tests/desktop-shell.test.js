@@ -118,6 +118,15 @@ describe('desktop process supervisor', () => {
   });
 });
 
+describe('desktop control bridge', () => {
+  it('发送 /api/control 约定的 command 字段并带 JSON Content-Type', () => {
+    const main = fs.readFileSync(path.resolve('desktop/main.cjs'), 'utf8');
+    expect(main).toContain("headers: { 'Content-Type': 'application/json' }");
+    expect(main).toMatch(/body: JSON\.stringify\(\{ command,/);
+    expect(main).not.toMatch(/body: JSON\.stringify\(\{ action,/);
+  });
+});
+
 describe('open-player.ps1 混合启动契约', () => {
   it('保持纯 ASCII、Chrome 参数契约，并支持优先启动桌面客户端', () => {
     const ps1 = fs.readFileSync(path.resolve('scripts/open-player.ps1'), 'utf8');

@@ -64,7 +64,7 @@ describe('minimalist dual-theme radio contract', () => {
   });
 
   it('离线壳缓存覆盖新增资源并移除已淘汰视觉模块', () => {
-    expect(sw).toMatch(/const CACHE = 'claudio-shell-v21'/);
+    expect(sw).toMatch(/const CACHE = 'claudio-shell-v22'/);
     expect(sw).toContain('\'/theme-store.js\'');
     expect(sw).toContain('\'/external-playback.js\'');
     expect(sw).toContain('\'/boot-playback.js\'');
@@ -84,5 +84,7 @@ describe('minimalist dual-theme radio contract', () => {
     expect(playlistsJs).toContain('/api/kugou/play');
     expect(playlistsJs).toContain('like_target_listid');
     expect(playlistsJs).toContain('claudio:queue-replace');
+    // 订阅/系统歌单不可写，不能设为红心目标。
+    expect(playlistsJs).toContain('p.writable !== false');
   });
 });

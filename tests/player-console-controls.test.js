@@ -55,6 +55,12 @@ describe('player console controls', () => {
     expect(playerJs).toContain('refreshFavoriteState');
   });
 
+  it('自适应初始音量只覆盖服务端未显式设置的音量', () => {
+    expect(playerJs).toContain('data.volumeExplicit === true');
+    expect(playerJs).not.toContain('hasServerVolume: Number.isFinite(data.volume)');
+    expect(playerJs).toContain("['0', 'false', 'off', 'no']");
+  });
+
   it('待播封面加载失败时移除坏图并保留备用封面', () => {
     expect(playerJs).toContain('function bindQueueCoverFallbacks()');
     expect(playerJs).toContain("img.addEventListener('error'");

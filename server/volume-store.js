@@ -25,6 +25,14 @@ export function readSavedVolume(db, env = process.env) {
   return clampVolume(saved) ?? fallback;
 }
 
+// 区分「用户显式存过音量」和「只是默认值」，前端据此决定是否套用作息建议音量。
+export function hasSavedVolume(db) {
+  if (!db || typeof db.getPref !== 'function') return false;
+  const saved = db.getPref(VOLUME_PREF_KEY);
+  if (saved == null || String(saved).trim() === '') return false;
+  return clampVolume(saved) != null;
+}
+
 // 第一次变化马上写。相同值跳过。间隔内的后续变化先挂着，到点写最后一次，避免拖动滑块时每次都打 prefs。
 export function createVolumeSaver({
   db,

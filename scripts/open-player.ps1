@@ -27,9 +27,25 @@ $electronExe = Join-Path $repoRoot 'node_modules\electron\dist\electron.exe'
 $desktopMain = Join-Path $repoRoot 'desktop\main.cjs'
 
 if (-not $Tab -and -not $Browser -and (Test-Path $electronExe) -and (Test-Path $desktopMain)) {
-  $env:CLAUDIO_SERVER_URL = $BaseUrl
-  Start-Process -FilePath $electronExe -ArgumentList @($desktopMain) -WorkingDirectory $repoRoot
-  Write-Host "Claudio desktop opened: $BaseUrl"
+  # Only an explicit -BaseUrl should bypass the desktop supervisor's backend auto-start.
+  # Set it on the child process only, so this PowerShell session stays clean.
+  $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+  $startInfo.FileName = $electronExe
+  $startInfo.Arguments = '"' + $desktopMain + '"'
+  $startInfo.WorkingDirectory = $repoRoot
+  $startInfo.UseShellExecute = $false
+  if ($PSBoundParameters.ContainsKey('BaseUrl')) {
+    $startInfo.EnvironmentVariables['CLAUDIO_SERVER_URL'] = $BaseUrl
+  } else {
+    # Inherited env must not silently bypass the supervisor either.
+    $startInfo.EnvironmentVariables.Remove('CLAUDIO_SERVER_URL') | Out-Null
+  }
+  [System.Diagnostics.Process]::Start($startInfo) | Out-Null
+  if ($PSBoundParameters.ContainsKey('BaseUrl')) {
+    Write-Host "Claudio desktop opened: $BaseUrl"
+  } else {
+    Write-Host 'Claudio desktop opened (backend auto-start)'
+  }
   exit 0
 }
 

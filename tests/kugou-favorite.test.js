@@ -88,4 +88,43 @@ describe('createFavoriteStore', () => {
     const store = createFavoriteStore(deps);
     await expect(store.isFavorite('h1')).rejects.toThrow('没有找到歌单「我喜欢」');
   });
+
+  it('设置里有 listid 时直接使用，不再按名字搜索', async () => {
+    const deps = makeDeps({
+      getSetting: vi.fn(key => ({ like_target_listid: '99', like_target_name: '我的收藏' }[key] || '')),
+    });
+    const store = createFavoriteStore(deps);
+    await store.isFavorite('h1');
+    expect(deps.fetchUserPlaylists).not.toHaveBeenCalled();
+    expect(deps.fetchUserPlaylistTracks).toHaveBeenCalledWith({ listid: '99', fresh: true });
+  });
+
+  it('没有 listid 时按设置里的名称兜底', async () => {
+    const deps = makeDeps({
+      getSetting: vi.fn(key => ({ like_target_listid: '', like_target_name: '通勤' }[key] || '')),
+    });
+    const store = createFavoriteStore(deps);
+    await store.isFavorite('h1');
+    expect(deps.fetchUserPlaylistTracks).toHaveBeenCalledWith({ listid: '1', fresh: true });
+  });
+
+  it('两项都没配置时回退到默认「我喜欢」', async () => {
+    const deps = makeDeps({ getSetting: vi.fn(() => '') });
+    const store = createFavoriteStore(deps);
+    await store.isFavorite('h1');
+    expect(deps.fetchUserPlaylistTracks).toHaveBeenCalledWith({ listid: '2', fresh: true });
+  });
+
+  it('invalidate 后按新的设置重新解析歌单', async () => {
+    let listid = '2';
+    const deps = makeDeps({
+      getSetting: vi.fn(key => (key === 'like_target_listid' ? listid : '')),
+    });
+    const store = createFavoriteStore(deps);
+    await store.isFavorite('h1');
+    listid = '99';
+    store.invalidate();
+    await store.isFavorite('h1');
+    expect(deps.fetchUserPlaylistTracks).toHaveBeenLastCalledWith({ listid: '99', fresh: true });
+  });
 });

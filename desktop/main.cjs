@@ -105,11 +105,11 @@ function persistStateSoon() {
   }, 150);
 }
 
-function sendControl(action) {
+function sendControl(command) {
   fetch(`${baseUrl}/api/control`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, agentId: 'desktop-shell', agentName: 'Desktop Shell' }),
+    body: JSON.stringify({ command, agentId: 'desktop-shell', agentName: 'Desktop Shell' }),
   }).catch(() => {});
 }
 

@@ -1,5 +1,6 @@
 import { KEYS, get, set, isSensitive } from '../services/settings.js';
 import { invalidateCache as invalidateWeatherCache } from '../services/weather.js';
+import { favoriteStore as defaultFavoriteStore } from '../services/kugou-favorite.js';
 
 const MASK = '****已配置';
 
@@ -11,6 +12,7 @@ function viewKey(key) {
 
 export function mountSettingsRoutes(app, deps = {}) {
   const onSettingsSaved = typeof deps.onSettingsSaved === 'function' ? deps.onSettingsSaved : null;
+  const favoriteStore = deps.favoriteStore || defaultFavoriteStore;
 
   app.get('/api/settings', (req, res) => {
     const out = {};
@@ -35,6 +37,10 @@ export function mountSettingsRoutes(app, deps = {}) {
     }
 
     if (weatherTouched) invalidateWeatherCache();
+    if (applied.includes('like_target_listid') || applied.includes('like_target_name')) {
+      // 红心目标歌单变了，旧的歌单缓存必须立刻作废。
+      favoriteStore.invalidate?.();
+    }
     if (onSettingsSaved && applied.length) {
       try {
         await onSettingsSaved(applied, body);

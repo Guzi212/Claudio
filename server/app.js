@@ -17,7 +17,7 @@ import { applyProgress } from './playback-control.js';
 import { readContinuePool } from './continue-pool.js';
 import { mountContinuePoolRoutes } from './api/continue-pool.js';
 import { mountRuntimeRoutes } from './api/runtime.js';
-import { readSavedVolume, createVolumeSaver } from './volume-store.js';
+import { readSavedVolume, hasSavedVolume, createVolumeSaver } from './volume-store.js';
 import { mountTtsRoutes } from './tts.js';
 import { mountSettingsRoutes } from './api/settings.js';
 import { mountLyricRoute } from './api/lyric.js';
@@ -70,6 +70,7 @@ const runtime = {
   queueSource: null, // bot | boot | claude | playlist | scheduler
   trackEnded: false, // 当前这首已自然结束；外部队列要到最后一首结束才算放完
   volume: readSavedVolume(dbApi), // 0-100，prefs 里的上次音量；没有则默认 30
+  volumeExplicit: hasSavedVolume(dbApi), // false 表示 30 只是默认值，用户没显式设过
   currentTime: 0,
   duration: 0,
   lastReason: '',

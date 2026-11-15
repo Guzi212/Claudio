@@ -48,4 +48,8 @@ describe('settings view API contract', () => {
     expect(settingsViewJs).toContain('/api/test/ai');
     expect(settingsViewJs).toContain('/api/test/calendar');
   });
+
+  it('手动改红心歌单名会清掉旧的隐藏 listid', () => {
+    expect(settingsViewJs).not.toContain('!nodes.likeTargetName.value.trim()');
+  });
 });

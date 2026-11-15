@@ -205,7 +205,7 @@ function renderList(items) {
     return;
   }
 
-  items.forEach((p, idx) => {
+  items.forEach(p => {
     const li = document.createElement('li');
     li.className = 'playlist-item';
 
@@ -222,22 +222,25 @@ function renderList(items) {
 
     const actions = document.createElement('div');
     actions.className = 'playlist-actions';
-    const likeBtn = document.createElement('button');
-    likeBtn.type = 'button';
-    likeBtn.className = 'btn ghost';
-    likeBtn.textContent = '设为喜欢单';
-    likeBtn.addEventListener('click', () => setLikeTarget(playlists[idx]));
+    // 订阅/系统歌单只读，不能作为红心目标。
+    if (p.writable !== false) {
+      const likeBtn = document.createElement('button');
+      likeBtn.type = 'button';
+      likeBtn.className = 'btn ghost';
+      likeBtn.textContent = '设为喜欢单';
+      likeBtn.addEventListener('click', () => setLikeTarget(p));
+      actions.appendChild(likeBtn);
+    }
     const poolBtn = document.createElement('button');
     poolBtn.type = 'button';
     poolBtn.className = 'btn ghost';
     poolBtn.textContent = '设为候选池';
-    poolBtn.addEventListener('click', () => setPool(playlists[idx]));
+    poolBtn.addEventListener('click', () => setPool(p));
     const playBtn = document.createElement('button');
     playBtn.type = 'button';
     playBtn.className = 'btn primary';
     playBtn.textContent = '整单播放';
-    playBtn.addEventListener('click', () => playPlaylist(playlists[idx]));
-    actions.appendChild(likeBtn);
+    playBtn.addEventListener('click', () => playPlaylist(p));
     actions.appendChild(poolBtn);
     actions.appendChild(playBtn);
 

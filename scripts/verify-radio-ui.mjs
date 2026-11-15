@@ -86,7 +86,7 @@ const tracks = [
   { title: '慢慢喜欢你', artist: '莫文蔚', kugouId: 'preview-slow', reason: '把日常唱得温柔一点。', audioUrl: '/preview-tone.wav', duration: 240, cover: cover('慢慢喜欢你', '莫文蔚', ['#a59b82', '#5b4b3b', '#504333']) },
 ];
 const tone = wav();
-const state = { queue: tracks, index: 0, paused: false, trackEnded: false, currentTime: 83, duration: 240, volume: 30, brain: 'external', lastSay: '晚上好，loic。今晚让 Grokbot 陪你，把节奏放慢一点。', lastReason: '', queuedAt: '2026-10-27T09:05:00.000Z' };
+const state = { queue: tracks, index: 0, paused: false, trackEnded: false, currentTime: 83, duration: 240, volume: 30, brain: 'external', lastSay: '晚上好，loic。今晚让外部主持人陪你，把节奏放慢一点。', lastReason: '', queuedAt: '2026-10-27T09:05:00.000Z' };
 const clients = new Set();
 function broadcastState(origin) {
   const event = JSON.stringify({ type: 'state', runtime: state, ...(origin ? { origin } : {}) });
@@ -258,18 +258,35 @@ try {
     results[name] = await layout(name, width, height);
   }
 
-  const canvases = new Set();
-  for (const [name, width, height] of [['desktop', 1280, 900], ['mobile', 390, 844]]) {
-    await viewport(width, height);
-    await navigate();
-    for (const part of ['dawn', 'noon', 'afternoon', 'dusk', 'night']) {
-      await evaluate(`document.documentElement.dataset.daypart = ${JSON.stringify(part)}`);
-      await delay(60);
-      canvases.add(await evaluate(`getComputedStyle(document.querySelector('.ink-tint')).backgroundImage`));
-      await screenshot(`${name}-${part}`);
-    }
+  // 双主题：走页面真实的 claudio:theme 事件，验证 dataset、CSS 变量与 meta 同步。
+  await viewport(1280, 900); await navigate();
+  const theme = {};
+  for (const name of ['light', 'dark']) {
+    await evaluate(`window.dispatchEvent(new CustomEvent('claudio:theme', { detail: ${JSON.stringify(name)} }))`);
+    await delay(120);
+    theme[name] = await evaluate(`(() => {
+      const root = getComputedStyle(document.documentElement);
+      const body = getComputedStyle(document.body);
+      return {
+        dataset: document.documentElement.dataset.theme,
+        bg: root.getPropertyValue('--bg').trim(),
+        ink: root.getPropertyValue('--ink').trim(),
+        bodyBg: body.backgroundColor,
+        meta: document.querySelector('meta[name="theme-color"]')?.content || '',
+        stored: localStorage.getItem('claudio:ui-theme') || '',
+      };
+    })()`);
+    await screenshot(`theme-${name}`);
   }
-  assert.equal(canvases.size, 5, 'Each daypart should paint its own paper tint');
+  assert.equal(theme.light.dataset, 'light');
+  assert.equal(theme.dark.dataset, 'dark');
+  assert.equal(theme.light.bg, '#F7F6F2');
+  assert.equal(theme.dark.bg, '#121316');
+  assert.notEqual(theme.light.bodyBg, theme.dark.bodyBg);
+  assert.equal(theme.light.meta, '#F7F6F2');
+  assert.equal(theme.dark.meta, '#121316');
+  assert.equal(theme.light.stored, 'light');
+  assert.equal(theme.dark.stored, 'dark');
 
   await viewport(390, 844); await navigate();
   await waitFor(`!document.body.classList.contains('is-empty')`);
@@ -308,11 +325,17 @@ try {
   });
   await evaluate(`document.querySelector('[data-feedback="like"]').click()`);
   const liked = await evaluate(`document.querySelector('[data-feedback="like"]').getAttribute('aria-pressed')`);
+  await evaluate(`document.querySelector('[data-feedback="like"]').click()`);
+  const unliked = await evaluate(`document.querySelector('[data-feedback="like"]').getAttribute('aria-pressed') === 'false'`);
+  // 切到队尾：点踩会立刻跳下一首，队尾才能稳定验证互斥与取消。
+  await evaluate(`document.querySelector('#queue-list [data-idx="3"]').click()`);
+  await waitFor(`document.querySelector('#np-title').textContent === '慢慢喜欢你'`);
+  await evaluate(`document.querySelector('[data-feedback="like"]').click()`);
   await evaluate(`document.querySelector('[data-feedback="dislike"]').click()`);
   const exclusive = await evaluate(`document.querySelector('[data-feedback="like"]').getAttribute('aria-pressed') === 'false' && document.querySelector('[data-feedback="dislike"]').getAttribute('aria-pressed') === 'true'`);
   await evaluate(`document.querySelector('[data-feedback="dislike"]').click()`);
   const cancelled = await evaluate(`document.querySelector('[data-feedback="dislike"]').getAttribute('aria-pressed') === 'false'`);
-  assert.equal(liked, 'true'); assert.equal(exclusive, true); assert.equal(cancelled, true);
+  assert.equal(liked, 'true'); assert.equal(unliked, true); assert.equal(exclusive, true); assert.equal(cancelled, true);
 
   const favoriteBefore = await evaluate(`document.querySelector('[data-console-control="favorite"]').getAttribute('aria-pressed')`);
   await click('[data-console-control="favorite"]');
@@ -464,8 +487,8 @@ try {
   await screenshot('mobile-empty');
 
   assert.equal(errors.length, 0, `Browser errors: ${errors.join('\n')}`);
-  await writeFile(path.join(output, 'verification.json'), JSON.stringify({ results, playback, motionPlaying, motionPaused, selected, liked, exclusive, cancelled, favorited, seek, rememberedVolume, nav, focus, consoleHidden, externalOptionsHidden, longQueue, internal, internalOptions, lyricPosition, lyricFollow, empty, errors }, null, 2));
-  console.log(JSON.stringify({ ok: true, output, screenshots: 14, playback, motionPlaying, motionPaused, selected, seek, rememberedVolume, nav, errors }, null, 2));
+  await writeFile(path.join(output, 'verification.json'), JSON.stringify({ results, theme, playback, motionPlaying, motionPaused, selected, liked, exclusive, cancelled, favorited, seek, rememberedVolume, nav, focus, consoleHidden, externalOptionsHidden, longQueue, internal, internalOptions, lyricPosition, lyricFollow, empty, errors }, null, 2));
+  console.log(JSON.stringify({ ok: true, output, screenshots: 14, theme, playback, motionPlaying, motionPaused, selected, seek, rememberedVolume, nav, errors }, null, 2));
 } finally {
   if (ws?.readyState === WebSocket.OPEN) { try { await send('Browser.close'); } catch {} ws.close(); }
   if (chrome && chrome.exitCode === null) chrome.kill();

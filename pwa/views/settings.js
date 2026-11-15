@@ -516,9 +516,8 @@ export function initSettings() {
     });
   }
   nodes.likeTargetName?.addEventListener('input', () => {
-    if (!nodes.likeTargetName.value.trim() && nodes.likeTargetId) {
-      nodes.likeTargetId.value = '';
-    }
+    // 手动改过名字后，旧 listid 已不对应当前名字，清掉让服务端按名称兜底。
+    if (nodes.likeTargetId) nodes.likeTargetId.value = '';
   });
   nodes.uiTheme?.addEventListener('change', () => {
     window.dispatchEvent(new CustomEvent('claudio:theme', { detail: nodes.uiTheme.value }));

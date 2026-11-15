@@ -57,6 +57,8 @@ let queueVisible = true;
 const feedbackByTrack = new Map();
 const favoriteState = new Map();
 let favoriteCheckToken = 0;
+// 本次启动是否已套用作息建议音量；之后服务端的默认音量不该再把它盖回去。
+let adaptiveVolumeApplied = false;
 
 let chat, composer, input, submitBtn, audio, npBox, npTitle, npArtist, consolePlayBtn, consoleFavoriteBtn, queueBtn, loopBtn, queueList, npSeek, npTimeCur, npTimeDur, npVol;
 
@@ -734,10 +736,11 @@ async function toggleFavorite() {
     if (!data.ok) throw new Error(data.error || `HTTP ${r.status}`);
     favoriteState.set(hash, Boolean(data.liked));
     if (stillCurrent()) paintFavorite(Boolean(data.liked));
+    const targetName = data.playlist?.name || '我喜欢';
     if (next) {
-      toast(data.duplicate ? `已在「我喜欢」：${track.title}` : `已加入「我喜欢」：${track.title}`);
+      toast(data.duplicate ? `已在「${targetName}」：${track.title}` : `已加入「${targetName}」：${track.title}`);
     } else {
-      toast(`已从「我喜欢」移除：${track.title}`);
+      toast(`已从「${targetName}」移除：${track.title}`);
     }
   } catch (err) {
     if (stillCurrent()) paintFavorite(current);
@@ -1044,6 +1047,14 @@ function bindIntentForm() {
   });
 }
 
+function settingEnabled(value, fallback = true) {
+  const raw = String(value ?? '').trim().toLowerCase();
+  if (!raw) return fallback;
+  if (['1', 'true', 'on', 'yes'].includes(raw)) return true;
+  if (['0', 'false', 'off', 'no'].includes(raw)) return false;
+  return fallback;
+}
+
 async function hydrateMemoryContext({ hasServerVolume = false } = {}) {
   if (location.protocol === 'file:') return;
   try {
@@ -1055,10 +1066,11 @@ async function hydrateMemoryContext({ hasServerVolume = false } = {}) {
     const settings = settingsRes.status === 'fulfilled' ? settingsRes.value : null;
     if (brief) {
       syncIntentUi(brief.activeIntent?.text || '');
-      const adaptiveOn = settings?.adaptive_volume_enabled !== 'false';
+      const adaptiveOn = settingEnabled(settings?.adaptive_volume_enabled, true);
       const suggested = brief.context?.suggestedVolume;
       if (!hasServerVolume && adaptiveOn && !brief.context?.coldStart && Number.isFinite(suggested)) {
         applyHeardVolume(suggested);
+        adaptiveVolumeApplied = true;
       }
     }
   } catch { /* ignore */ }
@@ -1089,7 +1101,8 @@ export function applyRuntime(runtime, { origin } = {}) {
     hasSrc: Boolean(audio?.getAttribute?.('src') || audio?.src),
     ended: Boolean(audio?.ended),
   }, runtime);
-  if (Number.isFinite(plan.volume)) applyHeardVolume(plan.volume);
+  const keepAdaptiveVolume = adaptiveVolumeApplied && runtime.volumeExplicit !== true;
+  if (Number.isFinite(plan.volume) && !keepAdaptiveVolume) applyHeardVolume(plan.volume);
   else ensurePlaybackVolume();
   if (plan.applyQueue && plan.playIndex == null) {
     state.queue = plan.queue || [];
@@ -1354,7 +1367,8 @@ async function bootCurrent({ silent = false, keepOverlay = false } = {}) {
     rememberQueueMeta(data);
     if (Number.isFinite(data.volume)) applyHeardVolume(data.volume);
     else ensurePlaybackVolume();
-    hydrateMemoryContext({ hasServerVolume: Number.isFinite(data.volume) });
+    // 服务端 volume 总是有限数字（默认 30），只有 volumeExplicit 才代表用户真的设过。
+    hydrateMemoryContext({ hasServerVolume: data.volumeExplicit === true });
     if (brain !== 'internal') {
       serverProgress = Number(data.currentTime) || 0;
       const plan = planExternalBoot({ queue: data.queue, paused: data.paused === true });
