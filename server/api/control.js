@@ -16,6 +16,13 @@ export function mountControlRoute(app, deps = {}) {
       return;
     }
     const body = req.body || {};
+    if (body.agentId || body.agentName) {
+      const id = String(body.agentId || body.agentName).trim().slice(0, 60);
+      const name = String(body.agentName || body.agentId).trim().slice(0, 60);
+      if (id) {
+        runtime.activeAgent = { id, name: name || id, updatedAt: new Date().toISOString() };
+      }
+    }
     const result = applyControl(runtime, {
       command: body.command,
       value: body.value,
@@ -30,6 +37,12 @@ export function mountControlRoute(app, deps = {}) {
     }
     if (result.command === 'volume') {
       try { rememberVolume(result.volume, { force: true }); } catch { /* 音量记失败不影响这次控制 */ }
+      try {
+        db.addVolumeObservation?.({
+          volume: result.volume,
+          trigger: body.trigger === 'adaptive' ? 'adaptive' : 'manual',
+        });
+      } catch { /* 音量观察失败不影响控制 */ }
     }
     broadcast({ type: 'state', runtime });
     res.json(result);

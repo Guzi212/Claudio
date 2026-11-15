@@ -418,6 +418,44 @@ Invoke-Claudio Post '/api/feedback' @{ kind = 'like'; title = '晴天'; artist =
 
 `target` 不含播放队列时 `queue` 为 `null`。不含酷狗歌单时 `playlist` 为 `null`。歌单写入失败时 HTTP 仍是 200，看 `ok` 和 `playlist.ok` / `playlist.error`，避免客户端自动重试造成重复写入。
 
+## 常驻主持人（DJ）
+
+`CLAUDIO_DJ=1` 时，Claudio 自己当主持人，不用外部 bot 一直盯着。
+
+它每 20 秒看一次队列（`CLAUDIO_DJ_TICK_MS`），算从当前这首到队尾还剩多少秒：
+
+- 剩余不足 `CLAUDIO_DJ_REFILL_BELOW`（默认 600 秒）→ 让模型按当前氛围排 `CLAUDIO_DJ_BATCH` 首（默认 5），**接在队尾**（append），不打断正在放的那首。
+- 有页面连着（`active`）且没暂停才动手，没人听不烧 token。
+- 外部 bot 刚投过歌（`queuedAt` 在 `CLAUDIO_DJ_YIELD_MS` 内，默认 3 分钟）就让位，不跟人抢。
+- 新一批里剔掉最近 40 首播过的；模型给的全重复就放弃这一轮，90 秒后再试。
+- 串词 `say` 走原来的 Fish Audio TTS，排在新歌最前面。
+
+### 品味学习
+
+每次补歌成功后检查一次：新增播放满 15 条、且距上次蒸馏超过 6 小时，就把近 30 天的播放和反馈压成统计，让模型写成 `user/taste.learned.md`：
+
+- 常驻歌手 / 在升温 / 在退潮 / 雷区 / 时段规律 / 一句话画像，每条带次数和比例。
+- 这个文件作为 `=== ② 自动学到的品味 ===` 注入选歌提示，排在 `user/taste.md` 后面，可信度更低。
+- 文件被 git 忽略；手改会在下次蒸馏时覆盖，想长期生效写进 `taste.md`。
+
+### 接口
+
+| 用途 | 方法 + 路径 | 返回 |
+| --- | --- | --- |
+| 状态 | `GET /api/dj/status` | `enabled`、`refillCount`、`lastRefillAt`、`lastError`、`lastDecision`、`remainingSeconds`、`tasteLearnedAt`、`config` |
+| 手动补一批 | `POST /api/dj/refill` | `{ok, added, say, reason}`，不等剩余阈值 |
+| 手动重学品味 | `POST /api/dj/learn` | `{ok, path, stats}` |
+
+没开 `CLAUDIO_DJ` 时后两个接口返回 409。
+
+### 和 internal 模式的区别
+
+`internal` 是固定 cron（07:00 / 09:00 / 每小时）推歌，队列播完可能空着。常驻主持人是**按队列余量**补，不依赖时间点。两套可以同时开：cron 负责早上推第一轮，主持人负责后面不断流。
+
+### 模型
+
+走 `claude.js` 的 `complete()`：有 DeepSeek key 用 DeepSeek，没有就 `claude -p`。蒸馏品味给 180 秒超时，`claude -p` 冷启动慢也不会被 60 秒默认值掐断。
+
 ## 续播池
 
 主持人通过 `PUT /api/continue-pool`（也接受 POST）替换续播池，鉴权与其它 `/api` 相同。Claudio 只顺序/随机播放已选歌曲，不调用 AI。最多 200 首：

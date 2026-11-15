@@ -45,10 +45,17 @@ export function detectSignal(userMessage, recentPlays, now = new Date()) {
   return null;
 }
 
+function resolveJournalTarget(journalPath) {
+  if (journalPath !== DEFAULT_JOURNAL) return journalPath;
+  const localPath = path.resolve(__dirname, '../../claudio/journal.local.md');
+  return fs.existsSync(localPath) ? localPath : journalPath;
+}
+
 export function appendJournalEntry(signal, now = new Date(), journalPath = DEFAULT_JOURNAL) {
+  const targetPath = resolveJournalTarget(journalPath);
   let content;
   try {
-    content = fs.readFileSync(journalPath, 'utf8');
+    content = fs.readFileSync(targetPath, 'utf8');
   } catch {
     return;
   }
@@ -69,7 +76,7 @@ export function appendJournalEntry(signal, now = new Date(), journalPath = DEFAU
   // entries 区块格式：\n<新条目>\n<旧条目...>\n
   const newMiddle = '\n' + entry + trimmed.join('\n') + (trimmed.length ? '\n' : '');
   try {
-    fs.writeFileSync(journalPath, before + newMiddle + after, 'utf8');
+    fs.writeFileSync(targetPath, before + newMiddle + after, 'utf8');
   } catch {
     /* 磁盘写入失败静默跳过，不影响主流程 */
   }

@@ -13,6 +13,7 @@
     "start": "node scripts/dev.js",
     "dev:app": "node --no-warnings server/app.js",
     "start:app": "node --no-warnings server/app.js",
+    "desktop": "electron desktop/main.cjs",
     "music:import:kugou": "node scripts/import-kugou-data.js",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -26,6 +27,7 @@
   },
   "devDependencies": {
     "concurrently": "^9.0.1",
+    "electron": "^45.3.2",
     "vitest": "^5.0.5"
   }
 }

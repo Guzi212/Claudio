@@ -42,10 +42,14 @@ export function isIpLiteralHost(rawHost) {
   return false;
 }
 
-/** 默认白名单 + CLAUDIO_PROXY_ALLOWED_HOSTS 追加项（已归一化、去重）。 */
+/** 默认白名单 + CLAUDIO_PROXY_ALLOWED_HOSTS / PROXY_ALLOWED_HOSTS 追加项（已归一化、去重）。 */
 export function allowedHosts(env = process.env) {
   const hosts = new Set(DEFAULT_ALLOWED_HOSTS);
-  for (const raw of String(env?.CLAUDIO_PROXY_ALLOWED_HOSTS ?? '').split(',')) {
+  const rawList = [
+    env?.CLAUDIO_PROXY_ALLOWED_HOSTS,
+    env?.PROXY_ALLOWED_HOSTS,
+  ].filter(Boolean).join(',');
+  for (const raw of rawList.split(',')) {
     const host = normalizeHost(raw);
     // 只接受纯域名，避免把带端口 / 路径 / 协议的东西塞进来
     if (!host || host.includes(':') || host.includes('/')) continue;

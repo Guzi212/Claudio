@@ -6,6 +6,7 @@ import {
   buildRawMarkdown,
   buildTasteSummary,
 } from '../music/kugou-import.js';
+import { resolveReadUserFile, writeUserFile } from '../services/user-files.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
@@ -30,10 +31,8 @@ export function applyImport(tracks, rootDir) {
   const summary = buildTasteSummary(tracks);
   fs.writeFileSync(path.join(musicDir, 'kugou_taste_summary.md'), summary, 'utf8');
 
-  const tastePath = path.join(rootDir, 'user', 'taste.md');
-  const existing = fs.existsSync(tastePath) ? fs.readFileSync(tastePath, 'utf8') : '';
-  fs.mkdirSync(path.dirname(tastePath), { recursive: true });
-  fs.writeFileSync(tastePath, upsertDistilled(existing, summary), 'utf8');
+  const existing = resolveReadUserFile(rootDir, 'user/taste.md').content;
+  writeUserFile(rootDir, 'user/taste.md', upsertDistilled(existing, summary));
 }
 
 export function mountKugouImportApiRoute(app, {

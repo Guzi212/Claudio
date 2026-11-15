@@ -12,6 +12,7 @@ import {
   clearPool as defaultClearPool,
 } from '../services/candidate-pool.js';
 import { markQueueSource } from '../queue-source.js';
+import { dbApi as defaultDb } from '../db.js';
 
 function proxyUrl(upstream) {
   return `/api/proxy?u=${encodeURIComponent(upstream)}`;
@@ -159,12 +160,23 @@ export function mountPlaylistRoutes(app, deps = {}) {
         return;
       }
       const runtime = getRuntime();
+      const db = deps.db || defaultDb;
       runtime.queue = queue;
       runtime.queueOffset = 0;
       runtime.index = 0;
       runtime.paused = false;
       markQueueSource(runtime, 'playlist');
       runtime.lastSay = `已切到歌单《${playlist.name || '未命名'}》，共 ${queue.length} 首。`;
+      try {
+        db?.addPlay?.({
+          kugouId: queue[0].kugouId || null,
+          title: queue[0].title,
+          artist: queue[0].artist,
+          reason: playlist.name || '歌单选播',
+          source: 'manual',
+          quality: 'manual_pick',
+        });
+      } catch { /* 播放历史记录失败不影响切单 */ }
       broadcast({ type: 'state', runtime });
       res.json({ ok: true, count: queue.length, queue });
     } catch (err) {
@@ -202,8 +214,19 @@ export function mountPlaylistRoutes(app, deps = {}) {
       runtime.index = 0;
       runtime.paused = false;
     }
+    const db = deps.db || defaultDb;
     markQueueSource(runtime, 'search');
     runtime.lastSay = `播放《${title}》${item.artist ? ` — ${item.artist}` : ''}。`;
+    try {
+      db?.addPlay?.({
+        kugouId: item.kugouId || null,
+        title: item.title,
+        artist: item.artist,
+        reason: '手动搜索选播',
+        source: 'search',
+        quality: 'manual_pick',
+      });
+    } catch { /* 播放历史记录失败不影响点歌 */ }
     broadcast({ type: 'state', runtime });
     res.json({ ok: true, mode, queue: runtime.queue, index: runtime.index });
   });

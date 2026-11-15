@@ -13,6 +13,11 @@ vi.mock('../server/services/weather.js', () => ({
 }));
 vi.mock('../server/services/google-calendar.js', () => ({
   getTodayEvents: vi.fn().mockResolvedValue(null),
+  _resetCache: vi.fn(),
+}));
+vi.mock('../server/services/lark-calendar.js', () => ({
+  getTodayEvents: vi.fn().mockResolvedValue(null),
+  _resetCache: vi.fn(),
 }));
 
 // 测试前确保模板文件都存在（CI/clean clone 也能跑）
@@ -61,19 +66,43 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('今日日程：(无安排或未接入)');
   });
 
-  it('天气和日程拿到数据时按格式注入', async () => {
+  it('天气和日程拿到数据时按格式注入（遵循 calendar_provider）', async () => {
+    const { dbApi } = await import('../server/db.js');
     const weatherMod = await import('../server/services/weather.js');
     const calendarMod = await import('../server/services/google-calendar.js');
+    const larkMod = await import('../server/services/lark-calendar.js');
+
     weatherMod.getCurrent.mockResolvedValueOnce({
       temp: 22, condition: '多云', humidity: 60, city: 'Shanghai',
     });
     calendarMod.getTodayEvents.mockResolvedValueOnce([
       { title: '产品评审', start: '2026-05-18T15:00:00', end: '2026-05-18T16:00:00', location: 'A301' },
     ]);
-    const { buildSystemPrompt } = await import('../server/context.js');
-    const prompt = await buildSystemPrompt({ now: new Date('2026-05-18T09:00:00') });
-    expect(prompt).toContain('天气：Shanghai 22℃ 多云');
-    expect(prompt).toContain('· 15:00 产品评审');
+
+    dbApi.setPref('calendar_provider', 'google');
+    try {
+      const { buildSystemPrompt } = await import('../server/context.js');
+      const prompt = await buildSystemPrompt({ now: new Date('2026-05-18T09:00:00') });
+      expect(prompt).toContain('天气：Shanghai 22℃ 多云');
+      expect(prompt).toContain('· 15:00 产品评审');
+
+      // 切回 none 时不读取日历
+      calendarMod.getTodayEvents.mockClear();
+      dbApi.setPref('calendar_provider', 'none');
+      const promptNone = await buildSystemPrompt({ now: new Date('2026-05-18T09:00:00') });
+      expect(calendarMod.getTodayEvents).not.toHaveBeenCalled();
+      expect(promptNone).toContain('今日日程：(无安排或未接入)');
+
+      // 切到 lark 时调用飞书日历
+      larkMod.getTodayEvents.mockResolvedValueOnce([
+        { title: '设计站会', start: '2026-05-18T10:30:00' },
+      ]);
+      dbApi.setPref('calendar_provider', 'lark');
+      const promptLark = await buildSystemPrompt({ now: new Date('2026-05-18T09:00:00') });
+      expect(promptLark).toContain('· 10:30 设计站会');
+    } finally {
+      dbApi.delPref('calendar_provider');
+    }
   });
 
   it('包含 Claudio 自我认知和关系记忆两个新 section', async () => {
@@ -83,5 +112,14 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('① Claudio 的自我认知');
     expect(prompt).toContain('① Claudio 的关系记忆');
     expect(prompt).toContain('我叫 Claudio'); // identity.md 内容片段
+  });
+
+  it('注入常驻主持人学到的品味（taste.learned.md）', async () => {
+    const { buildSystemPrompt } = await import('../server/context.js');
+    const prompt = await buildSystemPrompt({ now: new Date('2026-05-26T20:00:00') });
+
+    expect(prompt).toContain('自动学到的品味');
+    // 文件不存在时也要有占位，不能让整段消失
+    expect(prompt).toMatch(/自动学到的品味[\s\S]{0,200}(近 30 天|还没有足够播放数据)/);
   });
 });

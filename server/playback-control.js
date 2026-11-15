@@ -3,7 +3,7 @@ import { defaultVolume } from './volume-store.js';
 import { continuePoolView } from './continue-pool.js';
 import { reportedQueueIndex } from './queue-source.js';
 
-export const EXTERNAL_CHAT_HINT = '选歌请在 Grok Bot 里找 Claudio主持人。';
+export const EXTERNAL_CHAT_HINT = '当前为外部主持模式，请通过已接入的 Agent 或常驻 DJ 点歌。';
 
 export function clampVolume(value) {
   const n = Number(value);
@@ -24,6 +24,8 @@ export function playbackStatus(runtime = {}, { listeners = 0, brain = 'external'
     queueOffset: runtime.queueOffset || 0,
     paused: Boolean(runtime.paused) || queueFinished(runtime),
     volume: Number.isFinite(runtime.volume) ? runtime.volume : defaultVolume(),
+    // 只有用户/客户端真的设过音量才为 true；默认 30 不代表显式选择。
+    volumeExplicit: runtime.volumeExplicit === true,
     currentTime: Number.isFinite(runtime.currentTime) ? runtime.currentTime : 0,
     duration: Number.isFinite(runtime.duration) ? runtime.duration : 0,
     active: Boolean(runtime.active),
@@ -32,6 +34,7 @@ export function playbackStatus(runtime = {}, { listeners = 0, brain = 'external'
     reason: runtime.lastReason || '',
     queuedAt: runtime.queuedAt || null,
     source: runtime.queuedSource || '',
+    activeAgent: runtime.activeAgent || null,
     continuePool: continuePoolView(runtime),
   };
 }
@@ -147,6 +150,7 @@ export function applyControl(runtime, { command, arg, value } = {}) {
         return { ok: false, status: 400, error: 'volume 需要 0 到 100 的数字', command: 'volume' };
       }
       runtime.volume = volume;
+      runtime.volumeExplicit = true;
       return { ...base(), command: 'volume', say: `音量 ${volume}`, feedback: null };
     }
     case 'jump': {
@@ -213,7 +217,10 @@ export function applyProgress(runtime, body = {}) {
     runtime.duration = Math.max(0, body.duration);
   }
   const volume = clampVolume(body.volume);
-  if (volume != null && body.volume != null) runtime.volume = volume;
+  if (volume != null && body.volume != null) {
+    runtime.volume = volume;
+    runtime.volumeExplicit = true;
+  }
   if (typeof index === 'number' && Array.isArray(runtime.queue) && runtime.queue.length) {
     const next = Math.max(0, Math.min(Math.trunc(index), runtime.queue.length - 1));
     if (next !== runtime.index) runtime.trackEnded = false;
