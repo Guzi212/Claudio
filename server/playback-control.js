@@ -1,9 +1,70 @@
 // 播放控制与状态快照。聊天里的 /skip 和 bot 的 /api/control 共用这里。
 import { defaultVolume } from './volume-store.js';
 import { continuePoolView } from './continue-pool.js';
-import { reportedQueueIndex } from './queue-source.js';
+import {
+  reportedQueueIndex,
+  queueFinished,
+  notePlaybackActivity,
+  continuousListenMinutes,
+  PAUSE_RESET_MS,
+} from './queue-source.js';
+
+export { queueFinished, notePlaybackActivity, continuousListenMinutes, PAUSE_RESET_MS };
 
 export const EXTERNAL_CHAT_HINT = '当前为外部主持模式，请通过已接入的 Agent 或常驻 DJ 点歌。';
+
+export const SCENES = {
+  auto: '自动',
+  library: '图书馆专注',
+  dorm: '寝室放空',
+};
+export const SCENE_TTL_MS = 8 * 3_600_000;
+export const SCENE_PREF_KEY = 'player_scene';
+
+export function activeScene(runtime = {}, now = Date.now()) {
+  const raw = runtime?.scene;
+  const id = typeof raw === 'string'
+    ? raw.trim().toLowerCase()
+    : String(raw?.id || 'auto').trim().toLowerCase();
+  if (!id || !Object.prototype.hasOwnProperty.call(SCENES, id) || id === 'auto') {
+    return { id: 'auto', label: SCENES.auto, updatedAt: null };
+  }
+  const updatedAt = raw && typeof raw === 'object' ? (raw.updatedAt || null) : null;
+  const ts = updatedAt ? Date.parse(updatedAt) : NaN;
+  if (Number.isFinite(ts) && now - ts > SCENE_TTL_MS) {
+    return { id: 'auto', label: SCENES.auto, updatedAt: null };
+  }
+  return { id, label: SCENES[id], updatedAt };
+}
+
+export function readSavedScene(db, now = Date.now()) {
+  try {
+    const raw = db?.getPref?.(SCENE_PREF_KEY);
+    if (!raw) return { id: 'auto', label: SCENES.auto, updatedAt: null };
+    const parsed = JSON.parse(raw);
+    return activeScene({ scene: parsed }, now);
+  } catch {
+    return { id: 'auto', label: SCENES.auto, updatedAt: null };
+  }
+}
+
+export function applyScene(runtime, sceneId, { db = null, now = Date.now() } = {}) {
+  const id = String(sceneId ?? '').trim().toLowerCase();
+  if (!Object.prototype.hasOwnProperty.call(SCENES, id)) {
+    return { ok: false, error: `scene 只能是 ${Object.keys(SCENES).join('、')}` };
+  }
+  const next = {
+    id,
+    label: SCENES[id],
+    updatedAt: id === 'auto' ? null : new Date(now).toISOString(),
+  };
+  if (runtime && typeof runtime === 'object') runtime.scene = next;
+  if (db?.setPref) {
+    if (id === 'auto' && db.delPref) db.delPref(SCENE_PREF_KEY);
+    else db.setPref(SCENE_PREF_KEY, JSON.stringify(next));
+  }
+  return { ok: true, scene: next };
+}
 
 export function clampVolume(value) {
   const n = Number(value);
@@ -30,6 +91,8 @@ export function playbackStatus(runtime = {}, { listeners = 0, brain = 'external'
     duration: Number.isFinite(runtime.duration) ? runtime.duration : 0,
     active: Boolean(runtime.active),
     listeners,
+    continuousListenMinutes: continuousListenMinutes(runtime),
+    scene: activeScene(runtime),
     lastSay: runtime.lastSay || '',
     reason: runtime.lastReason || '',
     queuedAt: runtime.queuedAt || null,
@@ -37,13 +100,6 @@ export function playbackStatus(runtime = {}, { listeners = 0, brain = 'external'
     activeAgent: runtime.activeAgent || null,
     continuePool: continuePoolView(runtime),
   };
-}
-
-export function queueFinished(runtime = {}) {
-  const queue = Array.isArray(runtime.queue) ? runtime.queue : [];
-  if (!queue.length || runtime.trackEnded !== true) return false;
-  const index = Number.isFinite(runtime.index) ? runtime.index : 0;
-  return index >= queue.length - 1;
 }
 
 function restartFromStart(runtime) {
@@ -73,7 +129,10 @@ export function applyControl(runtime, { command, arg, value } = {}) {
   const queue = runtime.queue;
   if (!Number.isFinite(runtime.volume)) runtime.volume = defaultVolume();
 
-  const base = () => playbackStatus(runtime);
+  const base = () => {
+    notePlaybackActivity(runtime);
+    return playbackStatus(runtime);
+  };
 
   switch (cmd) {
     case 'skip':
@@ -196,8 +255,16 @@ export function applyControl(runtime, { command, arg, value } = {}) {
         ...base(),
         command: 'help',
         feedback: null,
-        say: '命令：/skip /prev /pause /play /toggle /vol N /now /queue',
+        say: '命令：/skip /prev /pause /play /toggle /vol N /scene auto|library|dorm /now /queue',
       };
+    case 'scene': {
+      const raw = value != null && value !== '' ? value : arg;
+      const applied = applyScene(runtime, raw);
+      if (!applied.ok) {
+        return { ok: false, status: 400, error: applied.error, command: 'scene' };
+      }
+      return { ...base(), command: 'scene', say: `场景切换为：${applied.scene.label}`, feedback: null };
+    }
     default:
       return { ok: false, status: 400, error: `未知命令：${cmd}`, command: cmd };
   }
@@ -229,4 +296,5 @@ export function applyProgress(runtime, body = {}) {
   if (typeof body.paused === 'boolean') {
     runtime.paused = body.paused === false && queueFinished(runtime) ? true : body.paused;
   }
+  notePlaybackActivity(runtime);
 }

@@ -53,6 +53,16 @@ function checkSettingKey(key, okDetail = 'configured', failDetail = 'no key') {
     : { ok: false, detail: failDetail };
 }
 
+function checkWeather() {
+  const enabled = String(getSetting('weather_enabled') || 'true').trim().toLowerCase();
+  if (enabled === '0' || enabled === 'false' || enabled === 'off' || enabled === 'no') {
+    return { ok: false, detail: 'disabled' };
+  }
+  return getSetting('openweather_api_key')
+    ? { ok: true, detail: 'OpenWeather + Open-Meteo' }
+    : { ok: true, detail: 'Open-Meteo (keyless)' };
+}
+
 function hasClaudeCliOnPath(env = process.env) {
   if (env.CLAUDE_BIN) {
     try { return fs.existsSync(env.CLAUDE_BIN); } catch { return false; }
@@ -118,7 +128,7 @@ export function mountHealthRoute(app, deps = {}) {
     const djStatus = djHandle?.status?.() || null;
     res.json({
       kugou,
-      weather: checkSettingKey('openweather_api_key'),
+      weather: checkWeather(),
       tts: checkSettingKey('fish_api_key'),
       ai: checkAi(),
       lark,

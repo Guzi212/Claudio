@@ -61,6 +61,16 @@ export function mountFavoriteRoutes(app, deps = {}) {
             albumId: result.track?.albumId || track.albumId,
             mixsongid: result.track?.mixsongid || track.mixsongid,
           });
+          if (typeof db.addFeedback === 'function') {
+            try {
+              db.addFeedback({
+                kind: 'like',
+                kugouId: hash,
+                title: result.track?.title || title,
+                artist: result.track?.artist || track.artist,
+              });
+            } catch { /* 反馈记录失败不影响收藏主链路 */ }
+          }
         }
         res.json({ ...result, pendingId });
         return;

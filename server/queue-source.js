@@ -1,10 +1,50 @@
 // 播放队列从哪来。boot / scheduler 在自动换歌前看 queueSource，
 // 外部点歌（bot）还没放完时不覆盖。聊天和歌单是用户明确操作，直接换。
 
+export const PAUSE_RESET_MS = 10 * 60_000;
+
+export function queueFinished(runtime = {}) {
+  const queue = Array.isArray(runtime.queue) ? runtime.queue : [];
+  if (!queue.length || runtime.trackEnded !== true) return false;
+  const index = Number.isFinite(runtime.index) ? runtime.index : 0;
+  return index >= queue.length - 1;
+}
+
+export function notePlaybackActivity(runtime, now = Date.now()) {
+  if (!runtime || typeof runtime !== 'object') return;
+  const queue = Array.isArray(runtime.queue) ? runtime.queue : [];
+  const playing = queue.length > 0 && !runtime.paused && !queueFinished(runtime);
+  if (playing) {
+    if (Number.isFinite(runtime.pausedSinceTs) && now - runtime.pausedSinceTs >= PAUSE_RESET_MS) {
+      runtime.continuousSinceTs = now;
+    } else if (!Number.isFinite(runtime.continuousSinceTs)) {
+      runtime.continuousSinceTs = now;
+    }
+    runtime.pausedSinceTs = null;
+    return;
+  }
+  if (!Number.isFinite(runtime.pausedSinceTs)) {
+    runtime.pausedSinceTs = now;
+  }
+  if (now - runtime.pausedSinceTs >= PAUSE_RESET_MS) {
+    runtime.continuousSinceTs = null;
+  }
+}
+
+export function continuousListenMinutes(runtime = {}, now = Date.now()) {
+  if (!Number.isFinite(runtime?.continuousSinceTs)) return 0;
+  if (Number.isFinite(runtime?.pausedSinceTs)) {
+    if (now - runtime.pausedSinceTs >= PAUSE_RESET_MS) return 0;
+    return Math.max(0, Math.floor((runtime.pausedSinceTs - runtime.continuousSinceTs) / 60_000));
+  }
+  return Math.max(0, Math.floor((now - runtime.continuousSinceTs) / 60_000));
+}
+
 export function markQueueSource(runtime, source) {
   if (!runtime) return;
   runtime.queueSource = source;
   runtime.trackEnded = false;
+  notePlaybackActivity(runtime);
 }
 
 // 裁剪只换数组，不移动曲目的绝对位置；调用方决定何时回收历史。
@@ -51,5 +91,6 @@ export function applyRuntimePlayback(runtime, { index, paused, ended } = {}) {
   }
   if (typeof paused === 'boolean') runtime.paused = paused;
   if (typeof ended === 'boolean') runtime.trackEnded = ended;
+  notePlaybackActivity(runtime);
   return { index: runtime.index, paused: Boolean(runtime.paused) };
 }

@@ -14,7 +14,23 @@ function mapPlay(row) {
     artist: row.artist,
     reason: row.reason || '',
     source: row.source,
+    quality: row.quality || 'normal',
     ts: row.ts,
+  };
+}
+
+function mapSession(row) {
+  return {
+    id: row.id,
+    kugouId: row.kugou_id || '',
+    title: row.title || '',
+    artist: row.artist || '',
+    source: row.source || '',
+    outcome: row.outcome || '',
+    listenedSec: Number(row.listened_sec) || 0,
+    durationSec: Number(row.duration_sec) || 0,
+    startedTs: row.started_ts,
+    endedTs: row.ended_ts || null,
   };
 }
 
@@ -34,11 +50,18 @@ export function mountPlaysRoutes(app, deps = {}) {
 
   app.get('/api/plays', (req, res) => {
     const limit = clampLimit(req.query?.limit ?? req.query?.n);
-    const plays = db.recentPlays(limit).map(mapPlay);
+    const verifiedOnly = req.query?.verified === '1' || req.query?.verified === 'true';
+    const rawPlays = verifiedOnly && typeof db.recentVerifiedPlays === 'function'
+      ? db.recentVerifiedPlays(limit)
+      : db.recentPlays(limit);
+    const plays = rawPlays.map(mapPlay);
     const feedback = typeof db.recentFeedback === 'function'
       ? db.recentFeedback(limit).map(mapFeedback)
       : [];
-    res.json({ ok: true, plays, feedback });
+    const sessions = typeof db.recentPlaybackSessions === 'function'
+      ? db.recentPlaybackSessions({ sinceTs: 0, limit }).map(mapSession)
+      : [];
+    res.json({ ok: true, plays, feedback, sessions });
   });
 
   app.post('/api/feedback', (req, res) => {

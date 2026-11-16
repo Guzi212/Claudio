@@ -5,6 +5,8 @@ import { inferTrackFeatures } from '../memory/track-features.js';
 import { getContextSuggestion, syncLearnedTraits } from '../memory/learner.js';
 import { resolveReadUserFile } from '../services/user-files.js';
 import * as defaultSettings from '../services/settings.js';
+import { readSessionNote, writeSessionNote, clearSessionNote } from '../context.js';
+import { activeScene, applyScene, continuousListenMinutes } from '../playback-control.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_ROOT = path.resolve(__dirname, '../..');
@@ -60,13 +62,17 @@ export function mountMemoryRoutes(app, deps = {}) {
       });
 
       const activeIntent = db.getActiveSessionIntent?.({ now: baseNow }) || null;
+      const sessionNote = readSessionNote({ rootDir, now: baseNow });
       const runtime = getRuntime?.();
 
       res.json({
         ok: true,
         generatedAt: new Date(baseNow).toISOString(),
         activeAgent: runtime?.activeAgent || null,
+        scene: activeScene(runtime, baseNow),
+        continuousListenMinutes: continuousListenMinutes(runtime, baseNow),
         activeIntent,
+        sessionNote,
         context,
         traits,
         avoided: context.avoided,
@@ -172,16 +178,77 @@ export function mountMemoryRoutes(app, deps = {}) {
     }
     const source = String(body.source || 'user').trim().slice(0, 40) || 'user';
     const ttlMinutes = Math.max(5, Math.min(720, Number(body.ttlMinutes) || 120));
-    const intent = db.setSessionIntent({ text, source, ttlMinutes, now: nowFn() });
+    const ts = nowFn();
+    const intent = db.setSessionIntent({ text, source, ttlMinutes, now: ts });
+    writeSessionNote({ rootDir, text, now: ts });
     broadcast({ type: 'memory-intent', intent });
     res.json({ ok: true, intent });
   });
 
   app.delete('/api/memory/intent', (req, res) => {
-    const cleared = db.clearSessionIntent?.({ now: nowFn() }) || 0;
+    const ts = nowFn();
+    const cleared = db.clearSessionIntent?.({ now: ts }) || 0;
+    clearSessionNote({ rootDir });
     broadcast({ type: 'memory-intent', intent: null });
     res.json({ ok: true, cleared });
   });
+
+  app.get('/api/session-note', (_req, res) => {
+    const note = readSessionNote({ rootDir, now: nowFn() });
+    res.json({ ok: true, active: Boolean(note), note });
+  });
+
+  const saveSessionNote = (req, res) => {
+    const body = req.body || {};
+    const text = String(body.text || '').trim().slice(0, 300);
+    const ts = nowFn();
+    if (!text) {
+      clearSessionNote({ rootDir });
+      db.clearSessionIntent?.({ now: ts });
+      broadcast({ type: 'memory-intent', intent: null });
+      res.json({ ok: true, active: false, note: null });
+      return;
+    }
+    const source = String(body.source || 'bot').trim().slice(0, 40) || 'bot';
+    const ttlMinutes = Math.max(5, Math.min(720, Number(body.ttlMinutes) || 360));
+    const note = writeSessionNote({ rootDir, text, now: ts });
+    const intent = db.setSessionIntent?.({ text, source, ttlMinutes, now: ts }) || null;
+    broadcast({ type: 'memory-intent', intent });
+    res.json({ ok: true, active: true, note, intent });
+  };
+  app.post('/api/session-note', saveSessionNote);
+  if (typeof app.put === 'function') app.put('/api/session-note', saveSessionNote);
+
+  app.delete('/api/session-note', (_req, res) => {
+    const ts = nowFn();
+    clearSessionNote({ rootDir });
+    db.clearSessionIntent?.({ now: ts });
+    broadcast({ type: 'memory-intent', intent: null });
+    res.json({ ok: true, active: false, note: null });
+  });
+
+  app.get('/api/scene', (_req, res) => {
+    const runtime = getRuntime?.();
+    res.json({ ok: true, scene: activeScene(runtime, nowFn()) });
+  });
+
+  const saveScene = (req, res) => {
+    const runtime = getRuntime?.();
+    if (!runtime) {
+      res.status(500).json({ ok: false, error: 'runtime 不可用' });
+      return;
+    }
+    const raw = req.body?.scene ?? req.body?.id ?? '';
+    const applied = applyScene(runtime, raw, { db, now: nowFn() });
+    if (!applied.ok) {
+      res.status(400).json({ ok: false, error: applied.error });
+      return;
+    }
+    broadcast({ type: 'state', runtime });
+    res.json({ ok: true, scene: applied.scene });
+  };
+  app.post('/api/scene', saveScene);
+  if (typeof app.put === 'function') app.put('/api/scene', saveScene);
 
   app.post('/api/memory/telemetry', (req, res) => {
     try {
@@ -275,12 +342,44 @@ export function mountMemoryRoutes(app, deps = {}) {
             finalVolume: body.finalVolume ?? null,
           });
         }
-        if (outcome === 'disliked' && (body.title || session?.title)) {
+        const effectiveTitle = String(body.title || session?.title || '').trim();
+        const effectiveArtist = String(body.artist || session?.artist || '').trim();
+        const effectiveHash = String(body.kugouId || session?.kugou_id || '').trim() || null;
+        const listenedSec = Number(body.listenedSec ?? session?.listened_sec) || 0;
+        const durationSec = Number(body.durationSec ?? session?.duration_sec) || 0;
+
+        if (effectiveTitle && (outcome === 'completed' || listenedSec >= 30 || (durationSec > 0 && listenedSec / durationSec >= 0.5))) {
+          db.recordVerifiedPlay?.({
+            kugouId: effectiveHash,
+            title: effectiveTitle,
+            artist: effectiveArtist,
+            reason: body.reason || null,
+            source: body.source || session?.source || 'manual',
+            agentId: body.agentId || session?.agent_id || null,
+            ts,
+          });
+        }
+        if (outcome === 'skipped' && (effectiveTitle || effectiveHash) && typeof db.addFeedback === 'function') {
+          const recentFb = db.recentFeedback?.(5) || [];
+          const dupSkip = recentFb.some(f => f?.kind === 'skip'
+            && Math.abs(ts - Number(f.ts)) <= 3_000
+            && ((effectiveHash && f.kugou_id === effectiveHash)
+              || (effectiveTitle && f.title === effectiveTitle && (!effectiveArtist || !f.artist || f.artist === effectiveArtist))));
+          if (!dupSkip) {
+            db.addFeedback({
+              kind: 'skip',
+              kugouId: effectiveHash,
+              title: effectiveTitle,
+              artist: effectiveArtist,
+            });
+          }
+        }
+        if (outcome === 'disliked' && (effectiveTitle || effectiveHash)) {
           db.addFeedback({
             kind: 'dislike',
-            kugouId: body.kugouId || session?.kugou_id || null,
-            title: body.title || session?.title || '',
-            artist: body.artist || session?.artist || '',
+            kugouId: effectiveHash,
+            title: effectiveTitle,
+            artist: effectiveArtist,
           });
         }
         if (typeof db.upsertMemoryTrait === 'function' && (outcome === 'completed' || outcome === 'skipped' || outcome === 'disliked')) {

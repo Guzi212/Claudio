@@ -1,5 +1,5 @@
 import { dbApi as defaultDb } from '../db.js';
-import { applyControl } from '../playback-control.js';
+import { applyControl, SCENE_PREF_KEY } from '../playback-control.js';
 
 export function mountControlRoute(app, deps = {}) {
   const db = deps.db || defaultDb;
@@ -43,6 +43,12 @@ export function mountControlRoute(app, deps = {}) {
           trigger: body.trigger === 'adaptive' ? 'adaptive' : 'manual',
         });
       } catch { /* 音量观察失败不影响控制 */ }
+    }
+    if (result.command === 'scene') {
+      try {
+        if (result.scene?.id === 'auto') db.delPref?.(SCENE_PREF_KEY);
+        else db.setPref?.(SCENE_PREF_KEY, JSON.stringify(result.scene));
+      } catch { /* 场景落盘失败不影响控制 */ }
     }
     broadcast({ type: 'state', runtime });
     res.json(result);

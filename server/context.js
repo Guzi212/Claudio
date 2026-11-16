@@ -10,6 +10,7 @@ import { get as getSetting, getBoolean as getBoolSetting } from './services/sett
 import { getPool, getPoolTracks, formatPoolForPrompt } from './services/candidate-pool.js';
 import { resolveReadUserFile } from './services/user-files.js';
 import { getContextSuggestion } from './memory/learner.js';
+import { activeScene } from './playback-control.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -29,8 +30,8 @@ function readSafe(relPath, fallback = '') {
 const SESSION_NOTE_FILE = 'user/session-note.md';
 const SESSION_NOTE_TTL_MS = 6 * 3_600_000;
 
-export function readSessionNote({ now = Date.now() } = {}) {
-  const full = path.join(ROOT, SESSION_NOTE_FILE);
+export function readSessionNote({ rootDir = ROOT, now = Date.now() } = {}) {
+  const full = path.join(rootDir, SESSION_NOTE_FILE);
   let stat;
   let raw;
   try {
@@ -48,6 +49,30 @@ export function readSessionNote({ now = Date.now() } = {}) {
     .trim();
   if (!text) return null;
   return { text, ageMinutes: Math.max(0, Math.round(ageMs / 60000)) };
+}
+
+export function writeSessionNote({ rootDir = ROOT, text, now = Date.now() } = {}) {
+  const clean = String(text || '').trim().slice(0, 300);
+  if (!clean) {
+    clearSessionNote({ rootDir });
+    return null;
+  }
+  const full = path.join(rootDir, SESSION_NOTE_FILE);
+  fs.mkdirSync(path.dirname(full), { recursive: true });
+  fs.writeFileSync(full, `${clean}\n`, 'utf8');
+  const sec = now / 1000;
+  try { fs.utimesSync(full, sec, sec); } catch { /* ignore */ }
+  return { text: clean, ageMinutes: 0 };
+}
+
+export function clearSessionNote({ rootDir = ROOT } = {}) {
+  const full = path.join(rootDir, SESSION_NOTE_FILE);
+  try {
+    fs.unlinkSync(full);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function formatNow(date = new Date()) {
@@ -81,7 +106,7 @@ function hhmmOf(start) {
  * 把 6 片粘成一个 system prompt 字符串。
  * 顺序对应施工图第 3 层的 "运行时聚合 · 组装盒子"。
  */
-export async function buildSystemPrompt({ now = new Date() } = {}) {
+export async function buildSystemPrompt({ now = new Date(), runtime = null } = {}) {
   // ① 系统提示词
   const persona = readSafe('prompts/dj-persona.md').trim();
 
@@ -94,13 +119,13 @@ export async function buildSystemPrompt({ now = new Date() } = {}) {
   const learnedTaste = readSafe('user/taste.learned.md').trim();
   const routines = resolveReadUserFile(ROOT, 'user/routines.md').content.trim() || readSafe('user/routines.md').trim();
 
-  // ②-0 当前听众要求：数据库即时意图优先，其次主持人手写 session-note.md
+  // ②-0 当前听众要求：优先读主持人手写 session-note.md，缺失或过期时回退数据库即时意图
   const nowMs = now.getTime();
-  const activeIntent = dbApi.getActiveSessionIntent?.({ now: nowMs });
   const fileNote = readSessionNote({ now: nowMs });
-  const sessionNote = activeIntent
+  const activeIntent = dbApi.getActiveSessionIntent?.({ now: nowMs });
+  const sessionNote = fileNote || (activeIntent
     ? { text: activeIntent.text, ageMinutes: Math.max(0, Math.round((nowMs - activeIntent.created_ts) / 60000)) }
-    : fileNote;
+    : null);
 
   const since30d = nowMs - 30 * 86_400_000;
   const ctxSuggestion = getContextSuggestion({
@@ -144,8 +169,10 @@ export async function buildSystemPrompt({ now = new Date() } = {}) {
     fetchCalendar(),
   ]);
 
+  const scene = runtime ? activeScene(runtime, nowMs) : null;
   const envLines = [
     `当前时间：${formatNow(now)}（${bucketOfDay(now.getHours())}）`,
+    ...(scene && scene.id !== 'auto' ? [`当前场景：${scene.label}`] : []),
     weather
       ? `天气：${weather.city} ${weather.temp}℃ ${weather.condition}`
       : '天气：(未接入或失败)',

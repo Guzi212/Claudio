@@ -93,6 +93,25 @@ describe('dj · shouldRefill', () => {
     expect(shouldRefill(rt, { now, yieldMs: 180_000 }).ok).toBe(true);
   });
 
+  it('有活跃续播池时让位，不抢先补歌', () => {
+    const rt = fakeRuntime({
+      queue: [track('a', 'A', 120)],
+      continuePool: {
+        name: '钢琴与氛围续播',
+        tracks: [{ title: 'Nuvole Bianche', artist: 'Ludovico Einaudi', kugouId: 'h1' }],
+        cursor: 0,
+        batchSize: 5,
+        loop: true,
+        shuffle: false,
+        continuedCount: 0,
+      },
+    });
+    expect(shouldRefill(rt, { now, refillBelowSeconds: 600 })).toEqual({
+      ok: false,
+      reason: 'continue-pool-active',
+    });
+  });
+
   it('剩得够多就不动', () => {
     const rt = fakeRuntime({ queue: [track('a', 'A', 1800)], index: 0 });
     expect(shouldRefill(rt, { now, refillBelowSeconds: 600 }).reason).toBe('enough');

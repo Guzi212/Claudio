@@ -19,11 +19,13 @@ export function trackKey(title, artist) {
   return `${normalizeForMatch(title)}|${normalizeForMatch(artist)}`;
 }
 
-// 用户上传的杂项条目歌名就是文件名（`说散就散.mp3`），统计时剔掉，免得污染画像。
+// 用户上传的杂项条目歌名就是文件名（`说散就散.mp3`），以及自动化测试合成条目，统计时剔掉，免得污染画像。
 const AUDIO_FILE_EXT = /\.(mp3|flac|wav|m4a|ape|ogg|aac|wma)$/i;
+const TEST_TITLE_RE = /^(hist|like)-\d{10,}$/i;
 
 export function isJunkTitle(title) {
-  return AUDIO_FILE_EXT.test(String(title || '').trim());
+  const clean = String(title || '').trim();
+  return AUDIO_FILE_EXT.test(clean) || TEST_TITLE_RE.test(clean) || clean === '外部测试曲';
 }
 
 function hourBucket(hour) {
@@ -89,11 +91,14 @@ export function computeTasteStats({ plays = [], feedback = [], now = Date.now(),
     if (kind === 'skip') skips.push({ title, artist, ts: f.ts });
     else if (kind === 'like') likes.push({ title, artist, ts: f.ts });
     else if (kind === 'unlike') unlikes.push({ title, artist, ts: f.ts });
-    else if (kind === 'dislike') dislikes.push({ title, artist, ts: f.ts });
+    else if (kind === 'dislike') {
+      dislikes.push({ title, artist, ts: f.ts });
+      unlikes.push({ title, artist, ts: f.ts });
+    }
   }
 
-  // 跳过按歌名+歌手匹配；只有曲目对得上才算到歌手头上。
-  for (const s of skips) {
+  // 跳过和点踩按歌名+歌手匹配；只有曲目对得上才算到歌手头上。
+  for (const s of [...skips, ...dislikes]) {
     const tk = trackKey(s.title, s.artist);
     const t = tracks.get(tk);
     if (t) t.skips += 1;

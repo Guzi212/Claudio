@@ -1,6 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 import { mountControlRoute } from '../server/api/control.js';
-import { playbackStatus, applyProgress, queueFinished } from '../server/playback-control.js';
+import {
+  playbackStatus,
+  applyProgress,
+  queueFinished,
+  notePlaybackActivity,
+  continuousListenMinutes,
+  activeScene,
+  SCENE_TTL_MS,
+  PAUSE_RESET_MS,
+} from '../server/playback-control.js';
 
 function mockApp() {
   const routes = {};
@@ -299,5 +308,38 @@ describe('播放进度', () => {
     });
     expect(body.queuedAt).toBe('2026-10-25T18:05:00.000Z');
     expect(body.source).toBe('bot');
+  });
+
+  it('连续收听时长：在播累计分钟，暂停超过 10 分钟清零', () => {
+    const t0 = Date.parse('2026-11-16T12:00:00Z');
+    const rt = { queue: [{ title: '晴天', artist: '周杰伦' }], index: 0, paused: false };
+    notePlaybackActivity(rt, t0);
+    expect(continuousListenMinutes(rt, t0 + 45 * 60_000)).toBe(45);
+
+    rt.paused = true;
+    notePlaybackActivity(rt, t0 + 45 * 60_000);
+    expect(continuousListenMinutes(rt, t0 + 49 * 60_000)).toBe(45);
+    expect(continuousListenMinutes(rt, t0 + 45 * 60_000 + PAUSE_RESET_MS)).toBe(0);
+
+    rt.paused = false;
+    notePlaybackActivity(rt, t0 + 45 * 60_000 + PAUSE_RESET_MS + 1000);
+    expect(continuousListenMinutes(rt, t0 + 50 * 60_000 + PAUSE_RESET_MS + 1000)).toBe(5);
+  });
+
+  it('scene 命令切换场景、校验非法值并支持 TTL 过期回退 auto', async () => {
+    const { app, runtime } = setup();
+    const okRes = mockRes();
+    await app.routes['POST /api/control']({ body: { command: 'scene', value: 'library' } }, okRes);
+    expect(okRes.statusCode).toBe(200);
+    expect(okRes.body.scene.id).toBe('library');
+    expect(runtime.scene.id).toBe('library');
+
+    const badRes = mockRes();
+    await app.routes['POST /api/control']({ body: { command: 'scene', value: 'gym' } }, badRes);
+    expect(badRes.statusCode).toBe(400);
+
+    const oldTs = Date.now() - SCENE_TTL_MS - 60_000;
+    const expired = activeScene({ scene: { id: 'library', updatedAt: new Date(oldTs).toISOString() } });
+    expect(expired.id).toBe('auto');
   });
 });

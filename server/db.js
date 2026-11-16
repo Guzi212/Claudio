@@ -221,6 +221,11 @@ const stmts = {
   insertPlay: db.prepare(`INSERT INTO plays (kugou_id, title, artist, reason, source, quality, agent_id, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`),
   recentPlays: db.prepare(`SELECT id, kugou_id, title, artist, reason, source, quality, agent_id, ts FROM plays WHERE quality != 'invalid' ORDER BY ts DESC LIMIT ?`),
   recentPlaysAll: db.prepare(`SELECT id, kugou_id, title, artist, reason, source, quality, agent_id, ts FROM plays ORDER BY ts DESC LIMIT ?`),
+  recentVerifiedPlays: db.prepare(`SELECT id, kugou_id, title, artist, reason, source, quality, agent_id, ts FROM plays WHERE quality IN ('played', 'normal', 'manual_pick') ORDER BY ts DESC LIMIT ?`),
+  findQueuedPlayByHash: db.prepare(`SELECT id FROM plays WHERE quality = 'queued' AND ts >= ? AND kugou_id = ? ORDER BY id DESC LIMIT 1`),
+  findQueuedPlayByTitle: db.prepare(`SELECT id FROM plays WHERE quality = 'queued' AND ts >= ? AND title = ? AND artist = ? ORDER BY id DESC LIMIT 1`),
+  promoteQueuedPlay: db.prepare(`UPDATE plays SET quality = 'played', ts = ? WHERE id = ?`),
+  findRecentPlayed: db.prepare(`SELECT id FROM plays WHERE quality = 'played' AND ts >= ? AND ((? != '' AND kugou_id = ?) OR (title = ? AND artist = ?)) ORDER BY id DESC LIMIT 1`),
   getPref: db.prepare(`SELECT value FROM prefs WHERE key = ?`),
   setPref: db.prepare(`INSERT INTO prefs (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`),
   delPref: db.prepare(`DELETE FROM prefs WHERE key = ?`),
@@ -280,6 +285,18 @@ const stmts = {
   insertIntent: db.prepare(`INSERT INTO session_intents (text, source, created_ts, expires_ts) VALUES (?, ?, ?, ?)`),
 };
 
+const VALID_PLAY_SOURCES = new Set(['claude', 'manual', 'search', 'boot', 'bot']);
+
+function normalizePlaySource(source) {
+  const s = String(source || '').trim().toLowerCase();
+  if (s === 'external' || s === 'continue-pool' || s === 'resident-dj' || s === 'bot') return 'bot';
+  if (s === 'playlist' || s === 'manual') return 'manual';
+  if (s === 'search') return 'search';
+  if (s === 'boot') return 'boot';
+  if (s === 'internal' || s === 'claude') return 'claude';
+  return VALID_PLAY_SOURCES.has(s) ? s : 'manual';
+}
+
 export const dbApi = {
   addMessage(role, content) {
     return stmts.insertMessage.run(role, content, Date.now()).lastInsertRowid;
@@ -295,8 +312,40 @@ export const dbApi = {
     return stmts.insertPlay.run(kugouId, title, artist, reason, source, effectiveQuality, agentId, Date.now()).lastInsertRowid;
   },
 
+  recordVerifiedPlay({ kugouId = null, title, artist = '', reason = null, source = 'manual', agentId = null, ts = Date.now() }) {
+    const cleanTitle = String(title || '').trim();
+    if (!cleanTitle) return null;
+    const cleanArtist = String(artist || '').trim();
+    const cleanHash = String(kugouId || '').trim();
+    const queuedSince = ts - 6 * 3_600_000;
+    const queued = (cleanHash ? stmts.findQueuedPlayByHash.get(queuedSince, cleanHash) : null)
+      || stmts.findQueuedPlayByTitle.get(queuedSince, cleanTitle, cleanArtist);
+    if (queued) {
+      stmts.promoteQueuedPlay.run(ts, queued.id);
+      return Number(queued.id);
+    }
+    const existing = stmts.findRecentPlayed.get(ts - 20_000, cleanHash, cleanHash, cleanTitle, cleanArtist);
+    if (existing) return Number(existing.id);
+
+    const effectiveQuality = /^claude CLI exited/i.test(cleanTitle) ? 'invalid' : 'played';
+    return Number(stmts.insertPlay.run(
+      cleanHash || null,
+      cleanTitle,
+      cleanArtist,
+      reason,
+      normalizePlaySource(source),
+      effectiveQuality,
+      agentId,
+      ts,
+    ).lastInsertRowid);
+  },
+
   recentPlays(n = 20, { includeInvalid = false } = {}) {
     return includeInvalid ? stmts.recentPlaysAll.all(n) : stmts.recentPlays.all(n);
+  },
+
+  recentVerifiedPlays(n = 20) {
+    return stmts.recentVerifiedPlays.all(n);
   },
 
   startPlaybackSession({
