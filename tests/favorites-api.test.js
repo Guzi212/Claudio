@@ -68,8 +68,10 @@ describe('GET /api/kugou/favorite', () => {
 });
 
 describe('POST /api/kugou/favorite', () => {
-  it('加入成功后写一条待分类记录', async () => {
+  it('加入成功后写一条待分类记录并记 like 反馈', async () => {
+    const addFeedback = vi.fn();
     const deps = makeDeps();
+    deps.db.addFeedback = addFeedback;
     const app = mockApp();
     mountFavoriteRoutes(app, deps);
     const res = mockRes();
@@ -85,6 +87,12 @@ describe('POST /api/kugou/favorite', () => {
       album: '叶惠美',
       albumId: 'a1',
       mixsongid: 'm1',
+    });
+    expect(addFeedback).toHaveBeenCalledWith({
+      kind: 'like',
+      kugouId: 'h1',
+      title: '晴天',
+      artist: '周杰伦',
     });
   });
 

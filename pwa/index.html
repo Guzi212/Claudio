@@ -81,6 +81,11 @@
               <span class="bot-chip" id="host-role-chip">私人频率</span>
               <span id="host-time" class="host-time">在线</span>
             </div>
+            <div id="scene-pills" class="scene-pills" role="group" aria-label="当前场景">
+              <button type="button" class="scene-pill active" data-scene="auto" aria-pressed="true">自动</button>
+              <button type="button" class="scene-pill" data-scene="library" aria-pressed="false">图书馆专注</button>
+              <button type="button" class="scene-pill" data-scene="dorm" aria-pressed="false">寝室放空</button>
+            </div>
             <form id="intent-form" class="intent-form" aria-label="临时偏好">
               <input id="intent-input" type="text" maxlength="100" placeholder="此刻想听什么…" aria-label="此刻想听什么">
               <button type="button" id="intent-clear" class="intent-clear hidden" aria-label="清除当前意图">×</button>
@@ -363,7 +368,7 @@
           </label>
           <label class="setting-row">
             <span>城市</span>
-            <input id="set-weather-city" type="text" autocomplete="off" placeholder="Shanghai">
+            <input id="set-weather-city" type="text" autocomplete="off" placeholder="Changsha">
           </label>
           <label class="setting-row">
             <span>日程来源</span>

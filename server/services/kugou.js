@@ -51,6 +51,9 @@ const DJ_MARKERS = ['dj', 'dj版', 'dj mix', 'djmix'];
 // 非原版变体标记：目标没有指定时扣分
 const VERSION_MARKERS = ['现场', '演唱会', 'concert', 'live', 'remix', '混音', '钢琴', 'piano', 'cover', '翻唱', '演奏版', '纯音乐', 'instrumental', 'acoustic', 'unplugged', '清唱', '无伴奏', '伴奏版'];
 
+// 专辑名里常见的演出/合集/伴奏变体标记
+const ALBUM_VARIANT_MARKERS = ['现场', '演唱会', 'concert', 'live', '巡回', '音乐汇', 'remix', '混音', '伴奏', '翻唱', 'cover'];
+
 // 用户上传的杂项条目常把文件名当歌名：`说散就散.mp3`。这类条目音质和元数据都不可靠。
 const AUDIO_FILE_EXT = /\.(mp3|flac|wav|m4a|ape|ogg|aac|wma)$/i;
 
@@ -62,17 +65,19 @@ function hasVersionMarker(normalizedTitle) {
   return VERSION_MARKERS.some(kw => normalizedTitle.includes(kw));
 }
 
-function scoreCandidate(target, cand) {
+export function scoreCandidate(target, cand) {
   const t = normalizeForMatch(target.title);
   const a = normalizeForMatch(target.artist || '');
+  const th = normalizeForMatch(target.hint || '');
   const ct = normalizeForMatch(cand.title);
   const ca = normalizeForMatch(cand.artist);
+  const calbum = normalizeForMatch(cand.album || '');
 
   // 歌名就是文件名（带 .mp3 之类）→ 用户上传的杂项，直接排除
   if (AUDIO_FILE_EXT.test(String(cand.title || '').trim())) return 0;
 
   // 目标没有指定 DJ 版，候选是 DJ 版 → 直接 0 分
-  if (!hasDjMarker(t) && hasDjMarker(ct)) return 0;
+  if (!hasDjMarker(t) && !hasDjMarker(th) && hasDjMarker(ct)) return 0;
 
   let score = 0;
   if (ct === t) score += 100;
@@ -88,9 +93,17 @@ function scoreCandidate(target, cand) {
     score += 10;
   }
 
-  // 目标没有指定版本类型，但候选是非原版变体 → 扣分，让原版优先
-  if (!hasVersionMarker(t) && hasVersionMarker(ct)) {
+  // 目标没有指定版本类型，但歌名或专辑名带有现场/巡回/合集/混音等变体标记 → 扣分，让录音室原版优先
+  const targetWantsVariant = hasVersionMarker(t) || hasVersionMarker(th);
+  if (!targetWantsVariant && (hasVersionMarker(ct) || ALBUM_VARIANT_MARKERS.some(kw => calbum.includes(kw)))) {
     score -= 40;
+  }
+
+  // 未指定变体时，对过短或无专辑名的残缺片段扣分（duration=0 视为未知，不影响）
+  const dur = Number(cand.duration) || 0;
+  if (!targetWantsVariant && dur > 0) {
+    if (dur < 90) score -= 35;
+    else if (dur < 145 && !calbum) score -= 25;
   }
 
   return score;
@@ -120,7 +133,7 @@ export async function search({ title, artist = '', hint = '' }) {
     })).filter(c => c.hash && c.title);
 
     const scored = candidates
-      .map(c => ({ ...c, score: scoreCandidate({ title, artist }, c) }))
+      .map(c => ({ ...c, score: scoreCandidate({ title, artist, hint }, c) }))
       .sort((a, b) => b.score - a.score);
 
     return scored;
@@ -192,8 +205,34 @@ export function coverUrlFromRaw(raw) {
   return '';
 }
 
-// 给一首 Claude 想推的歌 → 解析为可播放队列项；失败返回 null 并记 unmatched
-export async function resolveTrack({ title, artist, hint = '' }) {
+// 给一首想推的歌 → 解析为可播放队列项；支持直接传 hash 精确直取；失败返回 null 并记 unmatched
+export async function resolveTrack({ title = '', artist = '', hint = '', hash = '' }) {
+  const explicitHash = String(hash || '').trim();
+  if (explicitHash) {
+    const url = await songUrl(explicitHash);
+    if (url) {
+      const meta = title
+        ? await resolveTrackMeta({ title, artist, hash: explicitHash }).catch(() => null)
+        : null;
+      return {
+        kugouId: explicitHash,
+        title: meta?.title || title || explicitHash,
+        artist: meta?.artist || artist || '',
+        album: meta?.album || '',
+        duration: meta?.duration || 0,
+        upstreamUrl: url,
+        score: 200,
+        albumId: meta?.albumId || '',
+        mixsongid: meta?.mixsongid || '',
+        cover: meta?.cover || '',
+      };
+    }
+    if (!title) {
+      dbApi.addUnmatched({ title: explicitHash, artist, hint });
+      return null;
+    }
+  }
+
   const candidates = await search({ title, artist, hint });
   const SCORE_THRESHOLD = 60;
 
@@ -535,6 +574,7 @@ export default {
   lyric,
   resolveTrack,
   resolveTrackMeta,
+  scoreCandidate,
   fetchSharedPlaylist,
   fetchUserPlaylists,
   fetchUserPlaylistTracks,

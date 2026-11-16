@@ -110,19 +110,22 @@ export function mountExternalQueueRoutes(app, deps = {}) {
       const title = String(raw?.title || '').trim();
       const artist = String(raw?.artist || '').trim();
       const hint = String(raw?.hint || '').trim();
-      if (!title) {
+      const hash = String(raw?.hash || raw?.kugouId || '').trim();
+      if (!title && !hash) {
         failed.push({ title: '', artist, reason: 'title required' });
         continue;
       }
-      wants.push({
+      const want = {
         title,
         artist,
         hint,
         reason: clipText(raw?.reason, MAX_REASON),
-      });
+      };
+      if (hash) want.hash = hash;
+      wants.push(want);
     }
     if (!wants.length) {
-      res.status(400).json({ ok: false, error: 'tracks 里至少要有一首带 title 的歌', failed });
+      res.status(400).json({ ok: false, error: 'tracks 里至少要有一首带 title 或 hash 的歌', failed });
       return;
     }
 

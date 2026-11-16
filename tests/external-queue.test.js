@@ -365,6 +365,30 @@ describe('POST /api/queue/external', () => {
     expect(runtime.queue[0].reason.startsWith('歌词')).toBe(true);
     expect(Array.from(runtime.queue[0].source)).toHaveLength(40);
   });
+
+  it('tracks 带 hash 或 kugouId 时原样传给 resolveTrack，支持仅传 hash', async () => {
+    const { app, resolveTrack } = setup();
+    const res = mockRes();
+    await app.routes['POST /api/queue/external']({
+      body: {
+        tracks: [
+          { title: '晴天', artist: '周杰伦', hash: 'H-EXACT-1' },
+          { kugouId: 'H-ONLY-2' },
+        ],
+      },
+    }, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(resolveTrack).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      title: '晴天',
+      artist: '周杰伦',
+      hash: 'H-EXACT-1',
+    }));
+    expect(resolveTrack).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      title: '',
+      hash: 'H-ONLY-2',
+    }));
+  });
 });
 
 describe('外部歌单不经过 Claude / 候选池', () => {

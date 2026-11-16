@@ -32,11 +32,99 @@ describe('services/weather', () => {
     expect(typeof mod.getNext24h).toBe('function');
   });
 
-  it('没设 OPENWEATHER_API_KEY 时不抛、返回 null，且不打上游', async () => {
+  it('没设 OPENWEATHER_API_KEY 时自动走免 key 的 Open-Meteo（默认长沙）', async () => {
+    mockGet
+      .mockResolvedValueOnce({
+        data: {
+          current: {
+            temperature_2m: 16.7,
+            relative_humidity_2m: 97,
+            weather_code: 51,
+            is_day: 0,
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          hourly: {
+            time: ['2026-11-16T21:00', '2026-11-16T22:00', '2026-11-16T23:00', '2026-11-17T00:00'],
+            temperature_2m: [16.2, 15.8, 15.3, 14.9],
+            weather_code: [51, 3, 3, 61],
+          },
+        },
+      });
     const { getCurrent, getNext24h } = await import('../server/services/weather.js');
-    expect(await getCurrent()).toBeNull();
-    expect(await getNext24h()).toBeNull();
-    expect(mockGet).not.toHaveBeenCalled();
+    const cur = await getCurrent();
+    expect(cur).toEqual({
+      temp: 17,
+      condition: '毛毛雨',
+      icon: '09d',
+      humidity: 97,
+      city: 'Changsha',
+    });
+    const next24 = await getNext24h();
+    expect(next24).toEqual([
+      { time: '2026-11-16T21:00', temp: 16, condition: '毛毛雨' },
+      { time: '2026-11-17T00:00', temp: 15, condition: '小雨' },
+    ]);
+    expect(mockGet).toHaveBeenCalledTimes(2);
+  });
+
+  it('OpenWeather 返回 401 时自动回退到 Open-Meteo', async () => {
+    process.env.OPENWEATHER_API_KEY = 'invalid-key';
+    prefMem.set('openweather_city', 'Changsha,CN');
+    const authErr = new Error('Request failed with status code 401');
+    authErr.response = { status: 401 };
+    mockGet
+      .mockRejectedValueOnce(authErr)
+      .mockResolvedValueOnce({
+        data: {
+          current: {
+            temperature_2m: 18.4,
+            relative_humidity_2m: 80,
+            weather_code: 2,
+            is_day: 1,
+          },
+        },
+      });
+    const { getCurrent } = await import('../server/services/weather.js');
+    const cur = await getCurrent();
+    expect(cur).toEqual({
+      temp: 18,
+      condition: '多云',
+      icon: '03d',
+      humidity: 80,
+      city: 'Changsha',
+    });
+    expect(mockGet).toHaveBeenCalledTimes(2);
+  });
+
+  it('Open-Meteo 预设外城市通过 geocoding 查询经纬度', async () => {
+    prefMem.set('openweather_city', 'Tokyo,JP');
+    mockGet
+      .mockResolvedValueOnce({
+        data: { results: [{ latitude: 35.68, longitude: 139.69, name: 'Tokyo' }] },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          current: {
+            temperature_2m: 14.1,
+            relative_humidity_2m: 60,
+            weather_code: 0,
+            is_day: 1,
+          },
+        },
+      });
+    const { getCurrent } = await import('../server/services/weather.js');
+    const cur = await getCurrent();
+    expect(cur).toEqual({
+      temp: 14,
+      condition: '晴',
+      icon: '01d',
+      humidity: 60,
+      city: 'Tokyo',
+    });
+    expect(mockGet).toHaveBeenCalledTimes(2);
   });
 
   it('getCurrent 成功路径返回规范化对象', async () => {

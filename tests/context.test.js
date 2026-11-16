@@ -122,4 +122,26 @@ describe('buildSystemPrompt', () => {
     // 文件不存在时也要有占位，不能让整段消失
     expect(prompt).toMatch(/自动学到的品味[\s\S]{0,200}(近 30 天|还没有足够播放数据)/);
   });
+
+  it('传入活跃场景时在环境区注入当前场景', async () => {
+    const { buildSystemPrompt } = await import('../server/context.js');
+    const now = new Date('2026-11-16T15:00:00+08:00');
+    const prompt = await buildSystemPrompt({
+      now,
+      runtime: { scene: { id: 'library', updatedAt: new Date(now.getTime() - 10 * 60_000).toISOString() } },
+    });
+    expect(prompt).toContain('当前场景：图书馆专注');
+  });
+
+  it('writeSessionNote / readSessionNote / clearSessionNote 读写与清理生效', async () => {
+    const os = await import('node:os');
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'claudio-note-'));
+    const { writeSessionNote, readSessionNote, clearSessionNote } = await import('../server/context.js');
+    const t = Date.parse('2026-11-16T12:00:00Z');
+    writeSessionNote({ rootDir: tmp, text: '只要纯音乐', now: t });
+    expect(readSessionNote({ rootDir: tmp, now: t + 60_000 })).toEqual({ text: '只要纯音乐', ageMinutes: 1 });
+    expect(readSessionNote({ rootDir: tmp, now: t + 7 * 3_600_000 })).toBeNull();
+    expect(clearSessionNote({ rootDir: tmp })).toBe(true);
+    expect(readSessionNote({ rootDir: tmp, now: t + 60_000 })).toBeNull();
+  });
 });

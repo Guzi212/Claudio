@@ -596,7 +596,14 @@ function alreadyPlayingIndex(i) {
   return Boolean(track.audioUrl) && src === track.audioUrl;
 }
 
-async function playIndex(i, { autoplay = true, startAt = 0, resume = false, restart = false } = {}) {
+function shouldCountAsUserSkip() {
+  if (!activeSession) return false;
+  const cur = Number(audio?.currentTime) || 0;
+  const dur = Number(audio?.duration) || Number(activeSession.durationSec) || 0;
+  return !((dur > 0 && cur / dur >= 0.65) || cur >= 90);
+}
+
+async function playIndex(i, { autoplay = true, startAt = 0, resume = false, restart = false, outcomeHint = 'switch' } = {}) {
   if (i < 0 || i >= state.queue.length) {
     npBox.classList.add('hidden');
     audio.removeAttribute('src');
@@ -616,7 +623,7 @@ async function playIndex(i, { autoplay = true, startAt = 0, resume = false, rest
   if (!claim.accept) return;
   playLoadIndex = claim.loading;
   const loadToken = i + state.offset;
-  settleActiveSession('switch');
+  settleActiveSession(outcomeHint);
   suppressPauseSync = true;
   try {
     state.index = i;
@@ -676,16 +683,18 @@ function goPrev() {
   showAlert('已经是第一首');
 }
 
-function goNext() {
+function goNext({ userInitiated = false } = {}) {
+  const outcomeHint = userInitiated && shouldCountAsUserSkip() ? 'skipped' : 'switch';
   if (state.index < state.queue.length - 1) {
-    playIndex(state.index + 1);
+    playIndex(state.index + 1, { outcomeHint });
     return;
   }
   if (state.brain === 'internal' && state.loopMode === 'list' && state.queue.length) {
-    playIndex(0);
+    playIndex(0, { outcomeHint });
     return;
   }
   if (state.brain === 'internal' && state.loopMode === 'auto' && state.queue.length) {
+    if (outcomeHint === 'skipped') settleActiveSession('skipped');
     requestNextBatch({ playWhenReady: true });
     return;
   }
@@ -792,7 +801,9 @@ function renderQueuePanel() {
   queueList.querySelectorAll('[data-idx]').forEach(btn => {
     btn.addEventListener('click', () => {
       markActivated();
-      playIndex(Number(btn.dataset.idx));
+      playIndex(Number(btn.dataset.idx), {
+        outcomeHint: shouldCountAsUserSkip() ? 'skipped' : 'switch',
+      });
     });
   });
   bindQueueCoverFallbacks();
@@ -840,7 +851,7 @@ function bindConsoleControls() {
       const action = btn.dataset.consoleControl;
       if (action === 'prev') goPrev();
       if (action === 'play-pause') togglePlayback();
-      if (action === 'next') goNext();
+      if (action === 'next') goNext({ userInitiated: true });
       if (action === 'favorite') toggleFavorite();
       if (action === 'queue') toggleQueuePanel();
       if (action === 'loop') toggleLoopMode();
@@ -997,6 +1008,42 @@ async function startTelemetrySession(track) {
   }
 }
 
+function paintScene(scene) {
+  const id = typeof scene === 'string'
+    ? scene
+    : String(scene?.id || 'auto');
+  document.querySelectorAll('#scene-pills [data-scene]').forEach(btn => {
+    const active = btn.dataset.scene === id;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-pressed', String(active));
+  });
+}
+
+function bindScenePills() {
+  const box = document.getElementById('scene-pills');
+  if (!box) return;
+  box.querySelectorAll('[data-scene]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const scene = btn.dataset.scene;
+      if (!scene) return;
+      paintScene(scene);
+      try {
+        const r = await fetch('/api/scene', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scene }),
+        });
+        const data = await r.json();
+        if (!r.ok || !data.ok) throw new Error(data.error || `HTTP ${r.status}`);
+        paintScene(data.scene);
+        toast(`场景：${data.scene.label}`);
+      } catch (err) {
+        showAlert(`切换场景失败：${err.message}`);
+      }
+    });
+  });
+}
+
 function syncIntentUi(text) {
   const intentInput = document.getElementById('intent-input');
   const intentClear = document.getElementById('intent-clear');
@@ -1066,6 +1113,7 @@ async function hydrateMemoryContext({ hasServerVolume = false } = {}) {
     const settings = settingsRes.status === 'fulfilled' ? settingsRes.value : null;
     if (brief) {
       syncIntentUi(brief.activeIntent?.text || '');
+      if (brief.scene) paintScene(brief.scene);
       const adaptiveOn = settingEnabled(settings?.adaptive_volume_enabled, true);
       const suggested = brief.context?.suggestedVolume;
       if (!hasServerVolume && adaptiveOn && !brief.context?.coldStart && Number.isFinite(suggested)) {
@@ -1082,6 +1130,7 @@ export function applyRuntime(runtime, { origin } = {}) {
   // 自己刚 POST 出去的状态又广播回来时，不再 play / pause / playIndex。
   if (isOwnEcho(origin, getClientId())) return;
   if ('activeAgent' in runtime) activeAgent = runtime.activeAgent || null;
+  if ('scene' in runtime) paintScene(runtime.scene);
   if (runtime.brain === 'internal' || runtime.brain === 'external') {
     brain = runtime.brain;
     state.brain = brain;
@@ -1286,6 +1335,7 @@ export function initPlayer() {
   bindConsoleControls();
   bindFeedback();
   bindIntentForm();
+  bindScenePills();
   updatePlayButtons(false);
   paintHostChrome();
 
@@ -1363,6 +1413,7 @@ async function bootCurrent({ silent = false, keepOverlay = false } = {}) {
     state.brain = brain;
     state.offset = data.queueOffset || 0;
     activeAgent = data.activeAgent || null;
+    if (data.scene) paintScene(data.scene);
     applyBrainChrome();
     rememberQueueMeta(data);
     if (Number.isFinite(data.volume)) applyHeardVolume(data.volume);

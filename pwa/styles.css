@@ -266,6 +266,33 @@ svg { display: block; }
 .host-time { font-size: 12px; color: var(--muted); }
 .host-line { margin: 0; font-size: 14px; color: var(--ink); opacity: 0.9; }
 
+.scene-pills {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.scene-pill {
+  border: 1px solid var(--line);
+  background: var(--surface-subtle);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11px;
+  line-height: 1.4;
+  transition: background-color 160ms var(--ease-out), color 160ms var(--ease-out), border-color 160ms var(--ease-out);
+}
+.scene-pill:hover {
+  color: var(--ink);
+  background: var(--surface-hover);
+}
+.scene-pill.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .intent-form {
   display: flex;
   align-items: center;
@@ -682,6 +709,8 @@ input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent);
   .track-info h1 { font-size: 28px; }
   .setting-row { grid-template-columns: 1fr; gap: 6px; }
   .profile-editors { grid-template-columns: 1fr; }
+  .intent-form { flex: 1 1 160px; min-width: 0; }
+  .intent-form input { width: 100%; min-width: 0; }
 }
 
 /* Mini Companion Mode (380x136 Desktop Window or ultra-short viewport) */
@@ -695,7 +724,7 @@ html.is-mini, html.is-mini body { overflow: hidden; }
   .mini-only { display: inline-flex; padding: 3px 9px; font-size: 11px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); }
   .shell { width: calc(100% - 24px); padding: 8px 0; justify-content: center; }
   .shell main { gap: 0; justify-content: center; }
-  .host, .queue, #console-chat, .footer, .feedback, .progress, .player-options, #lyrics-panel, .playing-state, .reason { display: none !important; }
+  .host, .scene-pills, .queue, #console-chat, .footer, .feedback, .progress, .player-options, #lyrics-panel, .playing-state, .reason { display: none !important; }
   .is-empty .stage { display: grid; }
   .is-empty .empty-stage { display: none !important; }
   .stage { grid-template-columns: 56px minmax(0, 1fr) auto; gap: 12px; align-items: center; }

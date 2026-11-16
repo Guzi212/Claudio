@@ -13,7 +13,7 @@ import { dbApi } from './db.js';
 import { ensureLogin, startAutoRefresh, stopAutoRefresh } from './services/kugou-login.js';
 import { start as startScheduler } from './scheduler.js';
 import { brainMode, startBrainServices } from './brain.js';
-import { applyProgress } from './playback-control.js';
+import { applyProgress, readSavedScene } from './playback-control.js';
 import { readContinuePool } from './continue-pool.js';
 import { mountContinuePoolRoutes } from './api/continue-pool.js';
 import { mountRuntimeRoutes } from './api/runtime.js';
@@ -76,6 +76,7 @@ const runtime = {
   lastReason: '',
   queuedAt: null,
   queuedSource: '',
+  scene: readSavedScene(dbApi),
   continuePool: readContinuePool(dbApi),
 };
 
