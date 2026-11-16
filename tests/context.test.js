@@ -125,9 +125,10 @@ describe('buildSystemPrompt', () => {
 
   it('传入活跃场景时在环境区注入当前场景', async () => {
     const { buildSystemPrompt } = await import('../server/context.js');
+    const now = new Date('2026-11-16T15:00:00+08:00');
     const prompt = await buildSystemPrompt({
-      now: new Date('2026-11-16T15:00:00'),
-      runtime: { scene: { id: 'library', updatedAt: '2026-11-16T06:50:00.000Z' } },
+      now,
+      runtime: { scene: { id: 'library', updatedAt: new Date(now.getTime() - 10 * 60_000).toISOString() } },
     });
     expect(prompt).toContain('当前场景：图书馆专注');
   });
