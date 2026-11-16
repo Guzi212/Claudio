@@ -42,11 +42,21 @@ describe('player console controls', () => {
     expect(playerJs).toContain("btn.hidden = brain !== 'internal'");
   });
 
-  it('点踩真实上报 dislike 遥测与 feedback 并切下一首', () => {
+  it('点踩真实上报 dislike 遥测与 feedback 并切下一首；主动切下一首按进度报 skipped', () => {
     expect(playerJs).toContain("postFeedback('dislike', track)");
     expect(playerJs).toContain('reportDislikeTelemetry');
     expect(playerJs).toContain("event: 'dislike'");
     expect(playerJs).not.toContain("choice === 'dislike' ? 'unlike'");
+    expect(playerJs).toContain('function shouldCountAsUserSkip()');
+    expect(playerJs).toContain('goNext({ userInitiated: true })');
+  });
+
+  it('播放页提供极简场景胶囊并与 /api/scene 同步', () => {
+    expect(indexHtml).toContain('id="scene-pills"');
+    expect(indexHtml).toContain('data-scene="library"');
+    expect(indexHtml).toContain('data-scene="dorm"');
+    expect(playerJs).toContain('/api/scene');
+    expect(playerJs).toContain('bindScenePills');
   });
 
   it('红心收藏按钮写酷狗「我喜欢」', () => {

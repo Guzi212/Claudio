@@ -82,4 +82,25 @@ describe('services/user-files', () => {
     expect(written).toContain('<!-- kugou-distilled:start -->');
     expect(fs.readFileSync(path.join(dir, 'user', 'taste.md'), 'utf8')).toBe('public\n');
   });
+
+  it('过期的 .local.md 不会盖掉更新过的基础文件', () => {
+    const dir = makeTmpDir();
+    fs.mkdirSync(path.join(dir, 'user'), { recursive: true });
+    const basePath = path.join(dir, 'user', 'taste.md');
+    const localPath = path.join(dir, 'user', 'taste.local.md');
+    fs.writeFileSync(basePath, '# base\n- 新版品味\n', 'utf8');
+    fs.writeFileSync(localPath, '# local\n- 过期旧品味\n', 'utf8');
+    const nowSec = Date.now() / 1000;
+    fs.utimesSync(localPath, nowSec - 60, nowSec - 60);
+    fs.utimesSync(basePath, nowSec, nowSec);
+
+    const readRes = resolveReadUserFile(dir, 'user/taste.md');
+    expect(readRes.isLocal).toBe(false);
+    expect(readRes.content).toContain('新版品味');
+
+    const writeRes = writeUserFile(dir, 'user/taste.md', '# base\n- 继续更新\n');
+    expect(writeRes.isLocal).toBe(false);
+    expect(fs.readFileSync(basePath, 'utf8')).toContain('继续更新');
+    expect(fs.readFileSync(localPath, 'utf8')).toContain('过期旧品味');
+  });
 });

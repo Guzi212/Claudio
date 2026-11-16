@@ -64,7 +64,7 @@ describe('minimalist dual-theme radio contract', () => {
   });
 
   it('离线壳缓存覆盖新增资源并移除已淘汰视觉模块', () => {
-    expect(sw).toMatch(/const CACHE = 'claudio-shell-v22'/);
+    expect(sw).toMatch(/const CACHE = 'claudio-shell-v23'/);
     expect(sw).toContain('\'/theme-store.js\'');
     expect(sw).toContain('\'/external-playback.js\'');
     expect(sw).toContain('\'/boot-playback.js\'');

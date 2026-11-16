@@ -8,6 +8,7 @@ import { dbApi as defaultDb } from '../db.js';
 import { synthesize as defaultSynthesize } from '../tts.js';
 import { normalizeForMatch } from '../services/kugou.js';
 import { markQueueSource } from '../queue-source.js';
+import { continuePoolView } from '../continue-pool.js';
 import { syncLearnedTraits } from '../memory/learner.js';
 import { get as getSetting, getBoolean as getBoolSetting, getNumber as getNumSetting } from '../services/settings.js';
 import {
@@ -87,6 +88,10 @@ export function shouldRefill(runtime, {
     && now - queuedAt < yieldMs
     && runtime.queuedSource !== DJ_SOURCE;
   if (freshlyExternal) return { ok: false, reason: 'external-active' };
+
+  if (continuePoolView(runtime)?.active) {
+    return { ok: false, reason: 'continue-pool-active' };
+  }
 
   const queue = Array.isArray(runtime.queue) ? runtime.queue : [];
   if (!queue.length) return { ok: true, reason: 'empty' };

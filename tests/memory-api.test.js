@@ -13,6 +13,7 @@ function mockApp() {
     routes,
     get(p, h) { routes[`GET ${p}`] = h; },
     post(p, h) { routes[`POST ${p}`] = h; },
+    put(p, h) { routes[`PUT ${p}`] = h; },
     patch(p, h) { routes[`PATCH ${p}`] = h; },
     delete(p, h) { routes[`DELETE ${p}`] = h; },
   };
@@ -163,5 +164,77 @@ describe('memory API & 多 Agent 解耦', () => {
     await app.routes['GET /api/memory/brief']({ query: {} }, briefRes);
     expect(briefRes.body.activeAgent.id).toBe('alma');
     expect(briefRes.body.traits.some(t => t.summary === '跨 Agent 测试记忆条')).toBe(true);
+  });
+
+  it('session_end 达标晋升 queued -> played，skipped 写不重复的 skip 反馈', async () => {
+    const runtime = { queue: [], index: 0, volume: 30 };
+    const app = mockApp();
+    mountMemoryRoutes(app, { db: dbApi, rootDir: process.cwd(), runtime });
+
+    const queuedId = Number(dbApi.addPlay({
+      kugouId: 'h-promo-1',
+      title: '晴天',
+      artist: '周杰伦',
+      source: 'bot',
+      quality: 'queued',
+    }));
+
+    const s1 = mockRes();
+    await app.routes['POST /api/memory/telemetry']({
+      body: { event: 'session_start', kugouId: 'h-promo-1', title: '晴天', artist: '周杰伦', source: 'external', durationSec: 269 },
+    }, s1);
+    const e1 = mockRes();
+    await app.routes['POST /api/memory/telemetry']({
+      body: { event: 'session_end', sessionId: s1.body.sessionId, listenedSec: 45, durationSec: 269, outcome: 'interrupted' },
+    }, e1);
+    expect(e1.body.ok).toBe(true);
+    const verified = dbApi.recentVerifiedPlays(20).find(p => Number(p.id) === queuedId);
+    expect(verified).toMatchObject({ title: '晴天', quality: 'played' });
+
+    const s2 = mockRes();
+    await app.routes['POST /api/memory/telemetry']({
+      body: { event: 'session_start', kugouId: 'h-skip-1', title: '跳过歌', artist: '歌手甲', source: 'external', durationSec: 200 },
+    }, s2);
+    const e2 = mockRes();
+    await app.routes['POST /api/memory/telemetry']({
+      body: { event: 'session_end', sessionId: s2.body.sessionId, listenedSec: 12, durationSec: 200, outcome: 'skipped' },
+    }, e2);
+    expect(e2.body.ok).toBe(true);
+    const skipRows = dbApi.recentFeedback(20).filter(f => f.kind === 'skip' && f.kugou_id === 'h-skip-1');
+    expect(skipRows).toHaveLength(1);
+  });
+
+  it('支持 GET/PUT/POST/DELETE /api/session-note 与 GET/POST/PUT /api/scene', async () => {
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'claudio-note-scene-'));
+    const runtime = { queue: [{ title: 'A', artist: 'B' }], index: 0, paused: false, volume: 30 };
+    const broadcast = vi.fn();
+    const app = mockApp();
+    mountMemoryRoutes(app, { db: dbApi, rootDir: tmpRoot, runtime, broadcast });
+
+    const putNote = mockRes();
+    await app.routes['PUT /api/session-note']({ body: { text: '今晚只听纯音乐', ttlMinutes: 180 } }, putNote);
+    expect(putNote.body.ok).toBe(true);
+    expect(putNote.body.note.text).toBe('今晚只听纯音乐');
+
+    const getNote = mockRes();
+    await app.routes['GET /api/session-note']({}, getNote);
+    expect(getNote.body.active).toBe(true);
+    expect(getNote.body.note.text).toBe('今晚只听纯音乐');
+
+    const postScene = mockRes();
+    await app.routes['POST /api/scene']({ body: { scene: 'library' } }, postScene);
+    expect(postScene.body.ok).toBe(true);
+    expect(postScene.body.scene.id).toBe('library');
+    expect(runtime.scene.id).toBe('library');
+
+    const briefRes = mockRes();
+    await app.routes['GET /api/memory/brief']({ query: {} }, briefRes);
+    expect(briefRes.body.scene.id).toBe('library');
+    expect(briefRes.body.sessionNote.text).toBe('今晚只听纯音乐');
+
+    const delNote = mockRes();
+    await app.routes['DELETE /api/session-note']({}, delNote);
+    expect(delNote.body.active).toBe(false);
+    expect(fs.existsSync(path.join(tmpRoot, 'user', 'session-note.md'))).toBe(false);
   });
 });

@@ -80,15 +80,37 @@ describe('taste · computeTasteStats', () => {
     expect(formatStatsForPrompt(stats)).toContain('共 0 次播放');
   });
 
-  it('歌名是文件名的杂项不进统计', () => {
+  it('歌名是文件名的杂项和自动化测试合成条目不进统计', () => {
     const stats = computeTasteStats({
-      plays: [play('说散就散.mp3', '袁娅维', 0, 21), play('晴天', '周杰' + '伦', 0, 21)],
-      feedback: [{ kind: 'skip', title: '一万次悲伤.mp3', artist: '逃跑计划', ts: NOW }],
+      plays: [
+        play('说散就散.mp3', '袁娅维', 0, 21),
+        play('hist-1793298635258', '周杰伦', 0, 21),
+        play('外部测试曲', '测试', 0, 21),
+        play('晴天', '周杰' + '伦', 0, 21),
+      ],
+      feedback: [
+        { kind: 'skip', title: '一万次悲伤.mp3', artist: '逃跑计划', ts: NOW },
+        { kind: 'like', title: 'like-1793298635266', artist: '周杰伦', ts: NOW },
+      ],
       now: NOW,
     });
     expect(stats.totalPlays).toBe(1);
     expect(stats.topArtists.map(a => a.artist)).toEqual(['周杰' + '伦']);
     expect(stats.skipped).toEqual([]);
+    expect(stats.liked).toEqual([]);
+  });
+
+  it('dislike 反馈同时记入 unliked / disliked 并折算进歌手跳过率', () => {
+    const stats = computeTasteStats({
+      plays: [play('Weightless', 'Marconi Union', 0, 21), play('晴天', '周杰伦', 0, 21)],
+      feedback: [{ kind: 'dislike', title: 'Weightless', artist: 'Marconi Union', ts: NOW }],
+      now: NOW,
+    });
+    expect(stats.disliked.map(x => x.title)).toEqual(['Weightless']);
+    expect(stats.unliked.map(x => x.title)).toEqual(['Weightless']);
+    const mu = stats.topArtists.find(a => a.artist === 'Marconi Union');
+    expect(mu.skips).toBe(1);
+    expect(mu.skipRate).toBe(1);
   });
 });
 

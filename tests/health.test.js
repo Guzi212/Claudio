@@ -102,19 +102,19 @@ describe('mountHealthRoute', () => {
     expect(r.body.kugou.detail).toMatch(/missing|缺|no/i);
   });
 
-  it('weather / tts key 配置后 ok true，未配置 ok false', async () => {
+  it('weather 无 OpenWeather key 时走免 key Open-Meteo，关闭 weather_enabled 才返回 false', async () => {
     mockExec.mockImplementation((cmd, opts, cb) => cb(new Error('not installed')));
 
-    // 先：都没配
+    // 先：没配 OpenWeather key，但默认开启天气感知
     const m1 = await import('../server/api/health.js');
     const app1 = mockApp();
     m1.mountHealthRoute(app1);
     const r1 = mockRes();
     await app1.routes['GET /api/health/integrations']({}, r1);
-    expect(r1.body.weather.ok).toBe(false);
+    expect(r1.body.weather).toEqual({ ok: true, detail: 'Open-Meteo (keyless)' });
     expect(r1.body.tts.ok).toBe(false);
 
-    // 再：都配上（用 prefs）
+    // 再：配好 key
     prefMem.set('openweather_api_key', 'k1');
     prefMem.set('fish_api_key', 'k2');
     vi.resetModules();
@@ -123,8 +123,18 @@ describe('mountHealthRoute', () => {
     m2.mountHealthRoute(app2);
     const r2 = mockRes();
     await app2.routes['GET /api/health/integrations']({}, r2);
-    expect(r2.body.weather.ok).toBe(true);
+    expect(r2.body.weather).toEqual({ ok: true, detail: 'OpenWeather + Open-Meteo' });
     expect(r2.body.tts.ok).toBe(true);
+
+    // 显式关闭 weather_enabled
+    prefMem.set('weather_enabled', 'false');
+    vi.resetModules();
+    const m3 = await import('../server/api/health.js');
+    const app3 = mockApp();
+    m3.mountHealthRoute(app3);
+    const r3 = mockRes();
+    await app3.routes['GET /api/health/integrations']({}, r3);
+    expect(r3.body.weather).toEqual({ ok: false, detail: 'disabled' });
   });
 
   it('lark-cli 不存在（ENOENT 类）→ not installed', async () => {

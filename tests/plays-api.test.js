@@ -60,6 +60,23 @@ describe('播放历史和反馈', () => {
     expect(res.body.kind).toBe('like');
   });
 
+  it('GET /api/plays?verified=1 只返回真实播放记录，并带上 sessions', async () => {
+    const queuedTitle = `queued-${Date.now()}`;
+    const playedTitle = `played-${Date.now()}`;
+    dbApi.addPlay({ kugouId: 'q1', title: queuedTitle, artist: 'A', source: 'bot', quality: 'queued' });
+    dbApi.recordVerifiedPlay({ kugouId: 'p1', title: playedTitle, artist: 'B', source: 'external' });
+
+    const app = mockApp();
+    mountPlaysRoutes(app, { db: dbApi });
+    const res = mockRes();
+    await app.routes['GET /api/plays']({ query: { limit: '20', verified: '1' } }, res);
+
+    expect(res.body.plays.some(p => p.title === queuedTitle)).toBe(false);
+    const verified = res.body.plays.find(p => p.title === playedTitle);
+    expect(verified).toMatchObject({ title: playedTitle, quality: 'played', source: 'bot' });
+    expect(Array.isArray(res.body.sessions)).toBe(true);
+  });
+
   it('非法 kind 返回 400', async () => {
     const app = mockApp();
     mountPlaysRoutes(app, { db: dbApi });

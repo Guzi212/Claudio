@@ -240,4 +240,50 @@ describe('services/kugou', () => {
     expect(playlistFileId({ file_id: '7' })).toBe('7');
     expect(playlistFileId({ fileid: 0 })).toBe('');
   });
+
+  it('scoreCandidate 对演唱会专辑和无专辑短片段降权，录音室原版得分最高', async () => {
+    const { scoreCandidate } = await import('../server/services/kugou.js');
+    const target = { title: '晴天', artist: '周杰伦' };
+    const studio = scoreCandidate(target, { title: '晴天', artist: '周杰伦', album: '叶惠美', duration: 269 });
+    const liveAlbum = scoreCandidate(target, { title: '晴天', artist: '周杰伦', album: '周杰伦 2004 无与伦比 演唱会 Live CD', duration: 299 });
+    const clip = scoreCandidate(target, { title: '晴天', artist: '周杰伦', album: '', duration: 116 });
+    const microClip = scoreCandidate(target, { title: '晴天', artist: '周杰伦', album: '', duration: 45 });
+
+    expect(studio).toBe(150);
+    expect(liveAlbum).toBeLessThan(studio);
+    expect(clip).toBeLessThan(studio);
+    expect(microClip).toBeLessThan(clip);
+  });
+
+  it('resolveTrack 传 hash 时直接取直链，不重新盲搜', async () => {
+    const get = vi.fn(async path => {
+      if (String(path).includes('/song/url')) {
+        return { data: { url: 'https://cdn.kugou.com/exact.mp3' } };
+      }
+      if (String(path).includes('/search')) {
+        return {
+          data: {
+            data: {
+              lists: [{ FileHash: 'EXACT_HASH', OriSongName: '晴天', SingerName: '周杰伦', AlbumName: '叶惠美', Duration: 269 }],
+            },
+          },
+        };
+      }
+      return { data: {} };
+    });
+    vi.doMock('axios', () => ({ default: { create: () => ({ get, post: vi.fn() }) } }));
+    vi.doMock('../server/db.js', () => ({ dbApi: { getPref: () => '', addUnmatched: vi.fn() } }));
+
+    const { resolveTrack } = await import('../server/services/kugou.js');
+    const result = await resolveTrack({ title: '晴天', artist: '周杰伦', hash: 'EXACT_HASH' });
+    expect(result).toMatchObject({
+      kugouId: 'EXACT_HASH',
+      title: '晴天',
+      artist: '周杰伦',
+      album: '叶惠美',
+      duration: 269,
+      upstreamUrl: 'https://cdn.kugou.com/exact.mp3',
+      score: 200,
+    });
+  });
 });

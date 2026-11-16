@@ -8,7 +8,7 @@ import { synthesize } from '../tts.js';
 export async function testWeather({ getWeather = getCurrent, clearCache = invalidateCache } = {}) {
   clearCache();
   const data = await getWeather();
-  if (!data) return { ok: false, error: '未配置 OpenWeather API Key 或请求失败' };
+  if (!data) return { ok: false, error: '天气服务请求失败（请检查网络、城市名或 API Key）' };
   return { ok: true, data };
 }
 
