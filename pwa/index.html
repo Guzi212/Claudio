@@ -1,18 +1,18 @@
 <!doctype html>
-<html lang="zh-cn" data-theme="auto">
+<html lang="zh-cn" data-daypart="night" data-theme="auto">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Claudio</title>
+  <title>Claudio · 私人电台</title>
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/svg+xml" href="icon.svg">
-  <meta name="theme-color" content="#F7F6F2">
+  <meta name="theme-color" content="#f2ede1">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body class="view-player">
   <div id="desktop-titlebar" class="desktop-titlebar" hidden>
     <div class="titlebar-brand">
-      <svg class="brand-wave" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="8" width="3" height="8" rx="1.5"/><rect x="8.5" y="4" width="3" height="16" rx="1.5"/><rect x="14" y="6" width="3" height="12" rx="1.5"/><rect x="19" y="9" width="2.5" height="6" rx="1.25"/></svg>
+      <svg class="bot-mark brand-mark" viewBox="0 0 28 28" aria-hidden="true"><rect class="seal-bg" x="2" y="2" width="24" height="24" rx="3.5"/><rect class="brand-signal" x="4.5" y="4.5" width="19" height="19" rx="2"/><text class="seal-char" x="14" y="19.8" text-anchor="middle">曲</text></svg>
       <span>Claudio</span>
     </div>
     <div class="titlebar-actions">
@@ -30,13 +30,9 @@
 
   <header id="topbar">
     <div class="brand">
-      <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
-        <rect x="2" y="7" width="3" height="10" rx="1.5"/>
-        <rect x="7.5" y="3" width="3" height="18" rx="1.5"/>
-        <rect x="13" y="5" width="3" height="14" rx="1.5"/>
-        <rect x="18.5" y="8" width="3" height="8" rx="1.5"/>
-      </svg>
+      <svg class="bot-mark brand-mark" viewBox="0 0 28 28" aria-hidden="true"><rect class="seal-bg" x="2" y="2" width="24" height="24" rx="3.5"/><rect class="brand-signal" x="4.5" y="4.5" width="19" height="19" rx="2"/><text class="seal-char" x="14" y="19.8" text-anchor="middle">曲</text></svg>
       <span class="wordmark">Claudio</span>
+      <span class="brand-caption">私人电台</span>
     </div>
     <nav id="tabs" class="tabs" aria-label="电台导航">
       <button type="button" class="tab" data-view="player">电台</button>
@@ -55,6 +51,11 @@
 
   <svg class="symbols" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
     <defs>
+      <symbol id="grokbot" viewBox="0 0 64 64">
+        <image href="assets/ink/grokbot.webp" x="0" y="0" width="64" height="64" preserveAspectRatio="xMidYMid meet"/>
+      </symbol>
+      <symbol id="moon" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.65" stroke-linejoin="round" d="M19.5 14.6A8 8 0 0 1 9.4 4.5a8 8 0 1 0 10.1 10.1Z"/></symbol>
+      <symbol id="sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.5" fill="none" stroke="currentColor" stroke-width="1.65"/><path fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></symbol>
       <symbol id="prev" viewBox="0 0 24 24"><path fill="currentColor" d="M6 5h2v14H6zM18 5.8a.8.8 0 0 0-1.2-.7l-8 6.2a.9.9 0 0 0 0 1.4l8 6.2a.8.8 0 0 0 1.2-.7z"/></symbol>
       <symbol id="next-icon" viewBox="0 0 24 24"><path fill="currentColor" d="M16 5h2v14h-2zM6 5.8a.8.8 0 0 1 1.2-.7l8 6.2a.9.9 0 0 1 0 1.4l-8 6.2a.8.8 0 0 1-1.2-.7z"/></symbol>
       <symbol id="pause" viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor"/><rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor"/></symbol>
@@ -63,6 +64,8 @@
       <symbol id="like" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.65" stroke-linejoin="round" d="m7.5 20 9.8-1a2 2 0 0 0 1.8-1.5l1.5-7a1.5 1.5 0 0 0-1.5-1.8H14l.7-4.5A1.9 1.9 0 0 0 12.8 2L7.5 10zM3 10h4.5v10H3z"/></symbol>
       <symbol id="dislike" viewBox="0 0 24 24"><g transform="rotate(180 12 12)"><path fill="none" stroke="currentColor" stroke-width="1.65" stroke-linejoin="round" d="m7.5 20 9.8-1a2 2 0 0 0 1.8-1.5l1.5-7a1.5 1.5 0 0 0-1.5-1.8H14l.7-4.5A1.9 1.9 0 0 0 12.8 2L7.5 10zM3 10h4.5v10H3z"/></g></symbol>
       <symbol id="heart" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.65" stroke-linejoin="round" d="M12 20.4 4.9 13.3a4.7 4.7 0 0 1 6.6-6.7l.5.5.5-.5a4.7 4.7 0 0 1 6.6 6.7z"/></symbol>
+      <symbol id="headphones" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.65" stroke-linejoin="round" d="M4 14v-3a8 8 0 0 1 16 0v3M4 12H3v7h4v-7zm16 0h1v7h-4v-7z"/></symbol>
+      <symbol id="sections" viewBox="0 0 24 24"><rect x="4" y="4" width="6.5" height="6.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.65"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.65"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.65"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.65"/></symbol>
     </defs>
   </svg>
 
@@ -70,83 +73,86 @@
     <div id="boot-overlay" class="boot-overlay hidden" aria-label="电台开播">
       <button type="button" id="boot-btn" class="boot-btn">▶ 点击开声</button>
     </div>
-
+    <div class="ink-scene" aria-hidden="true">
+      <div class="ink-painting"></div>
+      <div class="ink-veil"></div>
+      <div class="ink-tint"></div>
+      <div class="ink-orb"></div>
+      <div class="ink-mist mist-high"></div>
+      <div class="ink-mist mist-low"></div>
+    </div>
     <div class="shell">
-      <main>
-        <section class="host" aria-label="电台状态与即时意图">
-          <div class="host-header">
-            <div class="host-identity">
-              <span class="host-dot" id="host-speaking" aria-hidden="true"><i></i><i></i><i></i></span>
-              <span class="agent-name" id="host-agent-name">Claudio</span>
-              <span class="bot-chip" id="host-role-chip">私人频率</span>
-              <span id="host-time" class="host-time">在线</span>
-            </div>
-            <div id="scene-pills" class="scene-pills" role="group" aria-label="当前场景">
-              <button type="button" class="scene-pill active" data-scene="auto" aria-pressed="true">自动</button>
-              <button type="button" class="scene-pill" data-scene="library" aria-pressed="false">图书馆专注</button>
-              <button type="button" class="scene-pill" data-scene="dorm" aria-pressed="false">寝室放空</button>
-            </div>
-            <form id="intent-form" class="intent-form" aria-label="临时偏好">
-              <input id="intent-input" type="text" maxlength="100" placeholder="此刻想听什么…" aria-label="此刻想听什么">
-              <button type="button" id="intent-clear" class="intent-clear hidden" aria-label="清除当前意图">×</button>
-            </form>
+      <header class="masthead">
+        <div class="masthead-left">
+          <div class="edition" id="edition"><svg class="icon" aria-hidden="true"><use id="edition-symbol" href="#sun"/></svg><span id="edition-label">傍晚场</span></div>
+          <div id="scene-pills" class="scene-pills" role="group" aria-label="当前场景">
+            <button type="button" class="scene-pill active" data-scene="auto" aria-pressed="true">自动</button>
+            <button type="button" class="scene-pill" data-scene="library" aria-pressed="false">图书馆专注</button>
+            <button type="button" class="scene-pill" data-scene="dorm" aria-pressed="false">寝室放空</button>
           </div>
-          <p class="host-line" id="host-line">已准备就绪。</p>
+        </div>
+        <div class="corner-menu">
+          <button type="button" class="corner-button" id="corner-menu-btn" aria-label="更多页面" aria-haspopup="true" aria-expanded="false" aria-controls="corner-panel"><svg class="icon" aria-hidden="true"><use href="#sections"/></svg></button>
+          <div class="corner-panel" id="corner-panel" hidden>
+            <button type="button" data-view-jump="playlists">歌单</button>
+            <button type="button" data-view-jump="profile">品味</button>
+            <button type="button" data-view-jump="settings">设置</button>
+          </div>
+        </div>
+      </header>
+      <main>
+        <section class="host" aria-label="主持人口播">
+          <div class="avatar" aria-hidden="true"><svg id="grokbot-avatar" class="grokbot-avatar"><use href="#grokbot"/></svg></div>
+          <div class="host-body">
+            <div class="host-meta">
+              <span class="agent-name"><span id="host-agent-name">Claudio</span> <span class="bot-chip" id="host-role-chip">电台主持人</span></span>
+              <span id="host-time">在线</span>
+            </div>
+            <p class="host-line" id="host-line">我在。让我挑一首适合现在的歌。</p>
+          </div>
+          <div class="voice" id="host-speaking" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
         </section>
 
         <section class="stage" id="now-playing" aria-label="当前播放">
           <div class="cover-column">
             <div class="cover" id="np-cover">
               <img id="np-cover-img" alt="" hidden>
-              <div id="np-cover-fallback" class="cover-fallback" aria-hidden="true">
-                <span class="cover-monogram">C</span>
-                <div class="cover-fallback-meta">
-                  <strong id="np-cover-title">Claudio</strong>
-                  <span id="np-cover-artist">私人电台</span>
-                </div>
-              </div>
+              <svg id="np-cover-fallback" viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <image href="assets/ink/cover.webp" x="0" y="0" width="500" height="500" preserveAspectRatio="xMidYMid slice"/>
+                <g fill="#1f1c18" font-family="KaiTi, STKaiti, serif"><text id="np-cover-title" x="34" y="62" font-size="30" letter-spacing="8">晴天</text><text id="np-cover-artist" x="36" y="94" font-size="15" letter-spacing="5" opacity=".7">周杰伦</text></g>
+              </svg>
             </div>
+            <div class="signal-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
           </div>
-
           <div class="playback-panel">
             <div class="track-info">
               <div class="playing-state"><span class="live-dot"></span><span id="playing-label">已暂停</span></div>
-              <h1 id="np-title">等待点歌</h1>
-              <p class="artist" id="np-artist"></p>
+              <h1 id="np-title">晴天</h1>
+              <p class="artist" id="np-artist">周杰伦</p>
               <p class="reason" id="track-reason" hidden></p>
             </div>
-
             <div class="progress">
               <input id="np-seek" type="range" min="0" max="100" value="0" step="0.1" aria-label="播放进度">
               <div class="times"><span id="np-time-cur">0:00</span><span id="np-time-dur">0:00</span></div>
             </div>
-
             <div class="transport">
               <div class="playback" aria-label="播放控制">
                 <button class="icon-button" type="button" data-console-control="prev" aria-label="上一首"><svg class="icon skip-icon" aria-hidden="true"><use href="#prev"/></svg></button>
                 <button class="icon-button main-play" type="button" data-console-control="play-pause" aria-label="播放"><svg class="icon" aria-hidden="true"><use id="play-symbol" href="#play-icon"/></svg></button>
                 <button class="icon-button" type="button" data-console-control="next" aria-label="下一首"><svg class="icon skip-icon" aria-hidden="true"><use href="#next-icon"/></svg></button>
               </div>
-              <label class="volume">
-                <svg class="icon" aria-hidden="true"><use href="#volume-icon"/></svg>
-                <span class="sr-only">音量</span>
-                <input id="np-vol" type="range" min="0" max="100" value="30" step="1" aria-label="音量">
-                <output id="np-vol-out" for="np-vol">30</output>
-              </label>
+              <label class="volume"><svg class="icon" aria-hidden="true"><use href="#volume-icon"/></svg><span class="sr-only">音量</span><input id="np-vol" type="range" min="0" max="100" value="30" step="1" aria-label="音量"><output id="np-vol-out" for="np-vol">30</output></label>
             </div>
-
             <div class="feedback" aria-label="歌曲反馈">
-              <button class="feedback-button" type="button" data-feedback="like" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#like"/></svg><span>喜欢</span></button>
-              <button class="feedback-button" type="button" data-feedback="dislike" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#dislike"/></svg><span>不喜欢</span></button>
-              <button class="feedback-button" type="button" data-console-control="favorite" aria-label="收藏到我喜欢" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#heart"/></svg><span>收藏</span></button>
-              <button id="lyrics-toggle" class="feedback-button lyrics-toggle" type="button" aria-controls="lyrics-panel" aria-expanded="false" hidden>歌词</button>
+              <button class="feedback-button" type="button" data-feedback="like" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#like"/></svg>喜欢</button>
+              <button class="feedback-button" type="button" data-feedback="dislike" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#dislike"/></svg>不喜欢</button>
+              <button class="feedback-button" type="button" data-console-control="favorite" aria-label="收藏到我喜欢" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#heart"/></svg>收藏</button>
             </div>
-
+            <button id="lyrics-toggle" class="lyrics-toggle" type="button" aria-controls="lyrics-panel" aria-expanded="false" hidden>歌词</button>
             <div class="player-options" aria-label="播放选项">
               <button class="text-button" type="button" data-console-control="loop" data-internal-only aria-label="自动推歌" aria-pressed="true" hidden>自动推歌</button>
               <button class="text-button" type="button" data-console-control="queue" data-internal-only aria-label="展开完整队列" aria-controls="queue-list" aria-expanded="true" hidden>完整队列</button>
             </div>
-
             <div id="lyrics-panel" class="lyrics-panel hidden" aria-label="歌词"></div>
           </div>
           <audio id="audio" preload="metadata"></audio>
@@ -156,21 +162,19 @@
           <div class="queue-heading"><h2 id="queue-title">接下来</h2><span id="queue-count">0 首</span></div>
           <ol id="queue-list"></ol>
         </section>
-
         <section id="console-chat" class="console-chat" aria-label="电台对话">
           <div class="chat" id="chat"></div>
-          <form id="composer" class="composer"><input id="input" autocomplete="off" placeholder="告诉 Claudio 想听什么…" aria-label="点歌"><button type="submit" aria-label="发送">↑</button></form>
+          <form id="composer" class="composer"><input id="input" autocomplete="off" placeholder="告诉 Claudio 想听什么" aria-label="点歌"><button type="submit" aria-label="发送">↑</button></form>
         </section>
-
         <section class="empty-stage" aria-labelledby="empty-title">
-          <div class="waiting-pulse" aria-hidden="true"><i></i><i></i><i></i></div>
-          <h1 id="empty-title">等待下一首歌</h1>
+          <div class="waiting-art" aria-hidden="true"><div class="waiting-orbit"></div><div class="waiting-core"><svg class="grokbot-avatar"><use href="#grokbot"/></svg></div></div>
+          <h1 id="empty-title">等主持人点歌</h1>
+          <div class="thinking">正在挑选下一首<span class="thinking-dots" aria-hidden="true"><i></i><i></i><i></i></span></div>
         </section>
       </main>
-
       <footer class="footer">
-        <span class="footer-left">Claudio Audio Engine</span>
-        <span class="connection"><span class="live-dot"></span><span id="footer-agent-status">Claudio 在线</span></span>
+        <span class="footer-left"><svg class="icon" aria-hidden="true"><use href="#headphones"/></svg>给 loic 的私人频率</span>
+        <span class="connection"><span class="live-dot"></span><span id="footer-agent-status">主持人在线</span></span>
       </footer>
     </div>
   </section>
@@ -178,23 +182,9 @@
   <section id="view-playlists" class="view view-playlists hidden">
     <header class="view-head"><h2>歌单</h2><div class="view-actions"><button id="playlists-refresh" type="button" class="btn">刷新</button></div></header>
     <div class="view-content">
-      <section class="section-block">
-        <h3>搜索歌曲</h3>
-        <form id="search-form" class="search-row"><input id="search-input" type="search" placeholder="歌名 / 歌手" aria-label="搜索歌曲"><button type="submit" class="btn primary">搜索</button></form>
-        <ul id="search-results" class="search-results"></ul>
-        <p id="search-status" class="status-note"></p>
-      </section>
-      <section class="section-block">
-        <div class="section-row">
-          <h3>当前候选池</h3>
-          <button id="pool-clear" type="button" class="btn ghost hidden">清除候选池</button>
-        </div>
-        <p id="pool-status" class="status-note">读取中…</p>
-      </section>
-      <section class="section-block">
-        <h3>酷狗歌单</h3>
-        <ul id="playlist-list" class="playlist-list"><li class="muted">加载中…</li></ul>
-      </section>
+      <section class="card search-card"><h3>搜索歌曲</h3><form id="search-form" class="search-row"><input id="search-input" type="search" placeholder="歌名 / 歌手" aria-label="搜索歌曲"><button type="submit" class="btn primary">搜索</button></form><ul id="search-results" class="search-results"></ul><p id="search-status" class="status-note"></p></section>
+      <section class="card pool-card"><div class="section-row"><h3>当前候选池</h3><button id="pool-clear" type="button" class="btn ghost hidden">清除候选池</button></div><p id="pool-status" class="status-note">加载中…</p></section>
+      <section class="card"><h3>我的酷狗歌单</h3><ul id="playlist-list" class="playlist-list"><li class="muted">加载中…</li></ul></section>
     </div>
   </section>
 
@@ -203,144 +193,69 @@
       <h2>品味与记忆</h2>
       <div class="view-actions">
         <button id="memory-refresh" type="button" class="btn">刷新记忆</button>
-        <button id="profile-save" type="button" class="btn primary">保存文稿</button>
+        <button id="profile-save" type="button" class="btn primary">保存</button>
       </div>
     </header>
-    <div class="view-content profile-scroll">
-      <section class="section-block" id="memory-insights">
+    <div class="profile-scroll view-content">
+      <section class="card" id="memory-insights">
         <div class="section-row">
           <h3>动态上下文画像</h3>
           <span id="memory-confidence" class="badge"></span>
         </div>
         <div id="context-pills" class="pill-row"></div>
+        <form id="intent-form" class="intent-form" aria-label="临时偏好">
+          <input id="intent-input" type="text" maxlength="100" placeholder="此刻想听什么…" aria-label="此刻想听什么">
+          <button type="button" id="intent-clear" class="intent-clear hidden" aria-label="清除当前意图">×</button>
+        </form>
         <form id="trait-form" class="search-row">
           <input id="trait-input" type="text" maxlength="160" placeholder="添加或纠正偏好（例：早上不要摇滚）" aria-label="添加记忆偏好">
           <button type="submit" class="btn primary">记住</button>
         </form>
         <ul id="trait-list" class="trait-list"></ul>
       </section>
-
-      <details class="section-block" open>
-        <summary class="section-summary">手动品味与作息文稿</summary>
-        <div class="profile-editors">
-          <div class="editor-box">
-            <h3>taste</h3>
-            <textarea id="taste-editor" class="profile-editor" spellcheck="false" placeholder="读取中…" aria-label="音乐品味"></textarea>
-          </div>
-          <div class="editor-box">
-            <h3>routines</h3>
-            <textarea id="routines-editor" class="profile-editor" spellcheck="false" placeholder="读取中…" aria-label="日常作息"></textarea>
-          </div>
-        </div>
-      </details>
-
-      <section class="section-block">
-        <h3>酷狗歌单导入</h3>
-        <div class="import-row">
-          <input id="import-url" type="text" placeholder="粘贴酷狗分享链接（t1.kugou.com/…）" aria-label="酷狗分享链接">
-          <select id="import-bucket" aria-label="导入口味分类">
-            <option value="long_term">长期喜欢</option>
-            <option value="recent_mood">最近 mood</option>
-            <option value="avoid">雷区</option>
-          </select>
-          <button id="btn-import" type="button" class="btn primary">导入</button>
-        </div>
-        <p id="import-status" class="status-note"></p>
-      </section>
-
-      <details id="unmatched-section" class="section-block">
-        <summary class="section-summary">未匹配歌曲 <span id="unmatched-count" class="muted"></span></summary>
-        <ul id="unmatched-list" class="unmatched-list"></ul>
-      </details>
+      <div class="profile-editors">
+        <section class="card"><h3>taste.md</h3><textarea id="taste-editor" class="profile-editor taste-editor" spellcheck="false" placeholder="加载中…" aria-label="音乐品味"></textarea></section>
+        <section class="card"><h3>routines.md</h3><textarea id="routines-editor" class="profile-editor" spellcheck="false" placeholder="加载中…" aria-label="日常作息"></textarea></section>
+      </div>
+      <section class="card"><h3>酷狗歌单导入</h3><div class="import-row"><input id="import-url" type="text" placeholder="粘贴酷狗分享链接（t1.kugou.com/…）" aria-label="酷狗分享链接"><select id="import-bucket" aria-label="导入口味分类"><option value="long_term">长期喜欢</option><option value="recent_mood">最近 mood</option><option value="avoid">雷区</option></select><button id="btn-import" type="button" class="btn primary">导入</button></div><p id="import-status" class="status-note"></p></section>
+      <details id="unmatched-section" class="card"><summary>未匹配歌曲 <span id="unmatched-count" class="muted"></span></summary><ul id="unmatched-list" class="unmatched-list"></ul></details>
     </div>
   </section>
 
   <section id="view-settings" class="view view-settings hidden">
-    <header class="view-head">
-      <h2>设置</h2>
-      <div class="view-actions">
-        <button id="settings-refresh" type="button" class="btn">刷新状态</button>
-        <button id="settings-save" type="button" class="btn primary">保存设置</button>
-      </div>
-    </header>
-    <div class="view-content settings-layout">
-      <section class="section-block settings-health">
-        <h3>服务状态</h3>
-        <ul id="health-list" class="health-list"><li class="muted">检测中…</li></ul>
-      </section>
+    <header class="view-head"><h2>设置</h2><div class="view-actions"><button id="settings-refresh" type="button" class="btn">刷新状态</button><button id="settings-save" type="button" class="btn primary">保存</button></div></header>
+    <div class="view-content settings-grid">
+      <section class="card settings-health"><h3>集成健康</h3><ul id="health-list" class="health-list"><li class="muted">加载中…</li></ul></section>
 
-      <section class="section-block settings-group">
+      <section class="card">
         <h3>电台引擎</h3>
         <div class="setting-rows">
-          <label class="setting-row">
-            <span>主持模式</span>
-            <select id="set-brain-mode">
-              <option value="external">外部 Agent</option>
-              <option value="internal">内置电台</option>
-            </select>
-          </label>
-          <label class="setting-row">
-            <span>常驻主持人自动补歌</span>
-            <input id="set-dj-enabled" type="checkbox">
-          </label>
-          <label class="setting-row">
-            <span>轮询间隔（秒）</span>
-            <input id="set-dj-poll" type="number" min="5" max="300" placeholder="20">
-          </label>
-          <label class="setting-row">
-            <span>剩余触发阈值（分钟）</span>
-            <input id="set-dj-min-rem" type="number" min="1" max="60" placeholder="10">
-          </label>
-          <label class="setting-row">
-            <span>每次补歌数</span>
-            <input id="set-dj-batch" type="number" min="1" max="20" placeholder="5">
-          </label>
+          <label class="setting-row"><span>主持模式</span><select id="set-brain-mode"><option value="external">外部 Agent</option><option value="internal">内置电台</option></select></label>
+          <label class="setting-row"><span>常驻主持人自动补歌</span><input id="set-dj-enabled" type="checkbox"></label>
+          <label class="setting-row"><span>轮询间隔（秒）</span><input id="set-dj-poll" type="number" min="5" max="300" placeholder="20"></label>
+          <label class="setting-row"><span>剩余触发阈值（分钟）</span><input id="set-dj-min-rem" type="number" min="1" max="60" placeholder="10"></label>
+          <label class="setting-row"><span>每次补歌数</span><input id="set-dj-batch" type="number" min="1" max="20" placeholder="5"></label>
         </div>
       </section>
 
-      <section class="section-block settings-group" id="settings-ai">
-        <div class="section-row">
-          <h3>AI 模型</h3>
-          <button type="button" class="btn ghost" data-test="ai">测试连通</button>
-        </div>
+      <section class="card" id="settings-ai">
+        <div class="section-row"><h3>AI 模型 · DeepSeek</h3><button type="button" class="btn ghost" data-test="ai">测试连通</button></div>
         <div class="setting-rows">
-          <label class="setting-row">
-            <span>DeepSeek API Key</span>
-            <input id="set-deepseek-key" type="text" autocomplete="off" placeholder="留空则使用 Claude CLI">
-          </label>
-          <label class="setting-row">
-            <span>模型</span>
-            <select id="set-deepseek-model">
-              <option value="deepseek-chat">deepseek-chat</option>
-              <option value="deepseek-reasoner">deepseek-reasoner</option>
-            </select>
-          </label>
+          <label class="setting-row"><span>API Key</span><input id="set-deepseek-key" type="text" autocomplete="off" placeholder="留空则使用 Claude CLI"></label>
+          <label class="setting-row"><span>模型</span><select id="set-deepseek-model"><option value="deepseek-chat">deepseek-chat</option><option value="deepseek-reasoner">deepseek-reasoner</option></select></label>
         </div>
       </section>
 
-      <section class="section-block settings-group">
+      <section class="card">
         <h3>自适应播放与红心</h3>
         <div class="setting-rows">
-          <label class="setting-row">
-            <span>按作息自动设置初始音量</span>
-            <input id="set-adaptive-vol" type="checkbox">
-          </label>
-          <label class="setting-row">
-            <span>安全音量上限（%）</span>
-            <input id="set-vol-max" type="number" min="10" max="100" placeholder="85">
-          </label>
-          <label class="setting-row">
-            <span>默认红心目标歌单</span>
-            <div class="field-row">
-              <input id="set-like-target-name" type="text" autocomplete="off" placeholder="未指定（酷狗我喜欢）">
-              <input id="set-like-target-id" type="hidden">
-              <button type="button" id="btn-clear-like-target" class="btn ghost">清空</button>
-            </div>
-          </label>
+          <label class="setting-row"><span>按作息自动设置初始音量</span><input id="set-adaptive-vol" type="checkbox"></label>
+          <label class="setting-row"><span>安全音量上限（%）</span><input id="set-vol-max" type="number" min="10" max="100" placeholder="85"></label>
+          <label class="setting-row"><span>默认红心目标歌单</span><div class="field-row"><input id="set-like-target-name" type="text" autocomplete="off" placeholder="未指定（酷狗我喜欢）"><input id="set-like-target-id" type="hidden"><button type="button" id="btn-clear-like-target" class="btn ghost">清空</button></div></label>
         </div>
       </section>
 
-      <section class="section-block settings-group">
+      <section class="card">
         <div class="section-row">
           <h3>语音与环境</h3>
           <div class="view-actions">
@@ -350,71 +265,24 @@
           </div>
         </div>
         <div class="setting-rows">
-          <label class="setting-row">
-            <span>Fish Audio API Key</span>
-            <input id="set-tts-key" type="text" autocomplete="off" placeholder="未配置">
-          </label>
-          <label class="setting-row">
-            <span>Voice ID</span>
-            <input id="set-tts-voice" type="text" autocomplete="off" placeholder="voice id">
-          </label>
-          <label class="setting-row">
-            <span>天气感知</span>
-            <input id="set-weather-enabled" type="checkbox">
-          </label>
-          <label class="setting-row">
-            <span>OpenWeather API Key</span>
-            <input id="set-weather-key" type="text" autocomplete="off" placeholder="未配置">
-          </label>
-          <label class="setting-row">
-            <span>城市</span>
-            <input id="set-weather-city" type="text" autocomplete="off" placeholder="Changsha">
-          </label>
-          <label class="setting-row">
-            <span>日程来源</span>
-            <select id="set-calendar-provider">
-              <option value="none">关闭</option>
-              <option value="google">Google Calendar</option>
-              <option value="lark">飞书日历 (Lark)</option>
-            </select>
-          </label>
+          <label class="setting-row"><span>Fish Audio API Key</span><input id="set-tts-key" type="text" autocomplete="off" placeholder="未配置"></label>
+          <label class="setting-row"><span>Voice ID</span><input id="set-tts-voice" type="text" autocomplete="off" placeholder="voice id"></label>
+          <label class="setting-row"><span>天气感知</span><input id="set-weather-enabled" type="checkbox"></label>
+          <label class="setting-row"><span>OpenWeather API Key</span><input id="set-weather-key" type="text" autocomplete="off" placeholder="未配置"></label>
+          <label class="setting-row"><span>城市</span><input id="set-weather-city" type="text" autocomplete="off" placeholder="Changsha"></label>
+          <label class="setting-row"><span>日程来源</span><select id="set-calendar-provider"><option value="none">关闭</option><option value="google">Google Calendar</option><option value="lark">飞书日历 (Lark)</option></select></label>
         </div>
       </section>
 
-      <section class="section-block settings-group">
-        <div class="section-row">
-          <h3>酷狗账号与桌面窗口</h3>
-          <button type="button" class="btn ghost" id="btn-kugou-relogin" disabled>重扫码登录</button>
-        </div>
+      <section class="card">
+        <div class="section-row"><h3>酷狗与桌面窗口</h3><button type="button" class="btn ghost" id="btn-kugou-relogin" disabled>重扫码登录</button></div>
         <div class="setting-rows">
-          <div class="setting-row">
-            <span>酷狗连接态</span>
-            <div id="kugou-status" class="readonly">读取中…</div>
-          </div>
-          <label class="setting-row">
-            <span>界面主题</span>
-            <select id="set-ui-theme">
-              <option value="auto">跟随系统</option>
-              <option value="light">浅色</option>
-              <option value="dark">深色</option>
-            </select>
-          </label>
-          <label class="setting-row">
-            <span>全局快捷键</span>
-            <input id="set-global-hotkey" type="text" autocomplete="off" placeholder="CTRL+ALT+K">
-          </label>
-          <label class="setting-row">
-            <span>媒体键劫持监听</span>
-            <input id="set-hotkey-media" type="checkbox">
-          </label>
-          <label class="setting-row">
-            <span>关闭窗口时收进托盘</span>
-            <input id="set-close-to-tray" type="checkbox">
-          </label>
-          <label class="setting-row">
-            <span>迷你窗口始终置顶</span>
-            <input id="set-always-top-mini" type="checkbox">
-          </label>
+          <div class="setting-row"><span>酷狗连接态</span><div id="kugou-status" class="readonly">读取中…</div></div>
+          <label class="setting-row"><span>界面主题</span><select id="set-ui-theme"><option value="auto">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label>
+          <label class="setting-row"><span>全局快捷键</span><input id="set-global-hotkey" type="text" autocomplete="off" placeholder="CTRL+ALT+K"></label>
+          <label class="setting-row"><span>媒体键劫持监听</span><input id="set-hotkey-media" type="checkbox"></label>
+          <label class="setting-row"><span>关闭窗口时收进托盘</span><input id="set-close-to-tray" type="checkbox"></label>
+          <label class="setting-row"><span>迷你窗口始终置顶</span><input id="set-always-top-mini" type="checkbox"></label>
         </div>
       </section>
     </div>

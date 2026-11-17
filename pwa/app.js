@@ -20,6 +20,35 @@ function currentViewFromUrl() {
   return VIEWS.includes(v) ? v : DEFAULT_VIEW;
 }
 
+function bindCornerMenu() {
+  const btn = document.getElementById('corner-menu-btn');
+  const panel = document.getElementById('corner-panel');
+  if (!btn || !panel) return;
+  const close = () => {
+    panel.hidden = true;
+    btn.setAttribute('aria-expanded', 'false');
+  };
+  btn.addEventListener('click', event => {
+    event.stopPropagation();
+    const open = panel.hidden;
+    panel.hidden = !open;
+    btn.setAttribute('aria-expanded', String(open));
+  });
+  panel.addEventListener('click', event => {
+    const jump = event.target.closest('[data-view-jump]');
+    if (!jump) return;
+    close();
+    setView(jump.dataset.viewJump, { push: true });
+  });
+  document.addEventListener('click', event => {
+    if (panel.hidden || event.target.closest('.corner-menu')) return;
+    close();
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') close();
+  });
+}
+
 function setView(name, { push = false } = {}) {
   if (!VIEWS.includes(name)) name = DEFAULT_VIEW;
   document.body?.classList.toggle('view-player', name === 'player');
@@ -110,6 +139,7 @@ async function startApp() {
   document.querySelectorAll('.tab').forEach(btn => {
     btn.addEventListener('click', () => setView(btn.dataset.view, { push: true }));
   });
+  bindCornerMenu();
 
   window.addEventListener('claudio:theme', e => applyTheme(e.detail));
   window.addEventListener('claudio:navigate', e => setView(e.detail, { push: true }));

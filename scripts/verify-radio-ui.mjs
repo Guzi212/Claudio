@@ -86,7 +86,7 @@ const tracks = [
   { title: '慢慢喜欢你', artist: '莫文蔚', kugouId: 'preview-slow', reason: '把日常唱得温柔一点。', audioUrl: '/preview-tone.wav', duration: 240, cover: cover('慢慢喜欢你', '莫文蔚', ['#a59b82', '#5b4b3b', '#504333']) },
 ];
 const tone = wav();
-const state = { queue: tracks, index: 0, paused: false, trackEnded: false, currentTime: 83, duration: 240, volume: 30, brain: 'external', lastSay: '晚上好，loic。今晚让外部主持人陪你，把节奏放慢一点。', lastReason: '', queuedAt: '2026-10-27T09:05:00.000Z' };
+const state = { queue: tracks, index: 0, paused: false, trackEnded: false, currentTime: 83, duration: 240, volume: 30, brain: 'external', scene: { id: 'auto', label: '自动', updatedAt: null }, lastSay: '晚上好，loic。今晚让外部主持人陪你，把节奏放慢一点。', lastReason: '', queuedAt: '2026-10-27T09:05:00.000Z' };
 const clients = new Set();
 function broadcastState(origin) {
   const event = JSON.stringify({ type: 'state', runtime: state, ...(origin ? { origin } : {}) });
@@ -99,8 +99,17 @@ function createPreview() {
   app.get('/api/now', (_req, res) => res.json({ ok: true, ...state, nowPlaying: state.queue[state.index] }));
   app.get('/api/status', (_req, res) => res.json({ ok: true, ...state, nowPlaying: state.queue[state.index] }));
   app.get('/api/health', (_req, res) => res.json({ ok: true }));
-  app.get('/api/health/integrations', (_req, res) => res.json({ kugou: { ok: true, message: '试听就绪' }, weather: { ok: false, message: '未配置' }, tts: { ok: false, message: '未配置' }, ai: { ok: false, message: '未配置' }, lark: { ok: false, message: '未配置' } }));
-  app.get('/api/settings', (_req, res) => res.json({ openweather_city: 'Shanghai' }));
+  app.get('/api/health/integrations', (_req, res) => res.json({ kugou: { ok: true, detail: '试听就绪' }, weather: { ok: true, detail: 'Open-Meteo (keyless)' }, tts: { ok: false, detail: '未配置' }, ai: { ok: false, detail: '未配置' }, lark: { ok: false, detail: '未配置' }, calendar: { ok: false, detail: '未配置' }, dj: { ok: false, detail: 'standby' } }));
+  app.get('/api/settings', (_req, res) => res.json({ openweather_city: 'Changsha', ui_theme: 'auto' }));
+  app.get('/api/memory/brief', (_req, res) => res.json({ ok: true, scene: state.scene, context: { coldStart: true, confidence: 0.1, vocalPreference: 'neutral', energyTarget: 'neutral' }, traits: [], tasteSummary: { sessionCount: 0 } }));
+  app.get('/api/memory/traits', (_req, res) => res.json({ ok: true, traits: [] }));
+  app.post('/api/scene', (req, res) => {
+    const id = req.body?.scene || 'auto';
+    const labels = { auto: '自动', library: '图书馆专注', dorm: '寝室放空' };
+    state.scene = { id, label: labels[id] || '自动', updatedAt: new Date().toISOString() };
+    res.json({ ok: true, scene: state.scene });
+  });
+  app.post('/api/memory/telemetry', (_req, res) => res.json({ ok: true }));
   app.get('/api/studio/state', (_req, res) => res.json({ studio: { activeMode: 'dark', onAir: !state.paused } }));
   app.get('/api/taste', (_req, res) => res.json({ taste: '# 喜欢的声音\n\n- 周杰伦\n- 陈奕迅\n- 安静的夜晚\n\n<!-- kugou-distilled:start -->\n<!-- kugou-distilled:end -->', routines: '# 日常\n\n- 09:00 工作\n- 22:00 放松' }));
   app.get('/api/kugou/playlists', (_req, res) => res.json({ ok: true, playlists: [{ listid: '1', name: '深夜循环', songCount: 28 }, { listid: '2', name: '通勤路上', songCount: 45 }, { listid: '3', name: '那些年的华语歌', songCount: 62 }] }));
@@ -258,8 +267,38 @@ try {
     results[name] = await layout(name, width, height);
   }
 
-  // 双主题：走页面真实的 claudio:theme 事件，验证 dataset、CSS 变量与 meta 同步。
+  // 水墨宣纸画风、时辰染色、场景胶囊、显式双主题切换验证
   await viewport(1280, 900); await navigate();
+  const ink = await evaluate(`(() => {
+    const scene = document.querySelector('.ink-scene');
+    const avatar = document.querySelector('#grokbot-avatar');
+    const fallback = document.querySelector('#np-cover-fallback');
+    return {
+      scenePosition: scene ? getComputedStyle(scene).position : null,
+      avatarWidth: avatar ? avatar.getBoundingClientRect().width : 0,
+      hasFallbackSvg: Boolean(fallback && fallback.querySelector('image')?.getAttribute('href')?.includes('cover.webp')),
+    };
+  })()`);
+  assert.equal(ink.scenePosition, 'fixed');
+  assert.ok(ink.avatarWidth > 0);
+  assert.equal(ink.hasFallbackSvg, true);
+
+  await click('#scene-pills [data-scene="library"]');
+  await waitFor(`document.querySelector('#scene-pills [data-scene="library"]').classList.contains('active')`);
+  const sceneLibActive = await evaluate(`document.querySelector('#scene-pills [data-scene="library"]').getAttribute('aria-pressed')`);
+  assert.equal(sceneLibActive, 'true');
+  await click('#scene-pills [data-scene="auto"]');
+  await waitFor(`document.querySelector('#scene-pills [data-scene="auto"]').classList.contains('active')`);
+
+  const dayparts = {};
+  for (const part of ['dawn', 'night']) {
+    await evaluate(`document.documentElement.dataset.daypart = ${JSON.stringify(part)}; document.querySelector('#edition-symbol').setAttribute('href', ${JSON.stringify(part === 'night' ? '#moon' : '#sun')});`);
+    dayparts[part] = await evaluate(`({ symbol: document.querySelector('#edition-symbol').getAttribute('href'), tint: getComputedStyle(document.querySelector('.ink-tint')).backgroundImage })`);
+  }
+  assert.equal(dayparts.dawn.symbol, '#sun');
+  assert.equal(dayparts.night.symbol, '#moon');
+  assert.notEqual(dayparts.dawn.tint, dayparts.night.tint);
+
   const theme = {};
   for (const name of ['light', 'dark']) {
     await evaluate(`window.dispatchEvent(new CustomEvent('claudio:theme', { detail: ${JSON.stringify(name)} }))`);
@@ -269,7 +308,7 @@ try {
       const body = getComputedStyle(document.body);
       return {
         dataset: document.documentElement.dataset.theme,
-        bg: root.getPropertyValue('--bg').trim(),
+        canvas: root.getPropertyValue('--canvas').trim(),
         ink: root.getPropertyValue('--ink').trim(),
         bodyBg: body.backgroundColor,
         meta: document.querySelector('meta[name="theme-color"]')?.content || '',
@@ -280,13 +319,14 @@ try {
   }
   assert.equal(theme.light.dataset, 'light');
   assert.equal(theme.dark.dataset, 'dark');
-  assert.equal(theme.light.bg, '#F7F6F2');
-  assert.equal(theme.dark.bg, '#121316');
+  assert.equal(theme.light.canvas, '#f2ede1');
+  assert.equal(theme.dark.canvas, '#171512');
   assert.notEqual(theme.light.bodyBg, theme.dark.bodyBg);
-  assert.equal(theme.light.meta, '#F7F6F2');
-  assert.equal(theme.dark.meta, '#121316');
+  assert.equal(theme.light.meta, '#f2ede1');
+  assert.equal(theme.dark.meta, '#171512');
   assert.equal(theme.light.stored, 'light');
   assert.equal(theme.dark.stored, 'dark');
+  await evaluate(`window.dispatchEvent(new CustomEvent('claudio:theme', { detail: 'auto' }))`);
 
   await viewport(390, 844); await navigate();
   await waitFor(`!document.body.classList.contains('is-empty')`);
@@ -337,9 +377,13 @@ try {
   const cancelled = await evaluate(`document.querySelector('[data-feedback="dislike"]').getAttribute('aria-pressed') === 'false'`);
   assert.equal(liked, 'true'); assert.equal(unliked, true); assert.equal(exclusive, true); assert.equal(cancelled, true);
 
+  await waitFor(`!document.querySelector('[data-console-control="favorite"]').disabled`);
   const favoriteBefore = await evaluate(`document.querySelector('[data-console-control="favorite"]').getAttribute('aria-pressed')`);
   await click('[data-console-control="favorite"]');
-  await waitFor(`document.querySelector('[data-console-control="favorite"]').getAttribute('aria-pressed') === 'true'`);
+  await waitFor(`document.querySelector('[data-console-control="favorite"]').getAttribute('aria-pressed') === 'true'`).catch(async error => {
+    console.error('Favorite state:', await evaluate(`(() => { const el = document.querySelector('[data-console-control="favorite"]'); const r = el.getBoundingClientRect(); return { disabled: el.disabled, pressed: el.getAttribute('aria-pressed'), rect: r.toJSON(), hit: document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)?.outerHTML, alert: document.querySelector('#alert-bar')?.textContent, scrollY, viewScrollTop: document.querySelector('#view-player')?.scrollTop }; })()`));
+    throw error;
+  });
   const favorited = await evaluate(`document.querySelector('[data-console-control="favorite"]').getAttribute('aria-pressed')`);
   assert.equal(favoriteBefore, 'false'); assert.equal(favorited, 'true');
 
