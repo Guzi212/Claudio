@@ -7,16 +7,19 @@ const playerJs = fs.readFileSync(path.resolve('pwa/views/player.js'), 'utf8');
 const stylesCss = fs.readFileSync(path.resolve('pwa/styles.css'), 'utf8');
 
 describe('player console controls', () => {
-  it('播放页采用极简现代舞台，不内嵌旧控制台', () => {
+  it('播放页采用宣纸水墨舞台，保留墨团头像、水墨封面与场景胶囊', () => {
     const playerStart = indexHtml.indexOf('id="view-player"');
     const playerEnd = indexHtml.indexOf('id="view-playlists"', playerStart);
     const playerHtml = indexHtml.slice(playerStart, playerEnd);
 
     expect(playerHtml).toContain('id="now-playing"');
     expect(playerHtml).toContain('id="host-line"');
+    expect(playerHtml).toContain('id="grokbot-avatar"');
+    expect(playerHtml).toContain('id="np-cover-fallback"');
+    expect(playerHtml).toContain('id="scene-pills"');
     expect(playerHtml).toContain('id="queue-list"');
     expect(playerHtml).toContain('id="np-vol"');
-    expect(playerHtml).toContain('id="intent-form"');
+    expect(indexHtml).toContain('id="intent-form"');
     expect(playerHtml).not.toContain('class="radio-console"');
     expect(indexHtml).not.toContain('class="np-controls"');
   });
@@ -82,7 +85,6 @@ describe('player console controls', () => {
     expect(playerJs).toContain('bindConsoleControls');
     expect(playerJs).toContain('activeAgent');
     expect(indexHtml).toContain('id="host-agent-name"');
-    expect(indexHtml).not.toMatch(/Grokbot/i);
   });
 
   it('播放页能直接导航到全部四个视图', () => {
