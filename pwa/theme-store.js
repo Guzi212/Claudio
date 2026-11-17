@@ -19,9 +19,9 @@ export function applyTheme(theme = 'auto', { persist = true } = {}) {
   if (persist) {
     try { localStorage.setItem(THEME_KEY, valid); } catch { /* */ }
   }
-  const dark = valid === 'dark'
-    || (valid === 'auto' && window.matchMedia?.('(prefers-color-scheme: dark)').matches);
+  // auto / light 均保留宣纸水墨画风，仅显式选择 dark 时切换暗墨夜色。
+  const dark = valid === 'dark';
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', dark ? '#121316' : '#F7F6F2');
+  if (meta) meta.setAttribute('content', dark ? '#171512' : '#f2ede1');
   return valid;
 }

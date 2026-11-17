@@ -211,6 +211,36 @@ function setConsoleDialog(text) {
   el.textContent = text.length > 72 ? `${text.slice(0, 70)}…` : text;
 }
 
+function editionLabelFor(date = new Date()) {
+  const hour = date.getHours();
+  if (hour >= 5 && hour < 11) return '清晨场';
+  if (hour >= 11 && hour < 14) return '午间场';
+  if (hour >= 14 && hour < 17) return '下午场';
+  if (hour >= 17 && hour < 21) return '傍晚场';
+  return '深夜场';
+}
+
+// Ink palette follows the same hour bands as the edition label.
+function daypartFor(date = new Date()) {
+  const hour = date.getHours();
+  if (hour >= 5 && hour < 11) return 'dawn';
+  if (hour >= 11 && hour < 14) return 'noon';
+  if (hour >= 14 && hour < 17) return 'afternoon';
+  if (hour >= 17 && hour < 21) return 'dusk';
+  return 'night';
+}
+
+function paintEdition() {
+  const now = new Date();
+  const el = document.getElementById('edition-label');
+  if (el) el.textContent = editionLabelFor(now);
+  const daypart = daypartFor(now);
+  const root = document.documentElement;
+  if (root.dataset.daypart !== daypart) root.dataset.daypart = daypart;
+  const symbol = document.getElementById('edition-symbol');
+  if (symbol) symbol.setAttribute('href', daypart === 'night' ? '#moon' : '#sun');
+}
+
 let inkedTrackKey = '';
 // One-shot fade on track change; Web Animations keeps it on the compositor without forcing a reflow.
 function inkInTrack(track) {
@@ -244,7 +274,7 @@ function paintHostChrome() {
   if (agentNameEl) agentNameEl.textContent = agentName;
   const roleChipEl = document.getElementById('host-role-chip');
   if (roleChipEl) {
-    roleChipEl.textContent = activeAgent?.name ? '外部接入' : (brain === 'internal' ? '内置主持' : '私人频率');
+    roleChipEl.textContent = activeAgent?.name ? '电台主持人' : (brain === 'internal' ? '内置主持' : '电台主持人');
   }
   const footerStatusEl = document.getElementById('footer-agent-status');
   if (footerStatusEl) footerStatusEl.textContent = `${agentName} 在线`;
@@ -1338,6 +1368,8 @@ export function initPlayer() {
   bindScenePills();
   updatePlayButtons(false);
   paintHostChrome();
+  paintEdition();
+  setInterval(paintEdition, 60 * 1000);
 
   bootOverlay = document.getElementById('boot-overlay');
   bootBtn = document.getElementById('boot-btn');
