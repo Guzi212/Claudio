@@ -1,8 +1,14 @@
 // 界面主题读写与生效工具：仅在独立模块缓存 ui_theme（不与 session URL 模块混用存储）。
 const THEME_KEY = 'claudio:ui-theme';
+const THEME_COLORS = {
+  auto: '#f2ede1',
+  light: '#f2ede1',
+  dark: '#171512',
+  pixel: '#0b091c',
+};
 
 export function normalizeTheme(theme = 'auto') {
-  return ['auto', 'light', 'dark'].includes(theme) ? theme : 'auto';
+  return ['auto', 'light', 'dark', 'pixel'].includes(theme) ? theme : 'auto';
 }
 
 export function readSavedTheme() {
@@ -19,9 +25,8 @@ export function applyTheme(theme = 'auto', { persist = true } = {}) {
   if (persist) {
     try { localStorage.setItem(THEME_KEY, valid); } catch { /* */ }
   }
-  // auto / light 均保留宣纸水墨画风，仅显式选择 dark 时切换暗墨夜色。
-  const dark = valid === 'dark';
+  // auto / light 保留宣纸水墨底色，dark 用暗墨夜色，pixel 用像素深紫底色。
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', dark ? '#171512' : '#f2ede1');
+  if (meta) meta.setAttribute('content', THEME_COLORS[valid] || THEME_COLORS.auto);
   return valid;
 }
