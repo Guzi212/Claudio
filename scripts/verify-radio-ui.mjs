@@ -260,12 +260,20 @@ try {
   await evaluate(`navigator.serviceWorker?.getRegistrations().then(rs => Promise.all(rs.map(r => r.unregister())))`).catch(() => {});
 
   const results = {};
-  for (const [name, width, height] of [['desktop', 1280, 900], ['wide', 1440, 900], ['mobile', 390, 844], ['small', 320, 760]]) {
+  for (const [name, width, height] of [['desktop', 1280, 900], ['desktop-1040', 1040, 700], ['wide', 1440, 900], ['mobile', 390, 844], ['small', 320, 760]]) {
     await viewport(width, height);
     await navigate();
-    await waitFor(`document.querySelector('#queue-list').children.length === 3`);
+    await waitFor(`document.querySelector('#queue-list').children.length === 3 && !!document.querySelector('#lyrics-panel .lyric-line')`);
     results[name] = await layout(name, width, height);
   }
+  assert.ok(results.desktop.cover.width <= 180, `Desktop cover should be compact, got ${results.desktop.cover.width}`);
+  const desktopLyricsRect = await evaluate(`(() => {
+    const cover = document.querySelector('.cover').getBoundingClientRect();
+    const panel = document.querySelector('#lyrics-panel').getBoundingClientRect();
+    return { coverWidth: cover.width, coverBottom: cover.bottom, lyricsTop: panel.top, lyricsVisible: getComputedStyle(document.querySelector('#lyrics-panel')).display !== 'none' };
+  })()`);
+  assert.equal(desktopLyricsRect.lyricsVisible, true, 'Lyrics should display automatically in real time');
+  assert.ok(desktopLyricsRect.lyricsTop >= desktopLyricsRect.coverBottom - 1, 'Lyrics panel should sit below the compact cover');
 
   // 水墨宣纸画风、时辰染色、场景胶囊、显式双主题切换验证
   await viewport(1280, 900); await navigate();
@@ -425,7 +433,7 @@ try {
   }
   await evaluate(`document.querySelector('.tab[data-view="player"]').click()`);
   let focus;
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 16; i++) {
     await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
     await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
     focus = await evaluate(`({ outline: getComputedStyle(document.activeElement).outlineStyle, element: document.activeElement.dataset.consoleControl || document.activeElement.dataset.view, visible: document.activeElement.matches(':focus-visible') })`);
@@ -473,14 +481,11 @@ try {
   await viewport(1280, 900); await navigate();
   await waitFor(`document.querySelector('#lyrics-panel .lyric-line')`);
   const internal = await evaluate(`({ chat: getComputedStyle(document.querySelector('#console-chat')).display, lyrics: getComputedStyle(document.querySelector('#lyrics-panel')).display, toggle: document.querySelector('#lyrics-toggle').hidden, aiSettings: null, scrollWidth: document.documentElement.scrollWidth })`);
-  assert.notEqual(internal.chat, 'none'); assert.equal(internal.lyrics, 'none'); assert.equal(internal.toggle, false); assert.equal(internal.scrollWidth, 1280);
-  await screenshot('desktop-internal');
-  await click('#lyrics-toggle');
-  await waitFor(`getComputedStyle(document.querySelector('#lyrics-panel')).display !== 'none'`);
-  internal.lyrics = await evaluate(`getComputedStyle(document.querySelector('#lyrics-panel')).display`);
+  assert.notEqual(internal.chat, 'none'); assert.notEqual(internal.lyrics, 'none'); assert.equal(internal.toggle, false); assert.equal(internal.scrollWidth, 1280);
   await screenshot('desktop-internal-lyrics');
   await click('#lyrics-toggle');
   await waitFor(`getComputedStyle(document.querySelector('#lyrics-panel')).display === 'none'`);
+  await screenshot('desktop-internal');
   const internalOptions = {};
   await click('[data-console-control="loop"]');
   await waitFor(`document.querySelector('[data-console-control="loop"]').textContent === '列表循环'`);

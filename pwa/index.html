@@ -115,14 +115,17 @@
 
         <section class="stage" id="now-playing" aria-label="当前播放">
           <div class="cover-column">
-            <div class="cover" id="np-cover">
-              <img id="np-cover-img" alt="" hidden>
-              <svg id="np-cover-fallback" viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                <image href="assets/ink/cover.webp" x="0" y="0" width="500" height="500" preserveAspectRatio="xMidYMid slice"/>
-                <g fill="#1f1c18" font-family="KaiTi, STKaiti, serif"><text id="np-cover-title" x="34" y="62" font-size="30" letter-spacing="8">晴天</text><text id="np-cover-artist" x="36" y="94" font-size="15" letter-spacing="5" opacity=".7">周杰伦</text></g>
-              </svg>
+            <div class="cover-frame">
+              <div class="cover" id="np-cover">
+                <img id="np-cover-img" alt="" hidden>
+                <svg id="np-cover-fallback" viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                  <image href="assets/ink/cover.webp" x="0" y="0" width="500" height="500" preserveAspectRatio="xMidYMid slice"/>
+                  <g fill="#1f1c18" font-family="KaiTi, STKaiti, serif"><text id="np-cover-title" x="34" y="66" font-size="34" letter-spacing="8">晴天</text><text id="np-cover-artist" x="36" y="102" font-size="18" letter-spacing="5" opacity=".72">周杰伦</text></g>
+                </svg>
+              </div>
+              <div class="signal-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
             </div>
-            <div class="signal-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+            <div id="lyrics-panel" class="lyrics-panel hidden" aria-label="歌词"></div>
           </div>
           <div class="playback-panel">
             <div class="track-info">
@@ -148,12 +151,11 @@
               <button class="feedback-button" type="button" data-feedback="dislike" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#dislike"/></svg>不喜欢</button>
               <button class="feedback-button" type="button" data-console-control="favorite" aria-label="收藏到我喜欢" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#heart"/></svg>收藏</button>
             </div>
-            <button id="lyrics-toggle" class="lyrics-toggle" type="button" aria-controls="lyrics-panel" aria-expanded="false" hidden>歌词</button>
             <div class="player-options" aria-label="播放选项">
+              <button id="lyrics-toggle" class="lyrics-toggle" type="button" aria-controls="lyrics-panel" aria-expanded="true" hidden>收起歌词</button>
               <button class="text-button" type="button" data-console-control="loop" data-internal-only aria-label="自动推歌" aria-pressed="true" hidden>自动推歌</button>
               <button class="text-button" type="button" data-console-control="queue" data-internal-only aria-label="展开完整队列" aria-controls="queue-list" aria-expanded="true" hidden>完整队列</button>
             </div>
-            <div id="lyrics-panel" class="lyrics-panel hidden" aria-label="歌词"></div>
           </div>
           <audio id="audio" preload="metadata"></audio>
         </section>

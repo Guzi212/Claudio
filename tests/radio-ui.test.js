@@ -15,9 +15,12 @@ describe('radio visual contract (ink-on-xuan-paper)', () => {
     expect(html).toContain('id="desktop-titlebar"');
   });
 
-  it('歌词是播放舞台的一部分，internal 聊天保留独立入口', () => {
+  it('歌词位于紧凑封面正下方实时展示，internal 聊天保留独立入口', () => {
     const stage = html.slice(html.indexOf('class="stage"'), html.indexOf('class="queue"'));
-    expect(stage).toContain('id="lyrics-panel"');
+    const coverColumn = stage.slice(stage.indexOf('class="cover-column"'), stage.indexOf('class="playback-panel"'));
+    expect(coverColumn).toContain('id="np-cover"');
+    expect(coverColumn).toContain('id="lyrics-panel"');
+    expect(coverColumn.indexOf('id="np-cover"')).toBeLessThan(coverColumn.indexOf('id="lyrics-panel"'));
     expect(html).toContain('id="console-chat"');
     expect(html).toContain('id="chat"');
     expect(html).toContain('id="composer"');
@@ -87,8 +90,9 @@ describe('radio visual contract (ink-on-xuan-paper)', () => {
     expect(html).toContain('id="trait-list"');
   });
 
-  it('桌面双栏、手机紧凑舞台与 380x136 迷你陪伴态均有明确断点', () => {
-    expect(css).toMatch(/\.stage\s*\{[^}]*grid-template-columns:\s*minmax\(280px,\s*420px\)/);
+  it('桌面双栏紧凑封面、手机紧凑舞台与 380x136 迷你陪伴态均有明确断点', () => {
+    expect(css).toMatch(/\.stage\s*\{[^}]*grid-template-columns:\s*minmax\(248px,\s*324px\)/);
+    expect(css).toMatch(/\.cover\s*\{[^}]*width:\s*clamp\(144px,\s*14\.5vw,\s*176px\)/);
     expect(css).toMatch(/@media\s*\(max-height:\s*220px\)/);
     expect(css).toMatch(/@media\s*\(max-width:\s*700px\)[\s\S]*?\.stage\s*\{[^}]*grid-template-areas:\s*"art info"/);
     expect(css).toContain('@media (prefers-reduced-motion: reduce)');
@@ -97,7 +101,7 @@ describe('radio visual contract (ink-on-xuan-paper)', () => {
   });
 
   it('离线壳缓存覆盖新增资源与全部水墨素材', () => {
-    expect(sw).toMatch(/const CACHE = 'claudio-shell-v24'/);
+    expect(sw).toMatch(/const CACHE = 'claudio-shell-v25'/);
     expect(sw).toContain('\'/theme-store.js\'');
     expect(sw).toContain('\'/external-playback.js\'');
     expect(sw).toContain('\'/boot-playback.js\'');
