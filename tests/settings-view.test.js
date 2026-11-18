@@ -30,6 +30,7 @@ describe('settings view API contract', () => {
       'hotkey_media_key',
       'close_to_tray',
       'always_on_top_mini',
+      'play_window_mode',
     ];
     for (const key of expectedKeys) {
       expect(settingsViewJs).toContain(key);
@@ -51,5 +52,25 @@ describe('settings view API contract', () => {
 
   it('手动改红心歌单名会清掉旧的隐藏 listid', () => {
     expect(settingsViewJs).not.toContain('!nodes.likeTargetName.value.trim()');
+  });
+
+  it('点歌窗口设置紧挨「关闭窗口时收进托盘」，两个中文选项默认后台播放', () => {
+    const closeTrayIdx = indexHtml.indexOf('id="set-close-to-tray"');
+    const playIdx = indexHtml.indexOf('id="set-play-window-mode"');
+    const alwaysTopIdx = indexHtml.indexOf('id="set-always-top-mini"');
+
+    expect(closeTrayIdx).toBeGreaterThan(-1);
+    expect(playIdx).toBeGreaterThan(closeTrayIdx);
+    expect(alwaysTopIdx).toBeGreaterThan(playIdx);
+    expect(indexHtml).toContain('<option value="background">后台播放（最小化留任务栏）</option>');
+    expect(indexHtml).toContain('<option value="popup">弹出窗口</option>');
+  });
+
+  it('未配置 / 非法值显示为后台播放，保存时只写 popup 或 background 并同步桌面壳', () => {
+    expect(settingsViewJs).toContain("s?.play_window_mode === 'popup' ? 'popup' : 'background'");
+    expect(settingsViewJs).toMatch(
+      /payload\.play_window_mode = nodes\.playWindowMode\.value === 'popup' \? 'popup' : 'background'/,
+    );
+    expect(settingsViewJs).toContain('window.claudioDesktop?.syncSettings?.(payload)');
   });
 });

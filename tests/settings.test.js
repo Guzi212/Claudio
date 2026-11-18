@@ -48,6 +48,7 @@ describe('services/settings', () => {
       'hotkey_media_key',
       'close_to_tray',
       'always_on_top_mini',
+      'play_window_mode',
     ]));
     expect(typeof mod.getAll).toBe('function');
     expect(typeof mod.get).toBe('function');
@@ -67,6 +68,27 @@ describe('services/settings', () => {
     expect(get('openweather_city')).toBe('Shanghai');
     expect(get('brain_mode')).toBe('internal');
     delete process.env.CLAUDIO_BRAIN;
+  });
+
+  it('play_window_mode：默认 background，但无存量时 get 仍为空串且不写库', async () => {
+    const mod = await import('../server/services/settings.js');
+    const { dbApi } = await import('../server/db.js');
+
+    expect(mod.DEFAULTS.play_window_mode).toBe('background');
+    expect(mod.get('play_window_mode')).toBe('');
+    expect(mod.getWithDefault('play_window_mode')).toBe('background');
+    expect(dbApi.setPref).not.toHaveBeenCalledWith('play_window_mode', expect.anything());
+  });
+
+  it('play_window_mode 存量值按原样返回，读路径不覆盖', async () => {
+    mem.set('play_window_mode', 'popup');
+
+    const mod = await import('../server/services/settings.js');
+    const { dbApi } = await import('../server/db.js');
+
+    expect(mod.get('play_window_mode')).toBe('popup');
+    expect(mod.getWithDefault('play_window_mode')).toBe('popup');
+    expect(dbApi.setPref).not.toHaveBeenCalledWith('play_window_mode', 'background');
   });
 
   it('get 两边都没值返回空字符串', async () => {
@@ -101,6 +123,20 @@ describe('services/settings', () => {
 
     set('fish_api_key', '');
     expect(dbApi.delPref).toHaveBeenCalledWith('fish_api_key');
+  });
+
+  it('set play_window_mode 只接受 popup/background，非法值拒绝且不写库', async () => {
+    const { set } = await import('../server/services/settings.js');
+    const { dbApi } = await import('../server/db.js');
+
+    set('play_window_mode', 'popup');
+    expect(dbApi.setPref).toHaveBeenCalledWith('play_window_mode', 'popup');
+
+    set('play_window_mode', ' BACKGROUND ');
+    expect(dbApi.setPref).toHaveBeenCalledWith('play_window_mode', 'background');
+
+    expect(() => set('play_window_mode', 'tray')).toThrow(/invalid play_window_mode/);
+    expect(dbApi.setPref).not.toHaveBeenCalledWith('play_window_mode', 'tray');
   });
 
   it('isSensitive 标记需要 mask 的字段（API key 类）', async () => {
