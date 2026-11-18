@@ -101,7 +101,7 @@ describe('radio visual contract (ink-on-xuan-paper)', () => {
   });
 
   it('离线壳缓存覆盖新增资源与全部水墨素材', () => {
-    expect(sw).toMatch(/const CACHE = 'claudio-shell-v25'/);
+    expect(sw).toMatch(/const CACHE = 'claudio-shell-v26'/);
     expect(sw).toContain('\'/theme-store.js\'');
     expect(sw).toContain('\'/external-playback.js\'');
     expect(sw).toContain('\'/boot-playback.js\'');
