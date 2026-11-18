@@ -101,7 +101,7 @@ describe('parseLRC · LRC 解析器', () => {
     ]);
   });
 
-  it('暂停后展开歌词，即使当前行没有变化也立即定位', async () => {
+  it('默认实时展开，收起后再展开即使当前行没有变化也立即重新定位', async () => {
     const dom = lyricDom();
     vi.stubGlobal('fetch', async () => ({ ok: true, json: async () => ({ lyric: '[00:00]开头\n[00:05]前奏\n[00:10]主歌\n[00:15]副歌' }) }));
     try {
@@ -109,12 +109,26 @@ describe('parseLRC · LRC 解析器', () => {
       await lyrics.loadLyric({ kugouId: 'song-1' });
       dom.audio.currentTime = 15;
       dom.audio.listeners.timeupdate();
-      expect(dom.container.scrollTop).toBe(0);
-      dom.toggle.click();
       expect(dom.container.scrollTop).toBe(77);
       dom.toggle.click();
+      expect(dom.toggle.expanded).toBe('false');
       dom.container.scrollTop = 0;
       dom.toggle.click();
+      expect(dom.toggle.expanded).toBe('true');
+      expect(dom.container.scrollTop).toBe(77);
+    } finally {
+      vi.unstubAllGlobals();
+      dom.restore();
+    }
+  });
+
+  it('曲目已处于非零进度（如暂停在半途）时加载歌词，立即高亮居中当前行', async () => {
+    const dom = lyricDom();
+    vi.stubGlobal('fetch', async () => ({ ok: true, json: async () => ({ lyric: '[00:00]开头\n[00:05]前奏\n[00:10]主歌\n[00:15]副歌' }) }));
+    try {
+      dom.audio.currentTime = 15;
+      const lyrics = init({ audio: dom.audio, container: dom.container });
+      await lyrics.loadLyric({ kugouId: 'song-1' });
       expect(dom.container.scrollTop).toBe(77);
     } finally {
       vi.unstubAllGlobals();
@@ -128,7 +142,6 @@ describe('parseLRC · LRC 解析器', () => {
     try {
       const lyrics = init({ audio: dom.audio, container: dom.container });
       await lyrics.loadLyric({ kugouId: 'song-1' });
-      dom.toggle.click();
       dom.audio.currentTime = 15;
       dom.audio.listeners.timeupdate();
       expect(dom.container.scrollTop).toBe(77);
@@ -145,7 +158,6 @@ describe('parseLRC · LRC 解析器', () => {
     try {
       const lyrics = init({ audio: dom.audio, container: dom.container });
       await lyrics.loadLyric({ kugouId: 'song-1' });
-      dom.toggle.click();
       dom.audio.currentTime = 10;
       dom.audio.listeners.timeupdate();
       expect(dom.container.scrollTop).toBe(49);
@@ -158,7 +170,7 @@ describe('parseLRC · LRC 解析器', () => {
     }
   });
 
-  it('歌词加载后由用户展开，歌词文本不进入 HTML 解析', async () => {
+  it('歌词加载后默认展开并可切换收起，歌词文本不进入 HTML 解析', async () => {
     const dom = lyricDom();
     const oldFetch = globalThis.fetch;
     globalThis.fetch = vi.fn(async () => ({ ok: true, json: async () => ({ lyric: '[00:00]<img src=x onerror=alert(1)>' }) }));
@@ -168,13 +180,13 @@ describe('parseLRC · LRC 解析器', () => {
       expect(dom.container.children).toHaveLength(1);
       expect(dom.container.children[0].textContent).toBe('<img src=x onerror=alert(1)>');
       expect(dom.toggle.hidden).toBe(false);
-      expect(dom.toggle.expanded).toBe('false');
-      expect(dom.toggle.textContent).toBe('歌词');
-      dom.toggle.click();
       expect(dom.toggle.expanded).toBe('true');
       expect(dom.toggle.textContent).toBe('收起歌词');
       dom.toggle.click();
       expect(dom.toggle.expanded).toBe('false');
+      expect(dom.toggle.textContent).toBe('歌词');
+      dom.toggle.click();
+      expect(dom.toggle.expanded).toBe('true');
       expect(globalThis.fetch).toHaveBeenCalledWith('/api/lyric?hash=song-1');
     } finally {
       globalThis.fetch = oldFetch;
