@@ -308,17 +308,20 @@ try {
   assert.notEqual(dayparts.dawn.tint, dayparts.night.tint);
 
   const theme = {};
-  for (const name of ['light', 'dark']) {
+  for (const name of ['light', 'dark', 'pixel']) {
     await evaluate(`window.dispatchEvent(new CustomEvent('claudio:theme', { detail: ${JSON.stringify(name)} }))`);
     await delay(120);
     theme[name] = await evaluate(`(() => {
       const root = getComputedStyle(document.documentElement);
       const body = getComputedStyle(document.body);
+      const card = document.querySelector('.host');
       return {
         dataset: document.documentElement.dataset.theme,
         canvas: root.getPropertyValue('--canvas').trim(),
         ink: root.getPropertyValue('--ink').trim(),
         bodyBg: body.backgroundColor,
+        bodyBgImage: body.backgroundImage,
+        hostRadius: card ? getComputedStyle(card).borderRadius : '',
         meta: document.querySelector('meta[name="theme-color"]')?.content || '',
         stored: localStorage.getItem('claudio:ui-theme') || '',
       };
@@ -327,14 +330,118 @@ try {
   }
   assert.equal(theme.light.dataset, 'light');
   assert.equal(theme.dark.dataset, 'dark');
+  assert.equal(theme.pixel.dataset, 'pixel');
   assert.equal(theme.light.canvas, '#f2ede1');
   assert.equal(theme.dark.canvas, '#171512');
+  assert.equal(theme.pixel.canvas, '#0b091c');
   assert.notEqual(theme.light.bodyBg, theme.dark.bodyBg);
+  assert.notEqual(theme.dark.bodyBg, theme.pixel.bodyBg);
+  assert.equal(theme.pixel.hostRadius, '0px');
   assert.equal(theme.light.meta, '#f2ede1');
   assert.equal(theme.dark.meta, '#171512');
+  assert.equal(theme.pixel.meta, '#0b091c');
   assert.equal(theme.light.stored, 'light');
   assert.equal(theme.dark.stored, 'dark');
-  await evaluate(`window.dispatchEvent(new CustomEvent('claudio:theme', { detail: 'auto' }))`);
+  assert.equal(theme.pixel.stored, 'pixel');
+
+  // 像素数码全视图截图 + pixel ↔ dark ↔ light 来回切换无残留校验
+  await evaluate(`window.dispatchEvent(new CustomEvent('claudio:theme', { detail: 'pixel' }))`);
+  await delay(120);
+  assert.equal(await evaluate(`document.documentElement.scrollWidth`), 1280, 'pixel desktop player overflow');
+  await screenshot('pixel-desktop-player');
+  for (const view of ['playlists', 'profile', 'settings']) {
+    await evaluate(`document.querySelector('.tab[data-view="${view}"]').click()`);
+    await waitFor(`!document.querySelector('#view-${view}').classList.contains('hidden')`);
+    await delay(120);
+    if (view === 'playlists') {
+      await evaluate(`(() => { const input = document.querySelector('#search-input'); input.value = '晴天'; document.querySelector('#search-form').requestSubmit(); })()`);
+      await waitFor(`document.querySelectorAll('#search-results .search-result').length > 0`);
+    }
+    if (view === 'settings') {
+      await waitFor(`document.querySelector('#kugou-status')?.textContent !== '读取中…'`);
+      await evaluate(`(() => { const sel = document.querySelector('#set-ui-theme'); sel.value = 'pixel'; sel.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+      await delay(80);
+      assert.equal(await evaluate(`document.documentElement.dataset.theme`), 'pixel');
+    }
+    assert.equal(await evaluate(`document.documentElement.scrollWidth`), 1280, `pixel desktop ${view} overflow`);
+    await screenshot(`pixel-desktop-${view}`);
+    if (view === 'settings') {
+      await evaluate(`document.querySelector('#set-ui-theme').scrollIntoView({ block: 'center', behavior: 'instant' })`);
+      const shot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+      await writeFile(path.join(output, 'pixel-desktop-settings-theme.png'), Buffer.from(shot.data, 'base64'));
+      await evaluate(`document.querySelector('#view-settings').scrollTo({ top: 0, behavior: 'instant' })`);
+    }
+  }
+  // 通过设置页下拉真实触发 pixel -> dark -> light -> pixel -> auto 往返切换，验证无样式残留
+  const roundTrip = {};
+  for (const targetTheme of ['pixel', 'dark', 'light', 'pixel', 'auto']) {
+    await evaluate(`(() => {
+      const sel = document.querySelector('#set-ui-theme');
+      sel.value = ${JSON.stringify(targetTheme)};
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    })()`);
+    await delay(80);
+    roundTrip[targetTheme] = await evaluate(`(() => {
+      const root = getComputedStyle(document.documentElement);
+      const body = getComputedStyle(document.body);
+      const topbar = getComputedStyle(document.querySelector('#topbar'));
+      const firstCard = getComputedStyle(document.querySelector('#view-settings .card'));
+      return {
+        dataset: document.documentElement.dataset.theme,
+        canvas: root.getPropertyValue('--canvas').trim(),
+        bodyBg: body.backgroundColor,
+        bodyBgImage: body.backgroundImage,
+        topbarBorderTopWidth: topbar.borderTopWidth,
+        cardRadius: firstCard.borderRadius,
+        meta: document.querySelector('meta[name="theme-color"]')?.content || '',
+      };
+    })()`);
+  }
+  assert.equal(roundTrip.dark.canvas, '#171512');
+  assert.equal(roundTrip.dark.topbarBorderTopWidth, '0px');
+  assert.equal(roundTrip.dark.cardRadius, '4px');
+  assert.equal(roundTrip.light.canvas, '#f2ede1');
+  assert.equal(roundTrip.light.topbarBorderTopWidth, '0px');
+  assert.equal(roundTrip.light.cardRadius, '4px');
+  assert.equal(roundTrip.auto.canvas, '#f2ede1');
+  assert.equal(roundTrip.auto.meta, '#f2ede1');
+
+  await viewport(390, 844);
+  await evaluate(`window.dispatchEvent(new CustomEvent('claudio:theme', { detail: 'pixel' }))`);
+  for (const view of ['player', 'playlists', 'profile', 'settings']) {
+    await evaluate(`document.querySelector('.tab[data-view="${view}"]').click()`);
+    await waitFor(`!document.querySelector('#view-${view}').classList.contains('hidden')`);
+    await delay(100);
+    assert.equal(await evaluate(`document.documentElement.scrollWidth`), 390, `pixel mobile ${view} overflow`);
+    await screenshot(`pixel-mobile-${view}`);
+  }
+  await viewport(1280, 900);
+  await evaluate(`document.querySelector('.tab[data-view="player"]').click()`);
+  // 380x136 迷你陪伴窗口下 pixel 主题控制钮尺寸与裁切验证
+  await viewport(380, 136);
+  await evaluate(`document.documentElement.classList.add('is-desktop', 'is-mini'); window.dispatchEvent(new CustomEvent('claudio:theme', { detail: 'pixel' }));`);
+  await delay(80);
+  const pixelMini = await evaluate(`(() => {
+    const play = document.querySelector('.main-play').getBoundingClientRect();
+    const prev = document.querySelector('[data-console-control="prev"]').getBoundingClientRect();
+    return {
+      scrollWidth: document.documentElement.scrollWidth,
+      playW: Math.round(play.width),
+      playH: Math.round(play.height),
+      playBottom: Math.round(play.bottom),
+      prevW: Math.round(prev.width),
+      prevH: Math.round(prev.height),
+    };
+  })()`);
+  assert.equal(pixelMini.scrollWidth, 380, 'pixel mini overflow');
+  assert.equal(pixelMini.playW, 36);
+  assert.equal(pixelMini.playH, 36);
+  assert.equal(pixelMini.prevW, 32);
+  assert.equal(pixelMini.prevH, 32);
+  assert.ok(pixelMini.playBottom <= 136, `pixel mini play clipped at ${pixelMini.playBottom}`);
+  await screenshot('pixel-mini');
+  await evaluate(`document.documentElement.classList.remove('is-desktop', 'is-mini'); window.dispatchEvent(new CustomEvent('claudio:theme', { detail: 'auto' }));`);
+  await viewport(1280, 900);
 
   await viewport(390, 844); await navigate();
   await waitFor(`!document.body.classList.contains('is-empty')`);
@@ -466,6 +573,11 @@ try {
   const longQueue = await evaluate(`({ width: document.documentElement.scrollWidth, count: document.querySelector('#queue-list').children.length, titleWidth: document.querySelector('.queue-title').getBoundingClientRect().width, scrollHeight: document.documentElement.scrollHeight })`);
   assert.equal(longQueue.width, 320); assert.equal(longQueue.count, 7);
   await screenshot('small-long-queue');
+  await evaluate(`window.dispatchEvent(new CustomEvent('claudio:theme', { detail: 'pixel' }))`);
+  await delay(80);
+  assert.equal(await evaluate('document.documentElement.scrollWidth'), 320, 'pixel small long queue overflow');
+  await screenshot('pixel-small-long-queue');
+  await evaluate(`window.dispatchEvent(new CustomEvent('claudio:theme', { detail: 'auto' }))`);
   state.queue = savedQueue.map(track => ({ ...track, cover: '/missing-cover.png' }));
   await navigate();
   await waitFor(`document.querySelector('#np-cover-img').hidden && !document.querySelector('#np-cover-fallback').hidden`);
@@ -483,6 +595,11 @@ try {
   const internal = await evaluate(`({ chat: getComputedStyle(document.querySelector('#console-chat')).display, lyrics: getComputedStyle(document.querySelector('#lyrics-panel')).display, toggle: document.querySelector('#lyrics-toggle').hidden, aiSettings: null, scrollWidth: document.documentElement.scrollWidth })`);
   assert.notEqual(internal.chat, 'none'); assert.notEqual(internal.lyrics, 'none'); assert.equal(internal.toggle, false); assert.equal(internal.scrollWidth, 1280);
   await screenshot('desktop-internal-lyrics');
+  await evaluate(`window.dispatchEvent(new CustomEvent('claudio:theme', { detail: 'pixel' }))`);
+  await delay(80);
+  assert.equal(await evaluate('document.documentElement.scrollWidth'), 1280, 'pixel internal lyrics overflow');
+  await screenshot('pixel-desktop-internal-lyrics');
+  await evaluate(`window.dispatchEvent(new CustomEvent('claudio:theme', { detail: 'auto' }))`);
   await click('#lyrics-toggle');
   await waitFor(`getComputedStyle(document.querySelector('#lyrics-panel')).display === 'none'`);
   await screenshot('desktop-internal');
@@ -534,6 +651,12 @@ try {
   const empty = await evaluate(`({ stage: getComputedStyle(document.querySelector('.stage')).display, empty: getComputedStyle(document.querySelector('.empty-stage')).display, overlay: getComputedStyle(document.querySelector('#boot-overlay')).display, scrollWidth: document.documentElement.scrollWidth })`);
   assert.equal(empty.stage, 'none'); assert.notEqual(empty.empty, 'none'); assert.equal(empty.overlay, 'none'); assert.equal(empty.scrollWidth, 390);
   await screenshot('mobile-empty');
+  await viewport(1280, 900);
+  await evaluate(`window.dispatchEvent(new CustomEvent('claudio:theme', { detail: 'pixel' }))`);
+  await delay(80);
+  assert.equal(await evaluate('document.documentElement.scrollWidth'), 1280, 'pixel desktop empty overflow');
+  await screenshot('pixel-desktop-empty');
+  await evaluate(`window.dispatchEvent(new CustomEvent('claudio:theme', { detail: 'auto' }))`);
 
   assert.equal(errors.length, 0, `Browser errors: ${errors.join('\n')}`);
   await writeFile(path.join(output, 'verification.json'), JSON.stringify({ results, theme, playback, motionPlaying, motionPaused, selected, liked, exclusive, cancelled, favorited, seek, rememberedVolume, nav, focus, consoleHidden, externalOptionsHidden, longQueue, internal, internalOptions, lyricPosition, lyricFollow, empty, errors }, null, 2));

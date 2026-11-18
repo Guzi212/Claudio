@@ -112,6 +112,26 @@ describe('radio visual contract (ink-on-xuan-paper)', () => {
     expect(sw).not.toContain('env-strip.js');
   });
 
+  it('设置页提供像素数码第 4 主题选项且样式严格隔离在 [data-theme="pixel"] 下', () => {
+    const selectMatch = html.match(/<select id="set-ui-theme">([\s\S]*?)<\/select>/);
+    expect(selectMatch).not.toBeNull();
+    expect(selectMatch[1]).toContain('<option value="auto">跟随系统</option>');
+    expect(selectMatch[1]).toContain('<option value="light">浅色</option>');
+    expect(selectMatch[1]).toContain('<option value="dark">深色</option>');
+    expect(selectMatch[1]).toContain('<option value="pixel">像素数码</option>');
+    expect(css).toContain(':root[data-theme="pixel"]');
+    expect(css).toContain('--canvas: #0b091c');
+    expect(css).toContain('--pixel-lime: #b8f135');
+  });
+
+  it('pixel 主题在 380x136 迷你陪伴态重置控制钮尺寸，且扫码弹窗错误态不用青柠主色', () => {
+    const pixelSection = css.slice(css.indexOf('/* Festival Pixel Salon theme'));
+    const miniBlock = pixelSection.match(/@media\s*\(max-height:\s*220px\)\s*\{([\s\S]*?)\n\}/)?.[1] || '';
+    expect(miniBlock).toMatch(/:root\[data-theme="pixel"\]\s+\.icon-button\s*\{[^}]*width:\s*32px/);
+    expect(miniBlock).toMatch(/:root\[data-theme="pixel"\]\s+\.main-play\s*\{[^}]*width:\s*36px/);
+    expect(pixelSection).toMatch(/:root\[data-theme="pixel"\]\s+\.modal-status\.off\s*\{[^}]*color:\s*var\(--pixel-red\)/);
+  });
+
   it('歌单页支持搜索、设置默认红心单并精确播放单曲', () => {
     expect(html).toContain('id="search-form"');
     expect(html).toContain('id="search-input"');
