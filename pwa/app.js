@@ -222,6 +222,10 @@ function connectWs() {
     if (!ws || ws.readyState !== 1) return;
     try { ws.send(JSON.stringify({ type: 'progress', ...ev.detail })); } catch { /* ignore */ }
   });
+  window.addEventListener('claudio:media-event', ev => {
+    if (!ws || ws.readyState !== 1) return;
+    try { ws.send(JSON.stringify({ type: 'media-event', ...ev.detail })); } catch { /* ignore */ }
+  });
 
   const kick = () => {
     if (document.visibilityState === 'hidden') return;
