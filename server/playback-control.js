@@ -8,6 +8,7 @@ import {
   continuousListenMinutes,
   queueEpochOf,
   queueWriteIsStale,
+  queuePlaybackLocked,
   PAUSE_RESET_MS,
 } from './queue-source.js';
 
@@ -282,14 +283,16 @@ export function applyControl(runtime, { command, arg, value } = {}) {
 
 export function applyProgress(runtime, body = {}) {
   if (!runtime) return;
-  // 音量不是播放进度：即使这条上报已经过期，用户刚拖过的音量仍然算数。
+  // clear 之前的旧 epoch 上报连音量也不能改。
+  if (queueWriteIsStale(runtime, body)) return;
+  // 只有当前 epoch 的上报能更新音量；空队列锁定期间音量仍可调。
   const volume = clampVolume(body.volume);
   if (volume != null && body.volume != null) {
     runtime.volume = volume;
     runtime.volumeExplicit = true;
   }
-  // clear 之后的旧 epoch / 旧客户端上报不能把队列或进度复活。
-  if (queueWriteIsStale(runtime, body)) return;
+  // clear 之后、下一次明确点歌之前：播放状态锁定，不接 index/paused/ended/进度。
+  if (queuePlaybackLocked(runtime)) return;
   const index = reportedQueueIndex(runtime, body);
   if (index < 0) return;
   // 旧曲的 WS 进度可能晚于队尾的 HTTP 请求抵达；不能把续播指针拉回去。

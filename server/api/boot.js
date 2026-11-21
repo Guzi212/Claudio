@@ -66,23 +66,7 @@ export function mountBootRoute(app, deps = {}) {
       const systemPrompt = await buildSystemPrompt();
       const { say, queue: songQueue, reason, raw } = await ask(systemPrompt, BOOT_MSG);
 
-      if (runtime.continueSuppressed || queueEpochOf(runtime) !== startedEpoch) {
-        broadcast({ type: 'state', runtime });
-        res.json({
-          say: '等待点歌',
-          queue: runtime.queue,
-          index: runtime.index,
-          queueOffset: runtime.queueOffset || 0,
-          reason: 'cleared',
-          intent: 'boot',
-          brain: 'internal',
-          skipped: true,
-          preserved: 'cleared',
-          _resolveError: false,
-        });
-        return;
-      }
-
+      // 外部点歌在等待期间写入：即使 epoch 变了，也优先按「外部队列还在播」处理。
       if (hasActiveExternalQueue(runtime)) {
         const hint = PRESERVE_EXTERNAL_SAY;
         runtime.lastSay = hint;
@@ -98,6 +82,25 @@ export function mountBootRoute(app, deps = {}) {
           intent: 'boot',
           skipped: true,
           preserved: 'external',
+          _resolveError: false,
+        });
+        return;
+      }
+
+      // clear 之后、或等待期间被别的明确点歌换了队列：开机电台都不回填。
+      if (runtime.continueSuppressed || queueEpochOf(runtime) !== startedEpoch) {
+        const hasQueue = Array.isArray(runtime.queue) && runtime.queue.length > 0;
+        broadcast({ type: 'state', runtime });
+        res.json({
+          say: hasQueue ? (runtime.lastSay || '队列已更新，开机电台先不换歌') : '等待点歌',
+          queue: runtime.queue,
+          index: runtime.index,
+          queueOffset: runtime.queueOffset || 0,
+          reason: hasQueue ? '' : 'cleared',
+          intent: 'boot',
+          brain: 'internal',
+          skipped: true,
+          preserved: hasQueue ? 'changed' : 'cleared',
           _resolveError: false,
         });
         return;

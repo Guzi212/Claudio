@@ -40,6 +40,18 @@ describe('requiresCredential', () => {
     expect(requiresCredential('/index.html')).toBe(false);
     expect(requiresCredential('/app.js')).toBe(false);
   });
+
+  it('大小写不敏感：Express 能匹配的大写 API 路径也必须鉴权', () => {
+    expect(requiresCredential('/API/queue/clear')).toBe(true);
+    expect(requiresCredential('/API/queue')).toBe(true);
+    expect(requiresCredential('/Api/health')).toBe(true);
+    expect(requiresCredential('/TTS/abc.mp3')).toBe(true);
+    expect(requiresCredential('/STREAM')).toBe(true);
+    // 不要误伤只是前缀相似的其它路径。
+    expect(requiresCredential('/apix')).toBe(false);
+    expect(requiresCredential('/api')).toBe(false);
+    expect(requiresCredential('/streaming')).toBe(false);
+  });
 });
 
 describe('authorizeRequest', () => {
@@ -128,6 +140,27 @@ describe('authMiddleware', () => {
       () => { called = true; },
     );
     expect(called).toBe(true);
+  });
+
+  it('非回环无凭证打大写清空路径同样 401，不进入 handler', () => {
+    for (const path of ['/API/queue/clear', '/API/queue']) {
+      const response = res();
+      let called = false;
+      authMiddleware(req({ ip: '8.8.8.8', path, url: path }), response, () => { called = true; });
+      expect(called).toBe(false);
+      expect(response.statusCode).toBe(401);
+      expect(response.body).toEqual({ ok: false, error: 'unauthorized' });
+    }
+  });
+
+  it('大写 /API/session 仍走严格的令牌签发校验', () => {
+    const response = res();
+    let called = false;
+    authMiddleware(req({ ip: '127.0.0.1', path: '/API/session', url: '/API/session' }), response, () => {
+      called = true;
+    });
+    expect(called).toBe(false);
+    expect(response.statusCode).toBe(401);
   });
 });
 

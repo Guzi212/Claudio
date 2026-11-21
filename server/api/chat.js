@@ -5,7 +5,7 @@ import { buildSystemPrompt as defaultBuildSystemPrompt } from '../context.js';
 import { ask as defaultAsk } from '../claude.js';
 import { synthesize as defaultSynthesize } from '../tts.js';
 import { detectSignal as defaultDetectSignal, appendJournalEntry as defaultAppendJournal } from '../services/journal.js';
-import { markQueueSource, queueEpochOf, clearContinueSuppression } from '../queue-source.js';
+import { markQueueSource, queueEpochOf, bumpQueueEpoch, clearContinueSuppression } from '../queue-source.js';
 import { brainMode } from '../brain.js';
 import { applyControl, EXTERNAL_CHAT_HINT } from '../playback-control.js';
 
@@ -27,6 +27,7 @@ export function mountChatRoute(app, deps = {}) {
   const rememberVolume = typeof deps.rememberVolume === 'function' ? deps.rememberVolume : () => {};
 
   app.post('/api/chat', async (req, res) => {
+    const isAuto = req.body?.auto === true;
     const message = String(req.body?.message || '').trim();
     if (!message) {
       res.status(400).json({ error: 'message required' });
@@ -84,6 +85,20 @@ export function mountChatRoute(app, deps = {}) {
       return;
     }
 
+    // clear 之后的自动续播（PWA autoRecommend）不得回填队列，也不解除抑制。
+    if (isAuto && runtime.continueSuppressed) {
+      res.json({
+        say: '',
+        queue: [],
+        reason: '',
+        intent: 'chat',
+        skipped: true,
+        stale: true,
+        queueEpoch: queueEpochOf(runtime),
+      });
+      return;
+    }
+
     // internal chat: 走 Claude 子进程
     try {
       const startedEpoch = queueEpochOf(runtime);
@@ -109,19 +124,31 @@ export function mountChatRoute(app, deps = {}) {
 
       const finalQueue = ttsTrack ? [ttsTrack, ...songQueue] : songQueue;
 
-      // 生成期间用户清空了队列：这次结果作废，不能把歌复活。
-      if (runtime.continueSuppressed || queueEpochOf(runtime) !== startedEpoch) {
+      // 生成期间队列被清空或换了版本：这次结果作废，不能把歌复活。
+      // 只看请求开始后 epoch 是否变化；clear 之后才发起的手动聊天捕获的是新 epoch，
+      // 即使 continueSuppressed 仍然为 true 也必须允许开播。
+      if (queueEpochOf(runtime) !== startedEpoch) {
         db.addMessage('assistant', say);
-        res.json({ say, queue: [], reason, intent: 'chat', stale: true });
+        res.json({
+          say,
+          queue: [],
+          reason,
+          intent: 'chat',
+          stale: true,
+          queueEpoch: queueEpochOf(runtime),
+        });
         return;
       }
 
+      let nextEpoch = queueEpochOf(runtime);
       if (finalQueue.length > 0) {
         runtime.queue = finalQueue;
         runtime.queueOffset = 0;
         runtime.index = 0;
         runtime.paused = false;
         markQueueSource(runtime, 'claude');
+        // 用户手动聊天是明确点歌，推进 epoch；自动续播不推进。
+        if (!isAuto) nextEpoch = bumpQueueEpoch(runtime);
         clearContinueSuppression(runtime);
         // 只把真正的歌写入历史（跳过 TTS 串场条）
         for (const q of finalQueue) {
@@ -138,7 +165,15 @@ export function mountChatRoute(app, deps = {}) {
       broadcast({ type: 'state', runtime });
 
       const _resolveError = Array.isArray(raw?.play) && raw.play.length > 0 && songQueue.length === 0;
-      res.json({ say, queue: finalQueue, reason, intent: 'chat', _raw: raw, _resolveError });
+      res.json({
+        say,
+        queue: finalQueue,
+        reason,
+        intent: 'chat',
+        queueEpoch: nextEpoch,
+        _raw: raw,
+        _resolveError,
+      });
     } catch (err) {
       console.error('[chat] error:', err);
       res.status(500).json({ error: err.message });

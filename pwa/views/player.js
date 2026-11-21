@@ -4,7 +4,7 @@
 import { showAlert, clearAlert, setStatus, toast } from './ui.js';
 import { planExternalPlayback } from '../external-playback.js';
 import { planBootPlayback } from '../boot-playback.js';
-import { claimPlayLoad, isOwnEcho, planRuntimeSync } from '../runtime-sync.js';
+import { claimPlayLoad, isOwnEcho, planRuntimeSync, isStaleRemoteEpoch, planQueueReplace } from '../runtime-sync.js';
 import { externalUnlockPlan, planExternalBoot, planPlayCommand, planPlayError, stopAudioForEmptyQueue } from '../player-mode.js';
 import { readLocalVolume, writeLocalVolume } from '../volume-memory.js';
 import { getClientId } from '../client-id.js';
@@ -32,6 +32,7 @@ const state = {
   queue: [],
   index: 0,
   offset: 0,
+  queueEpoch: 0,
   loopMode: 'auto',
   brain: 'external',
   continuePoolActive: false,
@@ -228,6 +229,7 @@ function reportProgress(force = false) {
       paused: Boolean(audio.paused),
       index: state.index,
       queueOffset: state.offset,
+      queueEpoch: state.queueEpoch,
       clientId: getClientId(),
     },
   }));
@@ -239,7 +241,14 @@ function syncToServer(index, { paused = false, ended = false } = {}) {
   return fetch('/api/runtime/state', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ index, queueOffset: state.offset, paused, ended, clientId: getClientId() }),
+    body: JSON.stringify({
+      index,
+      queueOffset: state.offset,
+      paused,
+      ended,
+      queueEpoch: state.queueEpoch,
+      clientId: getClientId(),
+    }),
   }).then(res => res.ok ? res.json() : null).catch(() => null);
 }
 
@@ -606,11 +615,17 @@ async function autoRecommend(prompt) {
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: prompt }),
+      body: JSON.stringify({ message: prompt, auto: true }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     if (myGen !== autoRecommendGen || state.continuePoolActive) return;
+    // 服务端在 clear 抑制期会跳过自动续播；旧 epoch 的响应也不能覆盖新队列。
+    if (data.stale || isStaleRemoteEpoch(state.queueEpoch, data.queueEpoch)) {
+      pendingPlayFrom = -1;
+      return;
+    }
+    if (Number.isSafeInteger(data.queueEpoch)) state.queueEpoch = data.queueEpoch;
     const newSongs = (data.queue || []).filter(q => !q.isTts);
     if (newSongs.length) {
       state.queue = [...state.queue, ...newSongs];
@@ -962,6 +977,10 @@ async function clearQueueFromUi() {
     if (!res.ok || !data?.ok) {
       throw new Error(data?.error || `HTTP ${res.status}`);
     }
+    // 清空响应晚于新点歌的 state 广播时，不能把刚开播的新队列清掉。
+    if (isStaleRemoteEpoch(state.queueEpoch, data?.queueEpoch)) {
+      return { ok: true, stale: true, data };
+    }
     // 采用服务端返回的真实状态（同时会收到 state 广播），不在前端伪造清空。
     applyRuntime(data);
     toast('播放列表已清空');
@@ -1019,6 +1038,9 @@ async function send(message) {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
+    // 旧 epoch 的聊天响应不能把已经应用的新队列换回去。
+    const staleResponse = isStaleRemoteEpoch(state.queueEpoch, data.queueEpoch);
+    if (!staleResponse && Number.isSafeInteger(data.queueEpoch)) state.queueEpoch = data.queueEpoch;
 
     const songItems = (data.queue || []).filter(q => !q.isTts);
     let metaHtml = '';
@@ -1040,7 +1062,7 @@ async function send(message) {
     }
     setConsoleDialog(data.say || '我已经整理好这一轮电台推荐。');
 
-    if (data.queue && data.queue.length) {
+    if (!staleResponse && data.queue && data.queue.length) {
       state.queue = data.queue;
       state.index = 0;
       state.offset = data.queueOffset || 0;
@@ -1274,6 +1296,9 @@ export function applyRuntime(runtime, { origin } = {}) {
   if (!runtime) return;
   // 自己刚 POST 出去的状态又广播回来时，不再 play / pause / playIndex。
   if (isOwnEcho(origin, getClientId())) return;
+  // 晚到的旧 state 广播不能清掉/覆盖已经应用的新队列。
+  if (isStaleRemoteEpoch(state.queueEpoch, runtime.queueEpoch)) return;
+  if (Number.isSafeInteger(runtime.queueEpoch)) state.queueEpoch = runtime.queueEpoch;
   if ('activeAgent' in runtime) activeAgent = runtime.activeAgent || null;
   if ('scene' in runtime) paintScene(runtime.scene);
   if (runtime.brain === 'internal' || runtime.brain === 'external') {
@@ -1529,11 +1554,13 @@ export function initPlayer() {
     });
   }
 
-  // Playlists 视图整单播放：替换本地队列并立即从第一首开始播（点击本身已解锁 autoplay）
+  // Playlists 视图整单播放：替换本地队列并立即从第一首开始播（点击本身已解锁 autoplay）。
+  // 晚到的旧选播响应不能复活旧队列。
   window.addEventListener('claudio:queue-replace', e => {
-    const queue = Array.isArray(e.detail) ? e.detail : [];
-    if (!queue.length) return;
-    state.queue = queue;
+    const plan = planQueueReplace(state, e.detail);
+    if (!plan.apply) return;
+    if (plan.queueEpoch != null) state.queueEpoch = plan.queueEpoch;
+    state.queue = plan.queue;
     state.index = 0;
     state.offset = 0;
     renderQueuePanel();
@@ -1576,6 +1603,9 @@ async function bootCurrent({ silent = false, keepOverlay = false } = {}) {
     const r = await fetch('/api/now');
     if (!r.ok) return;
     const data = await r.json();
+    // 拉全量状态期间如果已经收到更新的队列，这份旧快照不能覆盖它。
+    if (isStaleRemoteEpoch(state.queueEpoch, data.queueEpoch)) return;
+    if (Number.isSafeInteger(data.queueEpoch)) state.queueEpoch = data.queueEpoch;
     brain = data.brain === 'internal' ? 'internal' : 'external';
     state.brain = brain;
     state.offset = data.queueOffset || 0;

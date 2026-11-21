@@ -1,5 +1,5 @@
 import { playbackStatus } from './playback-control.js';
-import { notePlaybackActivity, queueEpochOf } from './queue-source.js';
+import { notePlaybackActivity, bumpQueueEpoch } from './queue-source.js';
 
 export const CLEAR_REASON_MAX = 200;
 
@@ -27,7 +27,9 @@ export function clearQueue(runtime, { reason = '' } = {}) {
   runtime.queueSource = null;
   runtime.queuedAt = null;
   runtime.queuedSource = '';
-  runtime.queueEpoch = queueEpochOf(runtime) + 1;
+  runtime.queueEpoch = bumpQueueEpoch(runtime);
+  // 进程内发生过 clear：从此缺省 epoch 的旧客户端写回一律视为过期。
+  runtime.requireQueueEpoch = true;
   runtime.continueSuppressed = true;
 
   const trimmed = String(reason ?? '').trim();

@@ -1,5 +1,5 @@
 import { playbackStatus, queueFinished } from '../playback-control.js';
-import { applyRuntimePlayback, reportedQueueIndex, queueWriteIsStale } from '../queue-source.js';
+import { applyRuntimePlayback, reportedQueueIndex, queueWriteIsStale, queuePlaybackLocked } from '../queue-source.js';
 import { stateBroadcast } from '../runtime-events.js';
 import { continueFromPool } from '../continue-pool.js';
 
@@ -31,6 +31,7 @@ export function mountRuntimeRoutes(app, { runtime, broadcast, db, statusOptions 
     const absolute = index + (runtime.queueOffset || 0);
     const edge = guard();
     const stale = queueWriteIsStale(runtime, req.body || {})
+      || queuePlaybackLocked(runtime)
       || index < 0
       || (edge && ((ended === true && (!Number.isInteger(index) || absolute < edge.index))
         || (edge.awaitingPlayback && typeof index === 'number' && absolute < edge.index)));
@@ -42,7 +43,9 @@ export function mountRuntimeRoutes(app, { runtime, broadcast, db, statusOptions 
   });
 
   app.post('/api/runtime/advance', (req, res) => {
-    if (queueWriteIsStale(runtime, req.body || {})) return finish(req, res, true);
+    if (queueWriteIsStale(runtime, req.body || {}) || queuePlaybackLocked(runtime)) {
+      return finish(req, res, true);
+    }
     const explicit = reportedQueueIndex(runtime, req.body);
     const edge = guard();
     if (explicit < 0) return finish(req, res, true);

@@ -11,7 +11,7 @@ import {
   setPool as defaultSetPool,
   clearPool as defaultClearPool,
 } from '../services/candidate-pool.js';
-import { markQueueSource, queueEpochOf, clearContinueSuppression } from '../queue-source.js';
+import { markQueueSource, queueEpochOf, bumpQueueEpoch, clearContinueSuppression } from '../queue-source.js';
 import { dbApi as defaultDb } from '../db.js';
 
 function proxyUrl(upstream) {
@@ -166,8 +166,15 @@ export function mountPlaylistRoutes(app, deps = {}) {
         res.status(404).json({ ok: false, error: '歌单没有可播放曲目' });
         return;
       }
-      if (runtime.continueSuppressed || queueEpochOf(runtime) !== startedEpoch) {
-        res.status(409).json({ ok: false, stale: true, error: '队列已被清空或更换，本次整单播放已丢弃' });
+      // 只看请求开始后 epoch 是否变化。clear 之后才发起的整单播放捕获的是新 epoch，
+      // 必须能正常开播，不能因为 continueSuppressed 被误拒。
+      if (queueEpochOf(runtime) !== startedEpoch) {
+        res.status(409).json({
+          ok: false,
+          stale: true,
+          error: '队列已被清空或更换，本次整单播放已丢弃',
+          queueEpoch: queueEpochOf(runtime),
+        });
         return;
       }
       const db = deps.db || defaultDb;
@@ -176,6 +183,7 @@ export function mountPlaylistRoutes(app, deps = {}) {
       runtime.index = 0;
       runtime.paused = false;
       markQueueSource(runtime, 'playlist');
+      const nextEpoch = bumpQueueEpoch(runtime);
       clearContinueSuppression(runtime);
       runtime.lastSay = `已切到歌单《${playlist.name || '未命名'}》，共 ${queue.length} 首。`;
       try {
@@ -189,7 +197,7 @@ export function mountPlaylistRoutes(app, deps = {}) {
         });
       } catch { /* 播放历史记录失败不影响切单 */ }
       broadcast({ type: 'state', runtime });
-      res.json({ ok: true, count: queue.length, queue });
+      res.json({ ok: true, count: queue.length, queue, queueEpoch: nextEpoch });
     } catch (err) {
       console.error('[playlists-api] play failed:', err.message);
       res.status(500).json({ ok: false, error: err.message });
@@ -227,6 +235,7 @@ export function mountPlaylistRoutes(app, deps = {}) {
     }
     const db = deps.db || defaultDb;
     markQueueSource(runtime, 'search');
+    const nextEpoch = bumpQueueEpoch(runtime);
     clearContinueSuppression(runtime);
     runtime.lastSay = `播放《${title}》${item.artist ? ` — ${item.artist}` : ''}。`;
     try {
@@ -240,7 +249,7 @@ export function mountPlaylistRoutes(app, deps = {}) {
       });
     } catch { /* 播放历史记录失败不影响点歌 */ }
     broadcast({ type: 'state', runtime });
-    res.json({ ok: true, mode, queue: runtime.queue, index: runtime.index });
+    res.json({ ok: true, mode, queue: runtime.queue, index: runtime.index, queueEpoch: nextEpoch });
   });
 
   // 直链懒解析：hash → 可播放代理 URL

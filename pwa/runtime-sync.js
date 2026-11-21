@@ -20,6 +20,27 @@ export function isOwnEcho(origin, clientId) {
   return typeof origin === 'string' && origin.length > 0 && origin === clientId;
 }
 
+// 晚到的旧响应不能复活或覆盖更新的队列。同 epoch 允许幂等应用。
+export function isStaleRemoteEpoch(localEpoch, remoteEpoch) {
+  const local = Number.isSafeInteger(localEpoch) && localEpoch >= 0 ? localEpoch : 0;
+  if (!Number.isSafeInteger(remoteEpoch) || remoteEpoch < 0) return false;
+  return remoteEpoch < local;
+}
+
+// Playlists 的 queue-replace 事件：detail 可以是 { queue, queueEpoch } 或旧版的数组。
+export function planQueueReplace(local = {}, detail) {
+  const queue = Array.isArray(detail) ? detail : detail?.queue;
+  const epoch = Array.isArray(detail) ? null : detail?.queueEpoch;
+  const queueEpoch = Number.isSafeInteger(epoch) && epoch >= 0 ? epoch : null;
+  if (!Array.isArray(queue) || queue.length === 0) {
+    return { apply: false, stale: false, queue: [], queueEpoch };
+  }
+  if (isStaleRemoteEpoch(local?.queueEpoch, epoch)) {
+    return { apply: false, stale: true, queue, queueEpoch };
+  }
+  return { apply: true, stale: false, queue, queueEpoch };
+}
+
 // 同一首还在等直链或等 play() 时，后来的同 index 调用直接丢掉。
 export function claimPlayLoad(loading, index) {
   if (loading === index) return { accept: false, loading };

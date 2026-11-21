@@ -3,22 +3,35 @@
 
 export const PAUSE_RESET_MS = 10 * 60_000;
 
-// 队列版本号。clear 每次递增，在途的异步写回带上旧值就不许再改队列。
+// 队列版本号。clear 和每一次明确点歌都会递增，在途的异步写回带上旧值就不许再改队列。
 export function queueEpochOf(runtime) {
   const n = runtime?.queueEpoch;
   return Number.isSafeInteger(n) && n >= 0 ? n : 0;
 }
 
+export function bumpQueueEpoch(runtime) {
+  if (!runtime || typeof runtime !== 'object') return 0;
+  runtime.queueEpoch = queueEpochOf(runtime) + 1;
+  return runtime.queueEpoch;
+}
+
 // 写回是否过期：
 // - 带 queueEpoch：必须等于当前值，否则视为过期；
-// - 不带 queueEpoch：旧客户端。clear 抑制续播期间，忽略一切会改播放状态的写回。
+// - 不带 queueEpoch：旧客户端。进程内发生过 clear（requireQueueEpoch 永久置位）之后
+//   一律视为过期；没发生过 clear 时保持旧行为。
 export function queueWriteIsStale(runtime, body = {}) {
   const raw = body?.queueEpoch;
   if (raw !== undefined && raw !== null && raw !== '') {
     const n = Number(raw);
     return !Number.isInteger(n) || n !== queueEpochOf(runtime);
   }
-  return Boolean(runtime?.continueSuppressed);
+  return Boolean(runtime?.requireQueueEpoch) || Boolean(runtime?.continueSuppressed);
+}
+
+// clear 之后、下一次明确点歌之前：空队列锁定播放状态，只允许调音量。
+export function queuePlaybackLocked(runtime) {
+  const queue = Array.isArray(runtime?.queue) ? runtime.queue : [];
+  return queue.length === 0 && Boolean(runtime?.continueSuppressed);
 }
 
 // 用户/主持人明确点歌后，允许新队列重新走正常续播逻辑。

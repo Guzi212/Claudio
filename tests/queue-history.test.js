@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import { trimPlayedHistory } from '../server/queue-source.js';
 import { playbackStatus } from '../server/playback-control.js';
-import { planRuntimeSync } from '../pwa/runtime-sync.js';
+import { isStaleRemoteEpoch, planRuntimeSync } from '../pwa/runtime-sync.js';
 
 const queue = Array.from({ length: 8 }, (_, i) => ({ title: `曲目${i}`, kugouId: `hash-${i}` }));
 const player = fs.readFileSync(new URL('../pwa/views/player.js', import.meta.url), 'utf8');
@@ -63,13 +63,13 @@ describe('PWA 裁剪同步', () => {
     const renderQueuePanel = vi.fn();
     const start = player.indexOf('export function applyRuntime(');
     const end = player.indexOf('\n// 外部 bot', start);
-    const apply = new Function('state', 'audio', 'planRuntimeSync', 'playIndex', 'renderQueuePanel', `
+    const apply = new Function('state', 'audio', 'planRuntimeSync', 'playIndex', 'renderQueuePanel', 'isStaleRemoteEpoch', `
       let brain = 'external', appliedSay = '', serverProgress = 0, adaptiveVolumeApplied = false;
       const getClientId = () => 'page-a', isOwnEcho = () => false;
       const rememberQueueMeta = () => {}, paintHostChrome = () => {}, ensurePlaybackVolume = () => {};
       ${player.slice(start, end).replace('export function', 'function')}
       return applyRuntime;
-    `)(state, audio, planRuntimeSync, playIndex, renderQueuePanel);
+    `)(state, audio, planRuntimeSync, playIndex, renderQueuePanel, isStaleRemoteEpoch);
     apply(remote);
     expect(state).toMatchObject({ queue: remote.queue, index: 2, offset: 13 });
     expect(playIndex).not.toHaveBeenCalled();

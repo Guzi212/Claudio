@@ -11,7 +11,7 @@ import { continueFromPool } from '../server/continue-pool.js';
 import { queueEpochOf, queueWriteIsStale } from '../server/queue-source.js';
 import { shouldRefill, startResidentDj, DJ_SOURCE } from '../server/dj/resident.js';
 import { authMiddleware } from '../server/auth.js';
-import { planRuntimeSync } from '../pwa/runtime-sync.js';
+import { isStaleRemoteEpoch, planQueueReplace, planRuntimeSync } from '../pwa/runtime-sync.js';
 import { stopAudioForEmptyQueue } from '../pwa/player-mode.js';
 
 const playerJs = fs.readFileSync('./pwa/views/player.js', 'utf8');
@@ -333,11 +333,35 @@ describe('队列 epoch · 在途与过期写回', () => {
     applyProgress(s.runtime, { currentTime: 77, paused: false, volume: 51 });
     expect(s.runtime.currentTime).toBe(0);
     expect(s.runtime.paused).toBe(true);
-    // 音量不是播放进度，仍按显式上报更新。
+    // 过期 epoch 的 progress 连音量都不能改。
+    expect(s.runtime.volume).toBe(37);
+
+    // 当前 epoch 的 progress：空队列锁定期间只允许调音量，播放状态不动。
+    applyProgress(s.runtime, {
+      index: 0, currentTime: 77, duration: 200, paused: false, ended: true, volume: 51, queueEpoch: 6,
+    });
+    expect(s.runtime).toMatchObject({ currentTime: 0, duration: 0, index: 0, paused: true, trackEnded: false });
     expect(s.runtime.volume).toBe(51);
 
     expect(queueWriteIsStale(s.runtime, {})).toBe(true);
     expect(queueWriteIsStale(s.runtime, { queueEpoch: 6 })).toBe(false);
+    expect(s.runtime.requireQueueEpoch).toBe(true);
+  });
+
+  it('clear 之后空队列即使 epoch 匹配也锁定 index/paused/ended 写回', async () => {
+    const s = setup();
+    await s.call('POST /api/queue/clear');
+
+    const state = await s.call('POST /api/runtime/state', {
+      index: 0, queueOffset: 0, paused: false, ended: true, queueEpoch: 6,
+    });
+    expect(state.body.stale).toBe(true);
+    expect(state.body.continued).toBe(false);
+    expect(s.runtime).toMatchObject({ queue: [], index: 0, paused: true, currentTime: 0, trackEnded: false });
+
+    const advance = await s.call('POST /api/runtime/advance', { queueEpoch: 6 });
+    expect(advance.body.stale).toBe(true);
+    expect(s.runtime.queue).toEqual([]);
   });
 
   it('队列为空、未抑制时，不带 epoch 的进度仍被接受', () => {
@@ -355,7 +379,8 @@ describe('队列 epoch · 在途与过期写回', () => {
       index: 0, queueOffset: 0, paused: true, ended: true, queueEpoch: 6,
     });
     expect(state.body.continued).toBe(false);
-    expect(state.body.stale).toBe(false);
+    // 空队列锁定期连匹配 epoch 的 ended 写回也按 stale 处理。
+    expect(state.body.stale).toBe(true);
     expect(s.runtime.queue).toEqual([]);
     expect(s.runtime.continuePool).toBeTruthy();
 
@@ -377,18 +402,28 @@ describe('队列 epoch · 在途与过期写回', () => {
     expect(s.runtime.queue).toHaveLength(1);
     expect(s.runtime.paused).toBe(false);
     expect(s.runtime.continueSuppressed).toBe(false);
-    expect(s.runtime.queueEpoch).toBe(6);
+    // 新点歌也推进 epoch：不再和 clear 共享同一个版本。
+    expect(queued.body.queueEpoch).toBe(7);
+    expect(s.runtime.queueEpoch).toBe(7);
 
-    // 旧 epoch 的写回仍然被拒绝。
-    const stale = await s.call('POST /api/runtime/state', {
-      index: 0, paused: false, ended: false, queueEpoch: 5,
+    // clear 之前 / 同旧 epoch 的写回仍然被拒绝。
+    for (const body of [
+      { index: 0, paused: false, ended: false, queueEpoch: 6 },
+      { index: 0, paused: false, ended: false, queueEpoch: 5 },
+      { index: 0, paused: false, ended: false },
+    ]) {
+      const stale = await s.call('POST /api/runtime/state', body);
+      expect(stale.body.stale).toBe(true);
+    }
+    applyProgress(s.runtime, {
+      index: 0, currentTime: 999, duration: 200, paused: true, ended: true, queueEpoch: 6,
     });
-    expect(stale.body.stale).toBe(true);
+    expect(s.runtime).toMatchObject({ index: 0, paused: false, currentTime: 0, trackEnded: false });
 
     // 新队列播完后，续播池照常接上。
     s.runtime.trackEnded = true;
     const ended = await s.call('POST /api/runtime/state', {
-      index: 0, queueOffset: 0, paused: true, ended: true, queueEpoch: 6,
+      index: 0, queueOffset: 0, paused: true, ended: true, queueEpoch: 7,
     });
     expect(ended.body.continued).toBe(true);
     expect(s.runtime.queue.some(t => t.source === 'continue-pool')).toBe(true);
@@ -519,6 +554,15 @@ describe('PWA · 清空后的本地停止', () => {
     expect(audio.load).toHaveBeenCalledOnce();
   });
 
+  it('queue-replace 先过 epoch 判断，旧响应不会走到 playIndex', () => {
+    const start = playerJs.indexOf("window.addEventListener('claudio:queue-replace'");
+    const end = playerJs.indexOf('\n  });', start);
+    const listener = playerJs.slice(start, end);
+    expect(listener).toContain('planQueueReplace');
+    expect(listener).toContain('if (!plan.apply) return;');
+    expect(listener.indexOf('if (!plan.apply) return;')).toBeLessThan(listener.indexOf('playIndex(0)'));
+  });
+
   it('applyRuntime 走 unload 分支时清进度并隐藏播放区', () => {
     expect(playerJs).toContain('plan.unload');
     expect(playerJs).toMatch(/stopAudioForEmptyQueue\(audio\)/);
@@ -540,7 +584,7 @@ describe('PWA · 清空后的本地停止', () => {
     expect(playerJs.indexOf('window.confirm', start)).toBeLessThan(playerJs.indexOf("fetch('/api/queue/clear'", start));
 
     const build = () => {
-      const state = { queue: [{ title: '晴天' }], index: 0 };
+      const state = { queue: [{ title: '晴天' }], index: 0, queueEpoch: 0 };
       const applyRuntime = vi.fn();
       const toast = vi.fn();
       const showAlert = vi.fn();
@@ -548,9 +592,9 @@ describe('PWA · 清空后的本地停止', () => {
       const confirm = vi.fn(() => true);
       const getClientId = () => 'page-a';
       const fn = new Function(
-        'state', 'window', 'fetch', 'applyRuntime', 'toast', 'showAlert', 'getClientId',
+        'state', 'window', 'fetch', 'applyRuntime', 'toast', 'showAlert', 'getClientId', 'isStaleRemoteEpoch',
         `${playerJs.slice(start, end)}\nreturn clearQueueFromUi;`,
-      )(state, { confirm }, fetch, applyRuntime, toast, showAlert, getClientId);
+      )(state, { confirm }, fetch, applyRuntime, toast, showAlert, getClientId, isStaleRemoteEpoch);
       return { state, fn, applyRuntime, toast, showAlert, fetch, confirm };
     };
 
@@ -584,6 +628,50 @@ describe('PWA · 清空后的本地停止', () => {
     }));
     expect(ok.toast).toHaveBeenCalled();
     expect(okResult).toMatchObject({ ok: true });
+
+    // 清空响应晚于新点歌的 state（epoch 7）到达：不能把新队列清掉。
+    const stale = build();
+    stale.state.queueEpoch = 7;
+    stale.state.queue = [{ title: '新点歌', isTts: false }];
+    stale.fetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ ok: true, cleared: true, queue: [], queueEpoch: 6, continueSuppressed: true }),
+    });
+    const staleResult = await stale.fn();
+    expect(stale.applyRuntime).not.toHaveBeenCalled();
+    expect(stale.state.queue).toEqual([{ title: '新点歌', isTts: false }]);
+    expect(staleResult).toMatchObject({ ok: true, stale: true });
+  });
+});
+
+describe('晚到的旧响应 · epoch 栅栏', () => {
+  const oldTracks = [{ title: '旧选播' }];
+
+  it('isStaleRemoteEpoch 只拒绝更小的 epoch，缺省不拦', () => {
+    expect(isStaleRemoteEpoch(7, 6)).toBe(true);
+    expect(isStaleRemoteEpoch(7, 7)).toBe(false);
+    expect(isStaleRemoteEpoch(7, 8)).toBe(false);
+    expect(isStaleRemoteEpoch(0, undefined)).toBe(false);
+  });
+
+  it('顺序一：clear state 先到，旧选播响应后到 → 不复活旧队列', () => {
+    const plan = planQueueReplace({ queue: [], queueEpoch: 6 }, { queue: oldTracks, queueEpoch: 5 });
+    expect(plan).toMatchObject({ apply: false, stale: true });
+  });
+
+  it('顺序二：新点歌 state 先到，旧 clear 响应后到 → 不用旧 clear 覆盖', () => {
+    expect(isStaleRemoteEpoch(7, 6)).toBe(true);
+  });
+
+  it('clear 之后的新选播正常应用，同 epoch 幂等', () => {
+    expect(planQueueReplace({ queue: [], queueEpoch: 6 }, { queue: oldTracks, queueEpoch: 7 }))
+      .toMatchObject({ apply: true, stale: false, queue: oldTracks, queueEpoch: 7 });
+    expect(planQueueReplace({ queue: oldTracks, queueEpoch: 7 }, { queue: oldTracks, queueEpoch: 7 }))
+      .toMatchObject({ apply: true, queueEpoch: 7 });
+    // 旧版事件只带数组时保持兼容。
+    expect(planQueueReplace({ queue: [], queueEpoch: 7 }, oldTracks))
+      .toMatchObject({ apply: true, queueEpoch: null });
   });
 });
 

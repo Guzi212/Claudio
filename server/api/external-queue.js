@@ -3,7 +3,7 @@
 import { dbApi as defaultDb } from '../db.js';
 import { resolveTrack as defaultResolveTrack } from '../services/kugou.js';
 import { writeTracksToPlaylist as defaultWriteTracks } from '../services/kugou-playlist-write.js';
-import { markQueueSource, queueEpochOf, clearContinueSuppression } from '../queue-source.js';
+import { markQueueSource, queueEpochOf, bumpQueueEpoch, clearContinueSuppression } from '../queue-source.js';
 import { synthesize as defaultSynthesize } from '../tts.js';
 
 export const DEFAULT_PLAYLIST_NAME = 'Claudio推荐';
@@ -221,7 +221,9 @@ export function mountExternalQueueRoutes(app, deps = {}) {
           runtime.queueSource = 'bot';
         }
       }
-      // 明确点歌是用户/主持人新的播放意图：解除 clear 留下的续播抑制。
+      // 明确点歌是用户/主持人新的播放意图：推进 epoch 并解除 clear 留下的续播抑制。
+      // 这样 clear 和之后的新点歌不再共享同一个队列版本。
+      const nextEpoch = bumpQueueEpoch(runtime);
       clearContinueSuppression(runtime);
       if (say) runtime.lastSay = say;
       if (reason) runtime.lastReason = reason;
@@ -252,7 +254,7 @@ export function mountExternalQueueRoutes(app, deps = {}) {
         source: requestSource,
       });
       broadcast({ type: 'state', runtime });
-      queueResult = { mode, added: queueItems.length, length: runtime.queue.length };
+      queueResult = { mode, added: queueItems.length, length: runtime.queue.length, queueEpoch: nextEpoch };
     } else if (touchQueue) {
       queueResult = { mode, added: 0, length: getRuntime()?.queue?.length || 0 };
     }
@@ -282,6 +284,7 @@ export function mountExternalQueueRoutes(app, deps = {}) {
       failed,
       queue: queueResult,
       playlist: playlistResult,
+      queueEpoch: queueEpochOf(getRuntime() || {}),
     });
   });
 }
