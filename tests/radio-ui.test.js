@@ -101,7 +101,7 @@ describe('radio visual contract (ink-on-xuan-paper)', () => {
   });
 
   it('离线壳缓存覆盖新增资源与全部水墨/品牌/像素素材', () => {
-    expect(sw).toMatch(/const CACHE = 'claudio-shell-v27'/);
+    expect(sw).toMatch(/const CACHE = 'claudio-shell-v28'/);
     expect(sw).toContain('\'/theme-store.js\'');
     expect(sw).toContain('\'/host-mood.js\'');
     expect(sw).toContain('\'/assets/brand/mark-ink.svg\'');
@@ -146,6 +146,7 @@ describe('radio visual contract (ink-on-xuan-paper)', () => {
     const miniBlock = pixelSection.match(/@media\s*\(max-height:\s*220px\)\s*\{([\s\S]*?)\n\}/)?.[1] || '';
     expect(miniBlock).toMatch(/:root\[data-theme="pixel"\]\s+\.icon-button\s*\{[^}]*width:\s*32px/);
     expect(miniBlock).toMatch(/:root\[data-theme="pixel"\]\s+\.main-play\s*\{[^}]*width:\s*36px/);
+    expect(miniBlock).toMatch(/:root\[data-theme="pixel"\]\s+\.track-info\s+h1\s*\{[^}]*text-shadow:\s*none/);
     expect(pixelSection).toMatch(/:root\[data-theme="pixel"\]\s+\.modal-status\.off\s*\{[^}]*color:\s*var\(--pixel-red\)/);
   });
 

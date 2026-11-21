@@ -1644,6 +1644,9 @@ html.is-mini, html.is-mini body { overflow: hidden; }
     border-width: 2px;
     box-shadow: none;
   }
+  :root[data-theme="pixel"] .track-info h1 {
+    text-shadow: none;
+  }
   :root[data-theme="pixel"] #lyrics-toggle { display: none; }
   :root[data-theme="pixel"] .playback { gap: 4px; }
   :root[data-theme="pixel"] .icon-button {
