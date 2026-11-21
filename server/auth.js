@@ -26,7 +26,9 @@ export function requestPathname(req) {
 }
 
 export function requiresCredential(pathname) {
-  const path = pathname || '/';
+  // Express 路由匹配默认大小写不敏感，鉴权判断必须一致；
+  // 否则 /API/queue/clear 会被放行到 handler。
+  const path = String(pathname || '/').toLowerCase();
   return path === '/stream' || path.startsWith('/api/') || path.startsWith('/tts/');
 }
 
@@ -123,7 +125,8 @@ export function authMiddleware(req, res, next) {
     next();
     return;
   }
-  const decision = pathname === '/api/session'
+  const lowerPath = String(pathname || '/').toLowerCase();
+  const decision = lowerPath === '/api/session'
     ? authorizeSessionMint(req)
     : authorizeRequest(req);
   if (decision.ok) {

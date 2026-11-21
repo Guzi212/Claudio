@@ -32,3 +32,12 @@ export function planPlayError(error) {
   if (error.name === 'NotAllowedError') return { ok: false, userActivated: false, showOverlay: true };
   return { ok: false, userActivated: false, showOverlay: false };
 }
+
+// 清空播放列表后真正停声：pause + 卸载 src + load()，不留残留进度。
+export function stopAudioForEmptyQueue(audioEl) {
+  if (!audioEl) return false;
+  try { audioEl.pause?.(); } catch { /* ignore */ }
+  try { audioEl.removeAttribute?.('src'); } catch { /* ignore */ }
+  try { audioEl.load?.(); } catch { /* ignore */ }
+  return true;
+}

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { mountPlaylistRoutes } from '../server/api/playlists.js';
+import { clearQueue } from '../server/queue-clear.js';
 
 function mockApp() {
   const routes = {};
@@ -167,6 +168,56 @@ describe('POST /api/kugou/playlists/play', () => {
     expect(deps.runtime.queueOffset).toBe(0);
     expect(deps.runtime.queue[0]).toMatchObject({ title: 'A', kugouId: 'h1', audioUrl: null, source: 'playlist' });
     expect(deps.broadcast).toHaveBeenCalledWith(expect.objectContaining({ type: 'state' }));
+    expect(res.body.queueEpoch).toBe(1);
+  });
+
+  it('clear 之后才发起的整单播放能正常开播并推进 epoch', async () => {
+    const deps = makeDeps({
+      runtime: { queue: [{ title: '旧歌' }], index: 0, paused: false, lastSay: '', queueEpoch: 3 },
+    });
+    clearQueue(deps.runtime);
+    expect(deps.runtime.continueSuppressed).toBe(true);
+    expect(deps.runtime.queueEpoch).toBe(4);
+
+    const app = mockApp();
+    mountPlaylistRoutes(app, deps);
+    const res = mockRes();
+    await app.routes['POST /api/kugou/playlists/play'](
+      { body: { playlist: { listid: 'l1', globalCollectionId: 'g1', name: '通勤' } } },
+      res,
+    );
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.queueEpoch).toBe(5);
+    expect(deps.runtime.queue).toHaveLength(2);
+    expect(deps.runtime.continueSuppressed).toBe(false);
+  });
+
+  it('clear 之前已在途的整单播放仍按 epoch 变化丢弃', async () => {
+    let release;
+    const fetchUserPlaylistTracks = vi.fn(() => new Promise(resolve => {
+      release = () => resolve({ tracks: [{ title: 'A', artist: 'X', hash: 'h1' }] });
+    }));
+    const deps = makeDeps({
+      runtime: { queue: [{ title: '旧歌' }], index: 0, paused: false, lastSay: '', queueEpoch: 3 },
+      fetchUserPlaylistTracks,
+    });
+    const app = mockApp();
+    mountPlaylistRoutes(app, deps);
+
+    const res = mockRes();
+    const pending = app.routes['POST /api/kugou/playlists/play'](
+      { body: { playlist: { listid: 'l1', globalCollectionId: 'g1', name: '通勤' } } },
+      res,
+    );
+    await Promise.resolve();
+    clearQueue(deps.runtime);
+    release();
+    await pending;
+
+    expect(res.statusCode).toBe(409);
+    expect(res.body).toMatchObject({ ok: false, stale: true });
+    expect(deps.runtime.queue).toEqual([]);
   });
 });
 
@@ -204,6 +255,26 @@ describe('POST /api/kugou/play', () => {
     expect(deps.runtime.index).toBe(0);
     expect(deps.runtime.paused).toBe(false);
     expect(deps.broadcast).toHaveBeenCalledWith(expect.objectContaining({ type: 'state' }));
+    expect(res.body.queueEpoch).toBe(1);
+    expect(deps.runtime.queueEpoch).toBe(1);
+  });
+
+  it('clear 之后的搜索选播能开播、推进 epoch 并解除抑制', async () => {
+    const deps = makeDeps({
+      runtime: { queue: [{ title: '旧歌' }], index: 0, paused: false, lastSay: '', queueEpoch: 3 },
+    });
+    clearQueue(deps.runtime);
+    const app = mockApp();
+    mountPlaylistRoutes(app, deps);
+    const res = mockRes();
+    await app.routes['POST /api/kugou/play']({
+      body: { track: { hash: 'HASH', title: '晴天' }, mode: 'replace' },
+    }, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body.queueEpoch).toBe(5);
+    expect(deps.runtime.queue).toHaveLength(1);
+    expect(deps.runtime.continueSuppressed).toBe(false);
   });
 
   it('append 接到队尾且不打断当前曲目', async () => {

@@ -52,6 +52,8 @@ export function continuePoolView(runtime, { tracks = false } = {}) {
 }
 
 export function continueFromPool(runtime, { db, random = Math.random } = {}) {
+  // 用户明确清空后，续播池保留但暂停续播；新点歌会解除抑制。
+  if (runtime?.continueSuppressed) return false;
   const current = runtime.continuePool;
   if (!continuePoolView(runtime)?.active) return false;
   // 先落盘，再同步切换 runtime；并发结束请求之间没有 await 窗口。

@@ -1,7 +1,7 @@
 import cron from 'node-cron';
 import { ask as defaultAsk } from './claude.js';
 import { buildSystemPrompt as defaultBuildSystemPrompt } from './context.js';
-import { hasActiveExternalQueue, markQueueSource } from './queue-source.js';
+import { hasActiveExternalQueue, markQueueSource, queueEpochOf } from './queue-source.js';
 
 // 施工图第 2 层 · 节律调度
 //
@@ -64,15 +64,25 @@ export function start({
       log(`${job.name} skipped (PWA not active)`);
       return;
     }
+    // 用户刚清空播放列表：定时任务不自动回填，直到下一次明确点歌。
+    if (runtime.continueSuppressed) {
+      log(`${job.name} skipped (queue cleared)`);
+      return;
+    }
     // 外部点歌还没放完就不换歌。ask 要等几秒，bot 可能在等待期间写入，所以返回后还要再看一次。
     if (hasActiveExternalQueue(runtime)) {
       log(`${job.name} skipped (external queue active)`);
       return;
     }
+    const startedEpoch = queueEpochOf(runtime);
     try {
       // buildSystemPrompt 在 main 上是 async（接入了天气/日历），await 对同步 fake 无害
       const sys = await buildSystemPrompt();
       const { say, queue, reason } = await ask(sys, job.prompt);
+      if (runtime.continueSuppressed || queueEpochOf(runtime) !== startedEpoch) {
+        log(`${job.name} skipped (queue cleared or changed)`);
+        return;
+      }
       if (hasActiveExternalQueue(runtime)) {
         log(`${job.name} skipped (external queue active)`);
         return;

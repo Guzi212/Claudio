@@ -165,7 +165,13 @@
         </section>
 
         <section class="queue" aria-labelledby="queue-title">
-          <div class="queue-heading"><h2 id="queue-title">接下来</h2><span id="queue-count">0 首</span></div>
+          <div class="queue-heading">
+            <h2 id="queue-title">接下来</h2>
+            <div class="queue-heading-actions">
+              <span id="queue-count">0 首</span>
+              <button id="queue-clear" class="text-button queue-clear" type="button" hidden>清空播放列表</button>
+            </div>
+          </div>
           <ol id="queue-list"></ol>
         </section>
         <section id="console-chat" class="console-chat" aria-label="电台对话">

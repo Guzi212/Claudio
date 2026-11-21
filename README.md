@@ -285,8 +285,9 @@ Content-Type: application/json
 | 用途 | 方法 + 路径 | 参数 | 返回 |
 | --- | --- | --- | --- |
 | 点歌 / 写歌单 | `POST /api/queue/external` | JSON：`tracks[]`（`title` 必填，`artist` / `hint` / `reason` 可选），`say`（最多 500 字），`reason`（最多 200 字），`source`（默认 `bot`，最多 40 字），`mode`=`replace`\|`append`，`target`=`queue`\|`kugou_playlist`\|`both`，`playlistName`（默认 `Claudio推荐`），`playlistMode`=`append`\|`rewrite`。超长截断，不报错。不带 `volume`（缺省或 `null`）不会改已保存的音量 | `ok`，`matched[]`，`failed[]`，`queue`（`mode` / `added` / `length`），`playlist`。成功写入播放队列时记下 `queuedAt`。返回的 `say` / `reason` 已是截断后的文本 |
+| 清空播放列表 | `POST /api/queue/clear`（等价：`DELETE /api/queue`） | 可选 JSON：`reason`（最多 200 字，只做记录）；`clientId` 会被忽略，不产生回声 | `ok`，`cleared`，`alreadyEmpty`，`queueLen`，`index`，`paused`，`currentTime`，`duration`，`nowPlaying`，`queue`，`queueEpoch`，`continueSuppressed`，`continuePool`，`volume`。成功时队列为空、`paused=true`、进度归零；续播池保留但暂停续播。重复调用幂等成功 |
 | 播放控制 | `POST /api/control` | JSON：`command`=`next`\|`prev`\|`pause`\|`play`\|`toggle`\|`volume`\|`jump`，`value`（音量 0–100，或 jump 的从 0 开始的序号） | `ok`，`command`，`say`，`nowPlaying`，`queue`，`index`，`paused`，`volume`。`volume` 会立刻记住。`next` 真正切到下一首时，把刚离开的那首记成 `feedback.kind=skip`。`toggle` 播放中就暂停，暂停中就继续。最后一首已经结束时，状态算作已停，`toggle` 和 `play` 都从队列第一首重新开始。队列是空的就停在暂停。这些命令不改音量 |
-| 状态 | `GET /api/status`（`GET /api/now` 相同） | 无 | `brain`，`nowPlaying`，`queue`，`index`，`paused`，`volume`（0–100，会记住；没存过默认 30），`currentTime`（秒），`duration`（秒），`active`（有没有页面连着 WebSocket），`listeners`，`lastSay`，`reason`，`queuedAt`（最近一次外部点歌的 ISO 时间，没有则 `null`），`source`（那一次请求的 `source`，没有则空字符串）。队列里的歌若带了自己的 `reason` / `cover` / `queuedAt`，会原样出现在 `queue[]` |
+| 状态 | `GET /api/status`（`GET /api/now` 相同） | 无 | `brain`，`nowPlaying`，`queue`，`index`，`paused`，`volume`（0–100，会记住；没存过默认 30），`currentTime`（秒），`duration`（秒），`active`（有没有页面连着 WebSocket），`listeners`，`lastSay`，`reason`，`queuedAt`（最近一次外部点歌的 ISO 时间，没有则 `null`），`source`（那一次请求的 `source`，没有则空字符串），`queueEpoch`（队列版本，clear 后递增），`continueSuppressed`（clear 后为 `true`，下一次明确点歌解除）。队列里的歌若带了自己的 `reason` / `cover` / `queuedAt`，会原样出现在 `queue[]` |
 | 进度上报 | WebSocket `/stream`，客户端发 | `{ "type":"progress", "currentTime", "duration", "volume", "paused", "index", "queueOffset" }`，页面大约每 2 秒一次 | 服务端更新内存里的进度，不广播。音量有变化才写入，短时间连续拖动合并成一次。bot 用 `GET /api/status` 读 |
 | 搜歌 | `GET /api/kugou/search` | Query：`title` 或 `q`（自由文本）必填一个，`artist`，`hint` | `ok`，`tracks[]`：`hash`，`title`，`artist`，`album`，`duration`，`cover`，`score` |
 | 酷狗歌单列表 | `GET /api/kugou/playlists` | Query：`page`，`pagesize` | `ok`，`playlists[]`：`id`，`listid`，`globalCollectionId`，`name`，`songCount`，`isPrivate`，`type`，`writable`（`type=0` 自建可写，`type=1` 收藏别人的只读） |
@@ -303,6 +304,57 @@ Content-Type: application/json
 | 跳过分类 | `POST /api/likes/:id/skip` | JSON：`note`（可选，最多 200 字） | `ok`，`item` |
 | 聊天（external） | `POST /api/chat` | JSON：`message` | 控制命令（`/skip` `/pause` `/play` `/toggle` `/vol N` `/prev` `/now` `/queue`）照常执行。普通文字返回「选歌请在 Grok Bot 里找 Claudio主持人。」，不调用 Claude |
 | 开机（external） | `POST /api/boot` | 无 | 不调用 Claude。返回当前 `queue` 和 `index`，`brain: "external"`，`skipped: true` |
+
+### 清空播放列表（正式接口）
+
+`POST /api/queue/clear` 是唯一的正式清空入口，`DELETE /api/queue` 语义完全相同，方便 REST 客户端。不要用空 `tracks` 的 `POST /api/queue/external` 冒充清空——它会被 400 拒绝；也不要拿 `DELETE /api/continue-pool` 当清空——那只删续播池，不动当前队列。
+
+成功响应示例：
+
+```json
+{
+  "ok": true,
+  "cleared": true,
+  "alreadyEmpty": false,
+  "queueLen": 0,
+  "index": 0,
+  "paused": true,
+  "currentTime": 0,
+  "duration": 0,
+  "nowPlaying": null,
+  "queue": [],
+  "queueEpoch": 1,
+  "continueSuppressed": true,
+  "continuePool": { "name": "续播池", "size": 12, "active": true },
+  "volume": 37
+}
+```
+
+语义：
+
+- `queue` 为空，`index=0`，`paused=true`，`currentTime` / `duration` 归零，`nowPlaying=null`。服务端广播的 `state` 不带 `origin`，所有页面都会 `pause` 并卸载音频 `src`，不是只停一页。
+- **不删除续播池**。`continuePool` 与 prefs 里的 `continue_pool` 原样保留，只把续播暂停：`continueSuppressed=true`，队尾自然结束不会再从池里回填，常驻 DJ 的自动补歌也会让位。`DELETE /api/continue-pool` 仍然是删池的唯一入口。
+- 每次成功调用（包括对空队列的重复调用）都会递增 `queueEpoch`。在途的 advance / progress / 外部点歌 / 常驻 DJ 补歌如果捕获的是旧 epoch，会直接丢弃，不会把歌或进度复活。
+- 幂等：对已空队列再次 clear 仍返回 200、`ok:true`、`alreadyEmpty:true`。重复调用是安全的。
+- 不改变 `volume` / `volumeExplicit`、窗口设置、收藏、播放历史或磁盘文件。
+- 清空后如果用户又明确点歌（`POST /api/queue/external`、歌单播放、搜索选播等），新请求捕获新的 epoch，正常开播并自动解除 `continueSuppressed`。
+
+主持人安全调用要点：
+
+1. 只在用户明确要求「清空播放列表 / 清空队列」时调用。不要把删续播池当成清队列，也不要用空 `tracks` 的 replace 冒充。
+2. 鉴权与其它 `/api` 相同：令牌走请求头或环境变量，不要把 token 写进命令行日志。
+3. 以响应里的 `ok && queueLen === 0 && paused === true && continueSuppressed === true` 判断成功，不要只看 HTTP 200。
+4. 清空后不要立刻 `PUT /api/continue-pool` 或再投歌，除非用户接着点了新歌。新点歌继续用 `POST /api/queue/external`（至少一首带 `title` 或 `hash`）。
+5. 重复调用是安全的（幂等成功）。
+6. 本功能合并并部署 / 重启官方进程之前，不要对真实 8080 调用；下面的示例仅供上线后使用。
+
+```powershell
+# 危险动作：只在用户明确要求时调用
+Invoke-Claudio Post '/api/queue/clear' @{ reason = 'host-clear' }
+
+# REST 客户端等价写法
+Invoke-Claudio Delete '/api/queue'
+```
 
 页面在 external 模式下只出声和显示。加载时，以及主持人投下新队列时，会先直接 `play()`。成功就不出遮罩；只有浏览器返回 `NotAllowedError` 才显示「点击开声」，点一下从当前队列和进度接着放。队列是空的就显示「等主持人点歌」，不盖遮罩。服务器记着暂停时，打开页面不会自己播；主持人用 replace 或 append 投下新队列，或者发 play，会再直接播。一首播完会放到队列里的下一首，整个队列播完就停。
 
@@ -362,6 +414,11 @@ Invoke-Claudio Post '/api/queue/external' @{
   playlistName = 'Claudio推荐'
   playlistMode = 'append'
 }
+
+# 清空播放列表（危险动作；仅在用户明确要求时调用）
+Invoke-Claudio Post '/api/queue/clear' @{ reason = 'host-clear' }
+# 或
+Invoke-Claudio Delete '/api/queue'
 
 Invoke-Claudio Get '/api/status'
 Invoke-Claudio Post '/api/control' @{ command = 'pause' }
