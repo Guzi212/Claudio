@@ -100,9 +100,15 @@ describe('radio visual contract (ink-on-xuan-paper)', () => {
     expect(css).toMatch(/\.queue-title\s*\{[^}]*overflow-wrap:\s*anywhere/);
   });
 
-  it('离线壳缓存覆盖新增资源与全部水墨素材', () => {
-    expect(sw).toMatch(/const CACHE = 'claudio-shell-v26'/);
+  it('离线壳缓存覆盖新增资源与全部水墨/品牌/像素素材', () => {
+    expect(sw).toMatch(/const CACHE = 'claudio-shell-v28'/);
     expect(sw).toContain('\'/theme-store.js\'');
+    expect(sw).toContain('\'/host-mood.js\'');
+    expect(sw).toContain('\'/assets/brand/mark-ink.svg\'');
+    expect(sw).toContain('\'/assets/brand/mark-pixel.png\'');
+    expect(sw).toContain('\'/assets/pixel/host-listen.webp\'');
+    expect(sw).toContain('\'/assets/pixel/host-thumbsup.webp\'');
+    expect(sw).toContain('\'/assets/pixel/host-head.webp\'');
     expect(sw).toContain('\'/external-playback.js\'');
     expect(sw).toContain('\'/boot-playback.js\'');
     expect(sw).toContain('\'/runtime-sync.js\'');
@@ -112,16 +118,27 @@ describe('radio visual contract (ink-on-xuan-paper)', () => {
     expect(sw).not.toContain('env-strip.js');
   });
 
-  it('设置页提供像素数码第 4 主题选项且样式严格隔离在 [data-theme="pixel"] 下', () => {
+  it('设置页提供像素数码第 4 主题选项与数码小人开关，深夜蓝金样式严格隔离在 [data-theme="pixel"] 下', () => {
     const selectMatch = html.match(/<select id="set-ui-theme">([\s\S]*?)<\/select>/);
     expect(selectMatch).not.toBeNull();
     expect(selectMatch[1]).toContain('<option value="auto">跟随系统</option>');
     expect(selectMatch[1]).toContain('<option value="light">浅色</option>');
     expect(selectMatch[1]).toContain('<option value="dark">深色</option>');
     expect(selectMatch[1]).toContain('<option value="pixel">像素数码</option>');
+    expect(html).toContain('id="set-pixel-host"');
+    expect(html).toContain('id="pixel-host-sprite"');
+    expect(html).toContain('id="pixel-host-head"');
+    expect(html).toContain('id="pixel-host-waiting"');
+    expect(html).toContain('assets/brand/mark-ink.svg');
+    expect(html).toContain('assets/brand/mark-pixel.png');
+    expect(manifest.description).toBe('有记忆、越用越懂你的私人 AI 电台');
     expect(css).toContain(':root[data-theme="pixel"]');
-    expect(css).toContain('--canvas: #0b091c');
-    expect(css).toContain('--pixel-lime: #b8f135');
+    expect(css).toContain('--canvas: #0B1526');
+    expect(css).toContain('--pixel-sky: #469BE7');
+    expect(css).toContain('--pixel-gold: #F4B66A');
+    for (const forbidden of ['#b8f135', '#a3e635', '#e84393', '#f472b6', '#150824', '#2a0d3f', '#461257']) {
+      expect(css.toLowerCase()).not.toContain(forbidden);
+    }
   });
 
   it('pixel 主题在 380x136 迷你陪伴态重置控制钮尺寸，且扫码弹窗错误态不用青柠主色', () => {
@@ -129,6 +146,7 @@ describe('radio visual contract (ink-on-xuan-paper)', () => {
     const miniBlock = pixelSection.match(/@media\s*\(max-height:\s*220px\)\s*\{([\s\S]*?)\n\}/)?.[1] || '';
     expect(miniBlock).toMatch(/:root\[data-theme="pixel"\]\s+\.icon-button\s*\{[^}]*width:\s*32px/);
     expect(miniBlock).toMatch(/:root\[data-theme="pixel"\]\s+\.main-play\s*\{[^}]*width:\s*36px/);
+    expect(miniBlock).toMatch(/:root\[data-theme="pixel"\]\s+\.track-info\s+h1\s*\{[^}]*text-shadow:\s*none/);
     expect(pixelSection).toMatch(/:root\[data-theme="pixel"\]\s+\.modal-status\.off\s*\{[^}]*color:\s*var\(--pixel-red\)/);
   });
 

@@ -8,6 +8,7 @@ import { claimPlayLoad, isOwnEcho, planRuntimeSync } from '../runtime-sync.js';
 import { externalUnlockPlan, planExternalBoot, planPlayCommand, planPlayError } from '../player-mode.js';
 import { readLocalVolume, writeLocalVolume } from '../volume-memory.js';
 import { getClientId } from '../client-id.js';
+import { hostSprite, PIXEL_HOST_SPRITES, readPixelHostEnabled } from '../host-mood.js';
 
 function escapeHtml(str) {
   return String(str)
@@ -59,6 +60,60 @@ const favoriteState = new Map();
 let favoriteCheckToken = 0;
 // 本次启动是否已套用作息建议音量；之后服务端的默认音量不该再把它盖回去。
 let adaptiveVolumeApplied = false;
+
+let hostFlash = null;
+let hostFlashTimer = null;
+let hostLoadingCount = 0;
+let hostPlaying = false;
+let lastPixelSpriteSrc = '';
+
+function updatePixelHost() {
+  const enabled = readPixelHostEnabled();
+  const nextSrc = hostSprite({
+    playing: hostPlaying,
+    loading: hostLoadingCount > 0 || autoRecommending,
+    queueEmpty: state.queue.length === 0,
+    flash: hostFlash,
+  });
+  const spriteEl = document.getElementById('pixel-host-sprite');
+  if (spriteEl && spriteEl.getAttribute('src') !== nextSrc) {
+    spriteEl.setAttribute('src', nextSrc);
+    if (lastPixelSpriteSrc && typeof spriteEl.animate === 'function'
+      && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      spriteEl.animate(
+        [
+          { opacity: 0.72, transform: 'translateY(4px) scale(0.96)' },
+          { opacity: 1, transform: 'none' },
+        ],
+        { duration: 200, easing: 'cubic-bezier(.2, .8, .2, 1)' },
+      );
+    }
+    lastPixelSpriteSrc = nextSrc;
+  }
+  const waitingEl = document.getElementById('pixel-host-waiting');
+  if (waitingEl) {
+    const waitSrc = enabled ? PIXEL_HOST_SPRITES.wave : PIXEL_HOST_SPRITES.head;
+    if (waitingEl.getAttribute('src') !== waitSrc) {
+      waitingEl.setAttribute('src', waitSrc);
+    }
+  }
+}
+
+function triggerHostFlash(kind) {
+  hostFlash = kind;
+  clearTimeout(hostFlashTimer);
+  hostFlashTimer = setTimeout(() => {
+    hostFlash = null;
+    hostFlashTimer = null;
+    updatePixelHost();
+  }, 1200);
+  updatePixelHost();
+}
+
+function setHostLoading(delta) {
+  hostLoadingCount = Math.max(0, hostLoadingCount + delta);
+  updatePixelHost();
+}
 
 let chat, composer, input, submitBtn, audio, npBox, npTitle, npArtist, consolePlayBtn, consoleFavoriteBtn, queueBtn, loopBtn, queueList, npSeek, npTimeCur, npTimeDur, npVol;
 
@@ -391,11 +446,13 @@ function bindFeedback() {
         postFeedback('dislike', track);
         reportDislikeTelemetry(track);
         paintFeedback();
+        triggerHostFlash('dislike');
         if (state.index < state.queue.length - 1) goNext();
         return;
       }
       postFeedback('like', track);
       paintFeedback();
+      triggerHostFlash('like');
     });
   });
 }
@@ -474,6 +531,8 @@ function updatePlayButtons(isPlaying) {
   if (playingLabel) playingLabel.textContent = isPlaying ? '正在播放' : '已暂停';
   document.body?.classList.toggle('paused', state.queue.length > 0 && !isPlaying);
   document.body?.classList.toggle('is-playing', isPlaying);
+  hostPlaying = Boolean(isPlaying);
+  updatePixelHost();
 }
 
 async function preFetchBoot() {
@@ -541,6 +600,7 @@ function dismissBootOverlay() {
 async function autoRecommend(prompt) {
   if (state.continuePoolActive || autoRecommending) return;
   autoRecommending = true;
+  if (typeof setHostLoading === 'function') setHostLoading(1);
   const myGen = ++autoRecommendGen;
   try {
     const res = await fetch('/api/chat', {
@@ -571,6 +631,7 @@ async function autoRecommend(prompt) {
     pendingPlayFrom = -1;
   } finally {
     autoRecommending = false;
+    if (typeof setHostLoading === 'function') setHostLoading(-1);
   }
 }
 
@@ -655,6 +716,7 @@ async function playIndex(i, { autoplay = true, startAt = 0, resume = false, rest
   const loadToken = i + state.offset;
   settleActiveSession(outcomeHint);
   suppressPauseSync = true;
+  setHostLoading(1);
   try {
     state.index = i;
     const t = state.queue[i];
@@ -702,6 +764,7 @@ async function playIndex(i, { autoplay = true, startAt = 0, resume = false, rest
   } finally {
     if (playLoadIndex === loadToken) playLoadIndex = null;
     suppressPauseSync = false;
+    setHostLoading(-1);
   }
 }
 
@@ -792,6 +855,7 @@ async function toggleFavorite() {
 function renderQueuePanel() {
   document.body?.classList.toggle('is-empty', state.queue.length === 0);
   paintHostChrome();
+  updatePixelHost();
   const count = document.getElementById('queue-count');
   const dialogText = document.getElementById('console-dialog-text');
   if (!queueList) return;
@@ -896,6 +960,7 @@ async function send(message) {
   input.value = '';
   submitBtn.disabled = true;
   setStatus('思考中…');
+  setHostLoading(1);
 
   try {
     const res = await fetch('/api/chat', {
@@ -943,6 +1008,7 @@ async function send(message) {
   } finally {
     submitBtn.disabled = false;
     setStatus('');
+    setHostLoading(-1);
     input.focus();
   }
 }
@@ -1424,6 +1490,8 @@ export function initPlayer() {
   window.addEventListener('claudio:view-shown', e => {
     if (e.detail === 'player') hydrateMemoryContext({ hasServerVolume: true });
   });
+  window.addEventListener('claudio:pixel-host', updatePixelHost);
+  updatePixelHost();
 
   // 启动时拉一下当前队列 / 上次会话
   bootCurrent();

@@ -12,7 +12,7 @@
 <body class="view-player">
   <div id="desktop-titlebar" class="desktop-titlebar" hidden>
     <div class="titlebar-brand">
-      <svg class="bot-mark brand-mark" viewBox="0 0 28 28" aria-hidden="true"><rect class="seal-bg" x="2" y="2" width="24" height="24" rx="3.5"/><rect class="brand-signal" x="4.5" y="4.5" width="19" height="19" rx="2"/><text class="seal-char" x="14" y="19.8" text-anchor="middle">曲</text></svg>
+      <span class="bot-mark brand-mark" aria-hidden="true"><img class="brand-img brand-ink" src="assets/brand/mark-ink.svg" alt=""><img class="brand-img brand-pixel" src="assets/brand/mark-pixel.png" srcset="assets/brand/mark-pixel@2x.png 2x, assets/brand/mark-pixel@3x.png 3x" alt=""></span>
       <span>Claudio</span>
     </div>
     <div class="titlebar-actions">
@@ -30,7 +30,7 @@
 
   <header id="topbar">
     <div class="brand">
-      <svg class="bot-mark brand-mark" viewBox="0 0 28 28" aria-hidden="true"><rect class="seal-bg" x="2" y="2" width="24" height="24" rx="3.5"/><rect class="brand-signal" x="4.5" y="4.5" width="19" height="19" rx="2"/><text class="seal-char" x="14" y="19.8" text-anchor="middle">曲</text></svg>
+      <span class="bot-mark brand-mark" aria-hidden="true"><img class="brand-img brand-ink" src="assets/brand/mark-ink.svg" alt=""><img class="brand-img brand-pixel" src="assets/brand/mark-pixel.png" srcset="assets/brand/mark-pixel@2x.png 2x, assets/brand/mark-pixel@3x.png 3x" alt=""></span>
       <span class="wordmark">Claudio</span>
       <span class="brand-caption">私人电台</span>
     </div>
@@ -102,7 +102,7 @@
       </header>
       <main>
         <section class="host" aria-label="主持人口播">
-          <div class="avatar" aria-hidden="true"><svg id="grokbot-avatar" class="grokbot-avatar"><use href="#grokbot"/></svg></div>
+          <div class="avatar" aria-hidden="true"><svg id="grokbot-avatar" class="grokbot-avatar"><use href="#grokbot"/></svg><img id="pixel-host-head" class="pixel-host-head" src="assets/pixel/host-head.webp" alt=""></div>
           <div class="host-body">
             <div class="host-meta">
               <span class="agent-name"><span id="host-agent-name">Claudio</span> <span class="bot-chip" id="host-role-chip">电台主持人</span></span>
@@ -157,6 +157,10 @@
               <button class="text-button" type="button" data-console-control="queue" data-internal-only aria-label="展开完整队列" aria-controls="queue-list" aria-expanded="true" hidden>完整队列</button>
             </div>
           </div>
+          <div class="pixel-host-stage" id="pixel-host-stage" aria-hidden="true">
+            <img id="pixel-host-sprite" class="pixel-host-sprite" src="assets/pixel/host-wave.webp" alt="">
+            <div class="pixel-host-base"></div>
+          </div>
           <audio id="audio" preload="metadata"></audio>
         </section>
 
@@ -169,7 +173,7 @@
           <form id="composer" class="composer"><input id="input" autocomplete="off" placeholder="告诉 Claudio 想听什么" aria-label="点歌"><button type="submit" aria-label="发送">↑</button></form>
         </section>
         <section class="empty-stage" aria-labelledby="empty-title">
-          <div class="waiting-art" aria-hidden="true"><div class="waiting-orbit"></div><div class="waiting-core"><svg class="grokbot-avatar"><use href="#grokbot"/></svg></div></div>
+          <div class="waiting-art" aria-hidden="true"><div class="waiting-orbit"></div><div class="waiting-core"><svg class="grokbot-avatar"><use href="#grokbot"/></svg><img id="pixel-host-waiting" class="pixel-host-waiting" src="assets/pixel/host-wave.webp" alt=""></div></div>
           <h1 id="empty-title">等主持人点歌</h1>
           <div class="thinking">正在挑选下一首<span class="thinking-dots" aria-hidden="true"><i></i><i></i><i></i></span></div>
         </section>
@@ -281,6 +285,7 @@
         <div class="setting-rows">
           <div class="setting-row"><span>酷狗连接态</span><div id="kugou-status" class="readonly">读取中…</div></div>
           <label class="setting-row"><span>界面主题</span><select id="set-ui-theme"><option value="auto">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option><option value="pixel">像素数码</option></select></label>
+          <label class="setting-row pixel-only-setting"><span>显示数码小人</span><input id="set-pixel-host" type="checkbox" checked></label>
           <label class="setting-row"><span>全局快捷键</span><input id="set-global-hotkey" type="text" autocomplete="off" placeholder="CTRL+ALT+K"></label>
           <label class="setting-row"><span>媒体键劫持监听</span><input id="set-hotkey-media" type="checkbox"></label>
           <label class="setting-row"><span>关闭窗口时收进托盘</span><input id="set-close-to-tray" type="checkbox"></label>

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { applyTheme, normalizeTheme, readSavedTheme } from '../pwa/theme-store.js';
 
 function srgbChannel(hex2) {
@@ -50,16 +50,21 @@ describe('pwa/theme-store', () => {
     expect(normalizeTheme(undefined)).toBe('auto');
   });
 
-  it('applyTheme 同步 dataset.theme、theme-color 与 localStorage，并支持无残留来回切换', () => {
+  it('applyTheme 同步 dataset.theme、theme-color、桌面图标 IPC 与 localStorage，并支持无残留来回切换', () => {
+    const setThemeIcon = vi.fn(() => Promise.resolve({ ok: true }));
+    globalThis.window = { claudioDesktop: { setThemeIcon } };
+
     expect(applyTheme('pixel')).toBe('pixel');
     expect(document.documentElement.dataset.theme).toBe('pixel');
-    expect(metaContent).toBe('#0b091c');
+    expect(metaContent).toBe('#0B1526');
     expect(readSavedTheme()).toBe('pixel');
+    expect(setThemeIcon).toHaveBeenLastCalledWith('pixel');
 
     expect(applyTheme('dark')).toBe('dark');
     expect(document.documentElement.dataset.theme).toBe('dark');
     expect(metaContent).toBe('#171512');
     expect(readSavedTheme()).toBe('dark');
+    expect(setThemeIcon).toHaveBeenLastCalledWith('dark');
 
     expect(applyTheme('light')).toBe('light');
     expect(document.documentElement.dataset.theme).toBe('light');
@@ -68,27 +73,28 @@ describe('pwa/theme-store', () => {
 
     expect(applyTheme('pixel', { persist: false })).toBe('pixel');
     expect(document.documentElement.dataset.theme).toBe('pixel');
-    expect(metaContent).toBe('#0b091c');
+    expect(metaContent).toBe('#0B1526');
     expect(readSavedTheme()).toBe('light');
 
+    delete globalThis.window;
     expect(applyTheme('invalid-theme')).toBe('auto');
     expect(document.documentElement.dataset.theme).toBe('auto');
     expect(metaContent).toBe('#f2ede1');
   });
 
-  it('pixel 主题深底文字与实色按钮均满足 WCAG AA 对比度（正文 >= 4.5:1）', () => {
-    for (const bg of ['#0b091c', '#140e2c', '#1d143d', '#461257']) {
-      expect(contrastRatio('#f6f5ff', bg)).toBeGreaterThanOrEqual(4.5);
-      expect(contrastRatio('#c4bedc', bg)).toBeGreaterThanOrEqual(4.5);
-      expect(contrastRatio('#9c94bc', bg)).toBeGreaterThanOrEqual(4.5);
-      expect(contrastRatio('#b8f135', bg)).toBeGreaterThanOrEqual(4.5);
-      expect(contrastRatio('#38e5ff', bg)).toBeGreaterThanOrEqual(4.5);
-      expect(contrastRatio('#ffd166', bg)).toBeGreaterThanOrEqual(4.5);
+  it('pixel 深夜蓝金主题深底文字与实色按钮均满足 WCAG AA 对比度（正文 >= 4.5:1）', () => {
+    for (const bg of ['#08101D', '#0B1526', '#13233A', '#182C48']) {
+      expect(contrastRatio('#F8FAFC', bg)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio('#CFDCEC', bg)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio('#839BB8', bg)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio('#469BE7', bg)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio('#88C6FA', bg)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio('#F4B66A', bg)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio('#F06E6E', bg)).toBeGreaterThanOrEqual(4.5);
     }
-    expect(contrastRatio('#0b091c', '#b8f135')).toBeGreaterThanOrEqual(4.5);
-    expect(contrastRatio('#0b091c', '#38e5ff')).toBeGreaterThanOrEqual(4.5);
-    expect(contrastRatio('#0b091c', '#ff4d6d')).toBeGreaterThanOrEqual(4.5);
-    expect(contrastRatio('#ffffff', '#911f7b')).toBeGreaterThanOrEqual(4.5);
-    expect(contrastRatio('#ff4d6d', '#140e2c')).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio('#08101D', '#469BE7')).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio('#08101D', '#88C6FA')).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio('#08101D', '#F4B66A')).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio('#08101D', '#F06E6E')).toBeGreaterThanOrEqual(4.5);
   });
 });
