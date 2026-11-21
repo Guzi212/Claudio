@@ -23,6 +23,7 @@ export const KEYS = [
   'hotkey_media_key',
   'close_to_tray',
   'always_on_top_mini',
+  'play_window_mode',
 ];
 
 export const DEFAULTS = {
@@ -41,6 +42,7 @@ export const DEFAULTS = {
   hotkey_media_key: 'false',
   close_to_tray: 'true',
   always_on_top_mini: 'true',
+  play_window_mode: 'background',
 };
 
 const SENSITIVE = new Set(['openweather_api_key', 'fish_api_key', 'deepseek_api_key']);
@@ -103,7 +105,15 @@ export function set(key, value) {
   if (value === '' || value == null) {
     dbApi.delPref(key);
   } else {
-    dbApi.setPref(key, String(value));
+    let next = String(value);
+    if (key === 'play_window_mode') {
+      const normalized = next.trim().toLowerCase();
+      if (normalized !== 'popup' && normalized !== 'background') {
+        throw new Error('invalid play_window_mode');
+      }
+      next = normalized;
+    }
+    dbApi.setPref(key, next);
   }
 }
 

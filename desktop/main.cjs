@@ -11,6 +11,7 @@ const {
   saveWindowState,
 } = require('./window-state.cjs');
 const { createSupervisor } = require('./supervisor.cjs');
+const { applyPlayWindowPolicy, normalizePlayWindowMode } = require('./play-window-policy.cjs');
 const {
   normalizeThemeName,
   iconSetForTheme,
@@ -107,6 +108,7 @@ const desktopSettings = {
   hotkeyMediaKey: false,
   closeToTray: true,
   alwaysOnTopMini: true,
+  playWindowMode: 'background',
 };
 
 function persistStateSoon() {
@@ -165,6 +167,10 @@ function applySettingsSnapshot(s = {}) {
   }
   if (s.always_on_top_mini !== undefined) {
     desktopSettings.alwaysOnTopMini = String(s.always_on_top_mini) !== 'false';
+  }
+  if (s.play_window_mode !== undefined) {
+    // 唯一事实源是设置；'' / 非法值按 background 解释，读路径不写库。
+    desktopSettings.playWindowMode = normalizePlayWindowMode(s.play_window_mode);
   }
   applyShortcuts();
   if (mainWindow && !mainWindow.isDestroyed() && windowState?.isMini) {
@@ -249,7 +255,9 @@ function createWindow(icons, initialTheme) {
 
   mainWindow.once('ready-to-show', () => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
-    mainWindow.show();
+    // 冷启入口同样走设置：默认 background 时只把窗口放进任务栏最小化，不抢焦点。
+    // verify-dump 的自动截图需要可见窗口，保持旧的 popup 语义。
+    applyPlayWindowPolicy(mainWindow, verifyDumpDir ? 'popup' : desktopSettings.playWindowMode);
     if (windowState.isMini) {
       mainWindow.webContents.send('desktop:mini-changed', true);
     }
@@ -359,10 +367,9 @@ if (!gotLock) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.show();
-    mainWindow.focus();
+    // 点歌 / 再次启动官方入口：popup 才 restore/show/focus；
+    // background 只把窗口保持在任务栏最小化，不抢焦点。
+    applyPlayWindowPolicy(mainWindow, desktopSettings.playWindowMode);
   });
 
   ipcMain.handle('desktop:minimize', () => mainWindow?.minimize());

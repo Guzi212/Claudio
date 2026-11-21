@@ -193,6 +193,47 @@ describe('mountSettingsRoutes', () => {
     expect(invalidateCacheMock).not.toHaveBeenCalled();
   });
 
+  it('play_window_mode 未配置时 GET 返回空串且不落库，GET 不会把默认值写进 prefs', async () => {
+    const { mountSettingsRoutes } = await import('../server/api/settings.js');
+    const app = mockApp();
+    mountSettingsRoutes(app);
+
+    const r = mockRes();
+    await app.routes['GET /api/settings']({}, r);
+
+    expect(r.body.play_window_mode).toBe('');
+    expect(prefMem.has('play_window_mode')).toBe(false);
+  });
+
+  it('存量 play_window_mode=popup 原样返回；PUT 不带该 key 时不动存量', async () => {
+    prefMem.set('play_window_mode', 'popup');
+
+    const { mountSettingsRoutes } = await import('../server/api/settings.js');
+    const app = mockApp();
+    mountSettingsRoutes(app);
+
+    const getRes = mockRes();
+    await app.routes['GET /api/settings']({}, getRes);
+    expect(getRes.body.play_window_mode).toBe('popup');
+
+    const putRes = mockRes();
+    await app.routes['PUT /api/settings']({ body: { fish_voice_id: 'v' } }, putRes);
+    expect(putRes.body.applied).toEqual(['fish_voice_id']);
+    expect(prefMem.get('play_window_mode')).toBe('popup');
+  });
+
+  it('PUT play_window_mode 只写用户选择的值', async () => {
+    const { mountSettingsRoutes } = await import('../server/api/settings.js');
+    const app = mockApp();
+    mountSettingsRoutes(app);
+
+    const r = mockRes();
+    await app.routes['PUT /api/settings']({ body: { play_window_mode: 'popup' } }, r);
+
+    expect(r.body.applied).toEqual(['play_window_mode']);
+    expect(prefMem.get('play_window_mode')).toBe('popup');
+  });
+
   it('PUT 未知 key 忽略，不写 prefs 也不出现在 applied', async () => {
     const { mountSettingsRoutes } = await import('../server/api/settings.js');
     const app = mockApp();

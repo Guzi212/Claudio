@@ -111,6 +111,8 @@ npm run dev
 | **浏览器 PWA** | 打开 `http://127.0.0.1:8080` | 轻量即开，手机 / 电脑浏览器通用 |
 | **Windows 启动脚本** | `powershell -ExecutionPolicy Bypass -File scripts\open-player.ps1` | 优先拉起桌面端；加 `-Browser` 或 `-Tab` 用免静音限制的 Chrome 独立配置打开 |
 
+> 桌面端可在设置页「酷狗与桌面窗口 → 点歌窗口」选择被唤起时的行为：默认「后台播放（最小化留任务栏）」不抢焦点，也可切回「弹出窗口」。
+
 ### 第 4 步：快速验证
 
 - 终端确认出现 `[kugou-login] OK` 与 `8080 ready`

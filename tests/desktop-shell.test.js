@@ -128,6 +128,45 @@ describe('desktop control bridge', () => {
   });
 });
 
+describe('点歌窗口策略接线', () => {
+  const main = fs.readFileSync(path.resolve('desktop/main.cjs'), 'utf8');
+  const policy = require('../desktop/play-window-policy.cjs');
+
+  it('冷启 ready-to-show 与 second-instance 都走同一策略，不再无条件 show/focus', () => {
+    expect(main).toContain("require('./play-window-policy.cjs')");
+
+    const readyBlock = main.slice(
+      main.indexOf("mainWindow.once('ready-to-show'"),
+      main.indexOf('const recordBounds'),
+    );
+    expect(readyBlock).toContain('applyPlayWindowPolicy(mainWindow');
+    expect(readyBlock).not.toContain('mainWindow.show()');
+
+    const secondBlock = main.slice(
+      main.indexOf("app.on('second-instance'"),
+      main.indexOf("ipcMain.handle('desktop:minimize'"),
+    );
+    expect(secondBlock).toContain('applyPlayWindowPolicy(mainWindow');
+    expect(secondBlock).not.toContain('mainWindow.show()');
+    expect(secondBlock).not.toContain('mainWindow.focus()');
+    expect(secondBlock).not.toContain('mainWindow.restore()');
+  });
+
+  it('设置快照把 play_window_mode 归一化进桌面内存，默认 background', () => {
+    expect(main).toContain("playWindowMode: 'background'");
+    expect(main).toContain('normalizePlayWindowMode(s.play_window_mode)');
+    // GET /api/settings 对未配置返回 ''；sync-settings 的 payload 也走这里。
+    expect(policy.normalizePlayWindowMode('')).toBe('background');
+    expect(policy.normalizePlayWindowMode('popup')).toBe('popup');
+  });
+
+  it('不把 skipTaskbar 打开，也不在策略里创建第二个窗口', () => {
+    expect(main).not.toContain('skipTaskbar: true');
+    const policySrc = fs.readFileSync(path.resolve('desktop/play-window-policy.cjs'), 'utf8');
+    expect(policySrc).not.toContain('new BrowserWindow');
+  });
+});
+
 describe('desktop theme icons', () => {
   it('iconSetForTheme 按主题返回水墨或像素图标组，且全部资源与 7 尺寸 ICO 均有效', () => {
     const pixelSet = themeIcons.iconSetForTheme('pixel');

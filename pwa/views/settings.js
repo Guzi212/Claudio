@@ -27,6 +27,7 @@ const fields = {
   globalHotkey:     '#set-global-hotkey',
   hotkeyMedia:      '#set-hotkey-media',
   closeToTray:      '#set-close-to-tray',
+  playWindowMode:   '#set-play-window-mode',
   alwaysTopMini:    '#set-always-top-mini',
 };
 
@@ -190,6 +191,10 @@ function applySettings(s) {
   if (nodes.globalHotkey) nodes.globalHotkey.value = s?.global_hotkey || 'CTRL+ALT+K';
   if (nodes.hotkeyMedia) nodes.hotkeyMedia.checked = boolFrom(s?.hotkey_media_key, false);
   if (nodes.closeToTray) nodes.closeToTray.checked = boolFrom(s?.close_to_tray, true);
+  if (nodes.playWindowMode) {
+    // 未配置（''）或非法值统一显示「后台播放」，读取时不写库。
+    nodes.playWindowMode.value = s?.play_window_mode === 'popup' ? 'popup' : 'background';
+  }
   if (nodes.alwaysTopMini) nodes.alwaysTopMini.checked = boolFrom(s?.always_on_top_mini, true);
 }
 
@@ -227,6 +232,9 @@ function buildPayload() {
   if (nodes.globalHotkey) payload.global_hotkey = nodes.globalHotkey.value.trim() || 'CTRL+ALT+K';
   if (nodes.hotkeyMedia) payload.hotkey_media_key = String(Boolean(nodes.hotkeyMedia.checked));
   if (nodes.closeToTray) payload.close_to_tray = String(Boolean(nodes.closeToTray.checked));
+  if (nodes.playWindowMode) {
+    payload.play_window_mode = nodes.playWindowMode.value === 'popup' ? 'popup' : 'background';
+  }
   if (nodes.alwaysTopMini) payload.always_on_top_mini = String(Boolean(nodes.alwaysTopMini.checked));
   return payload;
 }
