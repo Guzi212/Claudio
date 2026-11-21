@@ -15,6 +15,7 @@ import { start as startScheduler } from './scheduler.js';
 import { brainMode, startBrainServices } from './brain.js';
 import { applyProgress, readSavedScene } from './playback-control.js';
 import { readContinuePool } from './continue-pool.js';
+import { newRuntimeInstanceId } from './queue-source.js';
 import { mountContinuePoolRoutes } from './api/continue-pool.js';
 import { mountRuntimeRoutes } from './api/runtime.js';
 import { readSavedVolume, hasSavedVolume, createVolumeSaver } from './volume-store.js';
@@ -81,6 +82,7 @@ const runtime = {
   continuePool: readContinuePool(dbApi),
   queueEpoch: 0,          // 每次 clear 递增，在途异步写回据此丢弃
   continueSuppressed: false, // 用户 clear 后暂停续播，下一次明确点歌解除
+  runtimeInstanceId: newRuntimeInstanceId(), // 进程级标识，重启后客户端据此重建基准
 };
 
 const wss = new WebSocketServer({ noServer: true });

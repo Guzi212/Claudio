@@ -27,18 +27,39 @@ export function isStaleRemoteEpoch(localEpoch, remoteEpoch) {
   return remoteEpoch < local;
 }
 
+export function runtimeInstanceIdOf(value) {
+  return typeof value === 'string' && value.trim() ? value.trim() : '';
+}
+
+// allowInstanceReset=true：hello / status / WS state 在服务端重启后重建基准。
+// 晚到的 HTTP 响应必须为 false，避免旧进程的结果盖住新实例。
+export function isStaleRemoteSnapshot(local = {}, remote = {}, { allowInstanceReset = false } = {}) {
+  const localId = runtimeInstanceIdOf(local.runtimeInstanceId);
+  const remoteId = runtimeInstanceIdOf(remote.runtimeInstanceId);
+  if (remoteId && localId && remoteId !== localId) return !allowInstanceReset;
+  return isStaleRemoteEpoch(local.queueEpoch, remote.queueEpoch);
+}
+
+// 上报必须绑定当前音频源的 epoch。源还没挂上，或已切到更新的队列，都丢掉旧事件。
+export function shouldReportPlayback({ audioSourceEpoch, queueEpoch } = {}) {
+  if (!Number.isSafeInteger(audioSourceEpoch) || audioSourceEpoch < 0) return false;
+  if (Number.isSafeInteger(queueEpoch) && queueEpoch >= 0 && audioSourceEpoch !== queueEpoch) return false;
+  return true;
+}
+
 // Playlists 的 queue-replace 事件：detail 可以是 { queue, queueEpoch } 或旧版的数组。
 export function planQueueReplace(local = {}, detail) {
   const queue = Array.isArray(detail) ? detail : detail?.queue;
   const epoch = Array.isArray(detail) ? null : detail?.queueEpoch;
   const queueEpoch = Number.isSafeInteger(epoch) && epoch >= 0 ? epoch : null;
+  const runtimeInstanceId = Array.isArray(detail) ? '' : (detail?.runtimeInstanceId || '');
   if (!Array.isArray(queue) || queue.length === 0) {
-    return { apply: false, stale: false, queue: [], queueEpoch };
+    return { apply: false, stale: false, queue: [], queueEpoch, runtimeInstanceId };
   }
-  if (isStaleRemoteEpoch(local?.queueEpoch, epoch)) {
-    return { apply: false, stale: true, queue, queueEpoch };
+  if (isStaleRemoteSnapshot(local, { queueEpoch: epoch, runtimeInstanceId }, { allowInstanceReset: false })) {
+    return { apply: false, stale: true, queue, queueEpoch, runtimeInstanceId };
   }
-  return { apply: true, stale: false, queue, queueEpoch };
+  return { apply: true, stale: false, queue, queueEpoch, runtimeInstanceId };
 }
 
 // 同一首还在等直链或等 play() 时，后来的同 index 调用直接丢掉。

@@ -52,6 +52,7 @@ export function clearQueue(runtime, { reason = '' } = {}) {
     queueOffset: status.queueOffset,
     queueEpoch: status.queueEpoch,
     continueSuppressed: status.continueSuppressed,
+    runtimeInstanceId: status.runtimeInstanceId,
     continuePool: status.continuePool,
     volume: status.volume,
     volumeExplicit: status.volumeExplicit,

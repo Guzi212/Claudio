@@ -11,7 +11,7 @@ import { continueFromPool } from '../server/continue-pool.js';
 import { queueEpochOf, queueWriteIsStale } from '../server/queue-source.js';
 import { shouldRefill, startResidentDj, DJ_SOURCE } from '../server/dj/resident.js';
 import { authMiddleware } from '../server/auth.js';
-import { isStaleRemoteEpoch, planQueueReplace, planRuntimeSync } from '../pwa/runtime-sync.js';
+import { isStaleRemoteEpoch, isStaleRemoteSnapshot, shouldReportPlayback, planQueueReplace, planRuntimeSync } from '../pwa/runtime-sync.js';
 import { stopAudioForEmptyQueue } from '../pwa/player-mode.js';
 
 const playerJs = fs.readFileSync('./pwa/views/player.js', 'utf8');
@@ -592,9 +592,9 @@ describe('PWA · 清空后的本地停止', () => {
       const confirm = vi.fn(() => true);
       const getClientId = () => 'page-a';
       const fn = new Function(
-        'state', 'window', 'fetch', 'applyRuntime', 'toast', 'showAlert', 'getClientId', 'isStaleRemoteEpoch',
+        'state', 'window', 'fetch', 'applyRuntime', 'toast', 'showAlert', 'getClientId', 'isStaleRemoteSnapshot',
         `${playerJs.slice(start, end)}\nreturn clearQueueFromUi;`,
-      )(state, { confirm }, fetch, applyRuntime, toast, showAlert, getClientId, isStaleRemoteEpoch);
+      )(state, { confirm }, fetch, applyRuntime, toast, showAlert, getClientId, isStaleRemoteSnapshot);
       return { state, fn, applyRuntime, toast, showAlert, fetch, confirm };
     };
 
@@ -647,6 +647,21 @@ describe('PWA · 清空后的本地停止', () => {
 
 describe('晚到的旧响应 · epoch 栅栏', () => {
   const oldTracks = [{ title: '旧选播' }];
+
+  it('shouldReportPlayback 只接受与当前队列相同的音频源 epoch', () => {
+    expect(shouldReportPlayback({ audioSourceEpoch: 6, queueEpoch: 7 })).toBe(false);
+    expect(shouldReportPlayback({ audioSourceEpoch: 7, queueEpoch: 7 })).toBe(true);
+    expect(shouldReportPlayback({ audioSourceEpoch: null, queueEpoch: 7 })).toBe(false);
+    expect(shouldReportPlayback({ audioSourceEpoch: 0, queueEpoch: 0 })).toBe(true);
+  });
+
+  it('服务端重启后 snapshot 可重建基准，旧实例的 HTTP 仍拒绝', () => {
+    const local = { queueEpoch: 7, runtimeInstanceId: 'proc-a' };
+    expect(isStaleRemoteSnapshot(local, { queueEpoch: 0, runtimeInstanceId: 'proc-b' }, { allowInstanceReset: true })).toBe(false);
+    expect(isStaleRemoteSnapshot(local, { queueEpoch: 8, runtimeInstanceId: 'proc-a' }, { allowInstanceReset: true })).toBe(false);
+    expect(isStaleRemoteSnapshot(local, { queueEpoch: 6, runtimeInstanceId: 'proc-a' }, { allowInstanceReset: true })).toBe(true);
+    expect(isStaleRemoteSnapshot(local, { queueEpoch: 0, runtimeInstanceId: 'proc-b' }, { allowInstanceReset: false })).toBe(true);
+  });
 
   it('isStaleRemoteEpoch 只拒绝更小的 epoch，缺省不拦', () => {
     expect(isStaleRemoteEpoch(7, 6)).toBe(true);

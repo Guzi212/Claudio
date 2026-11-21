@@ -197,7 +197,7 @@ export function mountPlaylistRoutes(app, deps = {}) {
         });
       } catch { /* 播放历史记录失败不影响切单 */ }
       broadcast({ type: 'state', runtime });
-      res.json({ ok: true, count: queue.length, queue, queueEpoch: nextEpoch });
+      res.json({ ok: true, count: queue.length, queue, queueEpoch: nextEpoch, runtimeInstanceId: runtime.runtimeInstanceId || null });
     } catch (err) {
       console.error('[playlists-api] play failed:', err.message);
       res.status(500).json({ ok: false, error: err.message });
@@ -249,7 +249,7 @@ export function mountPlaylistRoutes(app, deps = {}) {
       });
     } catch { /* 播放历史记录失败不影响点歌 */ }
     broadcast({ type: 'state', runtime });
-    res.json({ ok: true, mode, queue: runtime.queue, index: runtime.index, queueEpoch: nextEpoch });
+    res.json({ ok: true, mode, queue: runtime.queue, index: runtime.index, queueEpoch: nextEpoch, runtimeInstanceId: runtime.runtimeInstanceId || null });
   });
 
   // 直链懒解析：hash → 可播放代理 URL

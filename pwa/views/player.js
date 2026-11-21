@@ -4,7 +4,7 @@
 import { showAlert, clearAlert, setStatus, toast } from './ui.js';
 import { planExternalPlayback } from '../external-playback.js';
 import { planBootPlayback } from '../boot-playback.js';
-import { claimPlayLoad, isOwnEcho, planRuntimeSync, isStaleRemoteEpoch, planQueueReplace } from '../runtime-sync.js';
+import { claimPlayLoad, isOwnEcho, planRuntimeSync, isStaleRemoteEpoch, isStaleRemoteSnapshot, shouldReportPlayback, planQueueReplace } from '../runtime-sync.js';
 import { externalUnlockPlan, planExternalBoot, planPlayCommand, planPlayError, stopAudioForEmptyQueue } from '../player-mode.js';
 import { readLocalVolume, writeLocalVolume } from '../volume-memory.js';
 import { getClientId } from '../client-id.js';
@@ -33,6 +33,7 @@ const state = {
   index: 0,
   offset: 0,
   queueEpoch: 0,
+  runtimeInstanceId: '',
   loopMode: 'auto',
   brain: 'external',
   continuePoolActive: false,
@@ -216,8 +217,19 @@ function applyHeardVolume(volume) {
   paintVolume(next);
 }
 
+let audioSourceEpoch = null;
+
+function bindAudioSourceEpoch() {
+  audioSourceEpoch = Number.isSafeInteger(state.queueEpoch) ? state.queueEpoch : 0;
+}
+
+function unbindAudioSourceEpoch() {
+  audioSourceEpoch = null;
+}
+
 function reportProgress(force = false) {
   if (!audio) return;
+  if (!shouldReportPlayback({ audioSourceEpoch, queueEpoch: state.queueEpoch })) return;
   const now = Date.now();
   if (!force && now - lastProgressAt < 2000) return;
   lastProgressAt = now;
@@ -229,7 +241,7 @@ function reportProgress(force = false) {
       paused: Boolean(audio.paused),
       index: state.index,
       queueOffset: state.offset,
-      queueEpoch: state.queueEpoch,
+      queueEpoch: audioSourceEpoch,
       clientId: getClientId(),
     },
   }));
@@ -238,6 +250,9 @@ function reportProgress(force = false) {
 // 把服务端的真实位置推回前端的镜像状态（避免 server / client 两边索引漂移）。
 // clientId 会跟着广播回来；这份页面看到自己的 origin 就不再改播放。
 function syncToServer(index, { paused = false, ended = false } = {}) {
+  if (!shouldReportPlayback({ audioSourceEpoch, queueEpoch: state.queueEpoch })) {
+    return Promise.resolve(null);
+  }
   return fetch('/api/runtime/state', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -246,7 +261,7 @@ function syncToServer(index, { paused = false, ended = false } = {}) {
       queueOffset: state.offset,
       paused,
       ended,
-      queueEpoch: state.queueEpoch,
+      queueEpoch: audioSourceEpoch,
       clientId: getClientId(),
     }),
   }).then(res => res.ok ? res.json() : null).catch(() => null);
@@ -713,6 +728,7 @@ async function playIndex(i, { autoplay = true, startAt = 0, resume = false, rest
   if (i < 0 || i >= state.queue.length) {
     npBox.classList.add('hidden');
     audio.removeAttribute('src');
+    unbindAudioSourceEpoch();
     window.dispatchEvent(new CustomEvent('claudio:trackchange', { detail: null }));
     return;
   }
@@ -758,6 +774,7 @@ async function playIndex(i, { autoplay = true, startAt = 0, resume = false, rest
     }
 
     audio.src = src;
+    bindAudioSourceEpoch();
     const seekTo = restart ? 0 : (Number.isFinite(startAt) ? startAt : 0);
     if (seekTo > 0 || restart || audio.ended) {
       try { audio.currentTime = seekTo; } catch { /* 还不能 seek 时，play() 会从 0 开始 */ }
@@ -978,7 +995,7 @@ async function clearQueueFromUi() {
       throw new Error(data?.error || `HTTP ${res.status}`);
     }
     // 清空响应晚于新点歌的 state 广播时，不能把刚开播的新队列清掉。
-    if (isStaleRemoteEpoch(state.queueEpoch, data?.queueEpoch)) {
+    if (isStaleRemoteSnapshot(state, data, { allowInstanceReset: false })) {
       return { ok: true, stale: true, data };
     }
     // 采用服务端返回的真实状态（同时会收到 state 广播），不在前端伪造清空。
@@ -1297,7 +1314,9 @@ export function applyRuntime(runtime, { origin } = {}) {
   // 自己刚 POST 出去的状态又广播回来时，不再 play / pause / playIndex。
   if (isOwnEcho(origin, getClientId())) return;
   // 晚到的旧 state 广播不能清掉/覆盖已经应用的新队列。
-  if (isStaleRemoteEpoch(state.queueEpoch, runtime.queueEpoch)) return;
+  // 服务端重启后 runtimeInstanceId 会变，这时要接受新快照重建基准。
+  if (isStaleRemoteSnapshot(state, runtime, { allowInstanceReset: true })) return;
+  if (runtime.runtimeInstanceId) state.runtimeInstanceId = runtime.runtimeInstanceId;
   if (Number.isSafeInteger(runtime.queueEpoch)) state.queueEpoch = runtime.queueEpoch;
   if ('activeAgent' in runtime) activeAgent = runtime.activeAgent || null;
   if ('scene' in runtime) paintScene(runtime.scene);
@@ -1340,6 +1359,7 @@ export function applyRuntime(runtime, { origin } = {}) {
     state.offset = plan.queueOffset || 0;
     playLoadIndex = null;
     stopAudioForEmptyQueue(audio);
+    unbindAudioSourceEpoch();
     serverProgress = 0;
     updateSeekBar(0, 0);
     updatePlayButtons(false);
@@ -1559,6 +1579,7 @@ export function initPlayer() {
   window.addEventListener('claudio:queue-replace', e => {
     const plan = planQueueReplace(state, e.detail);
     if (!plan.apply) return;
+    if (plan.runtimeInstanceId) state.runtimeInstanceId = plan.runtimeInstanceId;
     if (plan.queueEpoch != null) state.queueEpoch = plan.queueEpoch;
     state.queue = plan.queue;
     state.index = 0;
@@ -1604,7 +1625,8 @@ async function bootCurrent({ silent = false, keepOverlay = false } = {}) {
     if (!r.ok) return;
     const data = await r.json();
     // 拉全量状态期间如果已经收到更新的队列，这份旧快照不能覆盖它。
-    if (isStaleRemoteEpoch(state.queueEpoch, data.queueEpoch)) return;
+    if (isStaleRemoteSnapshot(state, data, { allowInstanceReset: true })) return;
+    if (data.runtimeInstanceId) state.runtimeInstanceId = data.runtimeInstanceId;
     if (Number.isSafeInteger(data.queueEpoch)) state.queueEpoch = data.queueEpoch;
     brain = data.brain === 'internal' ? 'internal' : 'external';
     state.brain = brain;
@@ -1662,6 +1684,7 @@ async function bootCurrent({ silent = false, keepOverlay = false } = {}) {
         if (src) {
           audio.preload = 'metadata';
           audio.src = src;
+          bindAudioSourceEpoch();
           audio.load();
         }
         window.dispatchEvent(new CustomEvent('claudio:trackchange', { detail: t }));

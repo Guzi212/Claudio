@@ -7,6 +7,7 @@ import {
   notePlaybackActivity,
   continuousListenMinutes,
   queueEpochOf,
+  runtimeInstanceIdOf,
   queueWriteIsStale,
   queuePlaybackLocked,
   PAUSE_RESET_MS,
@@ -105,6 +106,7 @@ export function playbackStatus(runtime = {}, { listeners = 0, brain = 'external'
     // 只读的队列版本与续播抑制状态，方便客户端识别 clear 后的窗口期。
     queueEpoch: queueEpochOf(runtime),
     continueSuppressed: Boolean(runtime.continueSuppressed),
+    runtimeInstanceId: runtimeInstanceIdOf(runtime) || null,
   };
 }
 

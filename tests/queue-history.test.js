@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import { trimPlayedHistory } from '../server/queue-source.js';
 import { playbackStatus } from '../server/playback-control.js';
-import { isStaleRemoteEpoch, planRuntimeSync } from '../pwa/runtime-sync.js';
+import { isStaleRemoteEpoch, isStaleRemoteSnapshot, shouldReportPlayback, planRuntimeSync } from '../pwa/runtime-sync.js';
 
 const queue = Array.from({ length: 8 }, (_, i) => ({ title: `曲目${i}`, kugouId: `hash-${i}` }));
 const player = fs.readFileSync(new URL('../pwa/views/player.js', import.meta.url), 'utf8');
@@ -63,13 +63,13 @@ describe('PWA 裁剪同步', () => {
     const renderQueuePanel = vi.fn();
     const start = player.indexOf('export function applyRuntime(');
     const end = player.indexOf('\n// 外部 bot', start);
-    const apply = new Function('state', 'audio', 'planRuntimeSync', 'playIndex', 'renderQueuePanel', 'isStaleRemoteEpoch', `
+    const apply = new Function('state', 'audio', 'planRuntimeSync', 'playIndex', 'renderQueuePanel', 'isStaleRemoteSnapshot', `
       let brain = 'external', appliedSay = '', serverProgress = 0, adaptiveVolumeApplied = false;
       const getClientId = () => 'page-a', isOwnEcho = () => false;
       const rememberQueueMeta = () => {}, paintHostChrome = () => {}, ensurePlaybackVolume = () => {};
       ${player.slice(start, end).replace('export function', 'function')}
       return applyRuntime;
-    `)(state, audio, planRuntimeSync, playIndex, renderQueuePanel, isStaleRemoteEpoch);
+    `)(state, audio, planRuntimeSync, playIndex, renderQueuePanel, isStaleRemoteSnapshot);
     apply(remote);
     expect(state).toMatchObject({ queue: remote.queue, index: 2, offset: 13 });
     expect(playIndex).not.toHaveBeenCalled();
@@ -92,25 +92,25 @@ describe('PWA 裁剪同步', () => {
   });
 
   it('HTTP 状态和 WS 进度都携带当前 offset', async () => {
-    const state = { index: 2, offset: 13 };
+    const state = { index: 2, offset: 13, queueEpoch: 4 };
     const fetch = vi.fn(async () => ({ ok: true, json: async () => ({}) }));
     const start = player.indexOf('function syncToServer(');
     const end = player.indexOf('\nfunction addBubble', start);
-    const sync = new Function('state', 'fetch', 'getClientId', `${player.slice(start, end)}; return syncToServer;`)(state, fetch, () => 'page-a');
+    const sync = new Function('state', 'fetch', 'getClientId', 'shouldReportPlayback', 'audioSourceEpoch', `${player.slice(start, end)}; return syncToServer;`)(state, fetch, () => 'page-a', shouldReportPlayback, 4);
     await sync(2, { paused: true, ended: true });
-    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ index: 2, queueOffset: 13, paused: true, ended: true, clientId: 'page-a' });
+    expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ index: 2, queueOffset: 13, paused: true, ended: true, queueEpoch: 4, clientId: 'page-a' });
     const dispatchEvent = vi.fn();
     const progressStart = player.indexOf('function reportProgress(');
     const progressEnd = player.indexOf('\n// 把服务端', progressStart);
-    const progress = new Function('state', 'audio', 'window', 'CustomEvent', `
+    const progress = new Function('state', 'audio', 'window', 'CustomEvent', 'shouldReportPlayback', 'audioSourceEpoch', `
       let lastProgressAt = 0;
       const npVol = { value: '37' }, getClientId = () => 'page-a';
       ${player.slice(progressStart, progressEnd)}
       return reportProgress;
     `)(state, { currentTime: 9, duration: 180, paused: false }, { dispatchEvent }, class {
       constructor(type, options) { this.type = type; this.detail = options.detail; }
-    });
+    }, shouldReportPlayback, 4);
     progress(true);
-    expect(dispatchEvent.mock.calls[0][0].detail).toMatchObject({ index: 2, queueOffset: 13, currentTime: 9, clientId: 'page-a' });
+    expect(dispatchEvent.mock.calls[0][0].detail).toMatchObject({ index: 2, queueOffset: 13, currentTime: 9, clientId: 'page-a', queueEpoch: 4 });
   });
 });

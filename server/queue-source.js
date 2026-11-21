@@ -15,6 +15,15 @@ export function bumpQueueEpoch(runtime) {
   return runtime.queueEpoch;
 }
 
+export function newRuntimeInstanceId(random = Math.random, now = Date.now) {
+  return `${now().toString(36)}-${random().toString(36).slice(2, 10)}`;
+}
+
+export function runtimeInstanceIdOf(runtime) {
+  const id = runtime?.runtimeInstanceId;
+  return typeof id === 'string' && id.trim() ? id.trim() : '';
+}
+
 // 写回是否过期：
 // - 带 queueEpoch：必须等于当前值，否则视为过期；
 // - 不带 queueEpoch：旧客户端。进程内发生过 clear（requireQueueEpoch 永久置位）之后
