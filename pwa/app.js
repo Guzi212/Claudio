@@ -7,6 +7,7 @@ import { initSettings } from './views/settings.js';
 import { setStatus, showAlert } from './views/ui.js';
 import { urlWithoutToken } from './session-url.js';
 import { applyTheme, readSavedTheme } from './theme-store.js';
+import { applyPixelHostSetting, readPixelHostEnabled } from './host-mood.js';
 import './components/lyrics.js';
 
 const VIEWS = ['player', 'playlists', 'profile', 'settings'];
@@ -127,6 +128,7 @@ async function adoptUrlToken() {
 
 async function startApp() {
   initDesktopChrome();
+  applyPixelHostSetting(readPixelHostEnabled(), { persist: false });
   await loadInitialTheme();
   await adoptUrlToken();
   mediaSession = installMediaSession();

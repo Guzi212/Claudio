@@ -136,11 +136,15 @@ function loadWindowState(stateDir, { displays = [] } = {}) {
     const mini = Number.isFinite(Number(parsed?.mini?.x)) && Number.isFinite(Number(parsed?.mini?.y))
       ? clampPosition(parsed.mini, MINI_SIZE, displays)
       : {};
-    return {
+    const out = {
       isMini: Boolean(parsed?.isMini),
       standard,
       mini: mini.x != null ? { x: mini.x, y: mini.y } : {},
     };
+    if (['auto', 'light', 'dark', 'pixel'].includes(parsed?.theme)) {
+      out.theme = parsed.theme;
+    }
+    return out;
   } catch {
     return fallback;
   }
