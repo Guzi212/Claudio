@@ -3,7 +3,8 @@
 import { dbApi as defaultDb } from '../db.js';
 import { resolveTrack as defaultResolveTrack } from '../services/kugou.js';
 import { writeTracksToPlaylist as defaultWriteTracks } from '../services/kugou-playlist-write.js';
-import { markQueueSource } from '../queue-source.js';
+import { markQueueSource, queueEpochOf, bumpQueueEpoch, clearContinueSuppression, runtimeInstanceIdOf } from '../queue-source.js';
+import { resetPlaybackObservation } from '../playback-control.js';
 import { synthesize as defaultSynthesize } from '../tts.js';
 
 export const DEFAULT_PLAYLIST_NAME = 'Claudio推荐';
@@ -129,10 +130,27 @@ export function mountExternalQueueRoutes(app, deps = {}) {
       return;
     }
 
+    const touchQueue = target === 'queue' || target === 'both';
+    const touchPlaylist = target === 'kugou_playlist' || target === 'both';
+    // 搜索/合成语音期间可能有人清空队列。捕获当前 epoch，写回前再核对。
+    let queueEpochAtStart = null;
+    if (touchQueue) {
+      const rt = getRuntime();
+      if (!rt) {
+        res.status(500).json({ ok: false, error: 'runtime 不可用' });
+        return;
+      }
+      queueEpochAtStart = queueEpochOf(rt);
+    }
+
+    const startedAtMs = Date.now();
+    const resolveStartMs = Date.now();
     const resolved = await Promise.all(wants.map(async want => {
       const track = await resolveTrack(want);
       return { want, track };
     }));
+    const resolveMs = Date.now() - resolveStartMs;
+    let ttsMs = 0;
 
     const matched = [];
     const queueItems = [];
@@ -150,10 +168,9 @@ export function mountExternalQueueRoutes(app, deps = {}) {
       }));
     }
 
-    const touchQueue = target === 'queue' || target === 'both';
-    const touchPlaylist = target === 'kugou_playlist' || target === 'both';
     let queueResult = null;
     let playlistResult = null;
+    let anchor = null;
 
     if (touchQueue && queueItems.length) {
       const runtime = getRuntime();
@@ -162,6 +179,7 @@ export function mountExternalQueueRoutes(app, deps = {}) {
         return;
       }
       if (say) {
+        const ttsStartMs = Date.now();
         try {
           const voice = await synthesize(say);
           if (voice?.url) {
@@ -180,7 +198,14 @@ export function mountExternalQueueRoutes(app, deps = {}) {
           }
         } catch (err) {
           console.warn('[external-queue] tts skipped:', err.message);
+        } finally {
+          ttsMs = Date.now() - ttsStartMs;
         }
+      }
+      // 等待搜索 / 语音期间队列被清空：丢弃这次结果，不能把旧歌复活。
+      if (queueEpochOf(runtime) !== queueEpochAtStart) {
+        res.status(409).json({ ok: false, stale: true, error: '队列已被清空，本次点歌已丢弃，请重新点歌' });
+        return;
       }
       // 点歌请求在合成语音之后才改队列。音量快照放在这段同步改动之前，
       // 这样等待搜索/语音时用户调过的音量不会被后面的还原盖掉。
@@ -191,6 +216,8 @@ export function mountExternalQueueRoutes(app, deps = {}) {
         runtime.queueOffset = 0;
         runtime.index = 0;
         runtime.paused = false;
+        // replace 切到新歌：归零旧进度与旧媒体观测，避免 PWA 或 /api/status 残留上一首的 currentTime/playing。
+        resetPlaybackObservation(runtime);
         markQueueSource(runtime, 'bot');
       } else {
         const wasEmpty = !Array.isArray(runtime.queue) || runtime.queue.length === 0;
@@ -198,6 +225,7 @@ export function mountExternalQueueRoutes(app, deps = {}) {
         if (wasEmpty) {
           runtime.index = 0;
           runtime.paused = false;
+          resetPlaybackObservation(runtime);
           markQueueSource(runtime, 'bot');
         } else {
           // 接到正在播的队列后面：来源改成 bot，避免开机/定时任务把还没放的歌清掉。
@@ -205,6 +233,10 @@ export function mountExternalQueueRoutes(app, deps = {}) {
           runtime.queueSource = 'bot';
         }
       }
+      // 明确点歌是用户/主持人新的播放意图：推进 epoch 并解除 clear 留下的续播抑制。
+      // 这样 clear 和之后的新点歌不再共享同一个队列版本。
+      const nextEpoch = bumpQueueEpoch(runtime);
+      clearContinueSuppression(runtime);
       if (say) runtime.lastSay = say;
       if (reason) runtime.lastReason = reason;
       runtime.queuedAt = queuedAt;
@@ -224,6 +256,16 @@ export function mountExternalQueueRoutes(app, deps = {}) {
       }
       // 缺省、null、空字符串都不是调音量。这个接口不写 prefs。
       if (keepSavedVolume) runtime.volume = savedVolume;
+      const anchorTrack = queueItems.find(item => !item.isTts) || queueItems[0];
+      if (anchorTrack) {
+        anchor = {
+          kugouId: anchorTrack.kugouId || '',
+          title: anchorTrack.title || '',
+          artist: anchorTrack.artist || '',
+          queuedAt: anchorTrack.queuedAt || queuedAt,
+          queueEpoch: nextEpoch,
+        };
+      }
       broadcast({
         type: 'external-queue',
         mode,
@@ -232,9 +274,13 @@ export function mountExternalQueueRoutes(app, deps = {}) {
         reason,
         queuedAt,
         source: requestSource,
+        agentId,
+        agentName,
+        queueEpoch: nextEpoch,
+        runtimeInstanceId: runtimeInstanceIdOf(runtime) || '',
       });
       broadcast({ type: 'state', runtime });
-      queueResult = { mode, added: queueItems.length, length: runtime.queue.length };
+      queueResult = { mode, added: queueItems.length, length: runtime.queue.length, queueEpoch: nextEpoch };
     } else if (touchQueue) {
       queueResult = { mode, added: 0, length: getRuntime()?.queue?.length || 0 };
     }
@@ -264,6 +310,13 @@ export function mountExternalQueueRoutes(app, deps = {}) {
       failed,
       queue: queueResult,
       playlist: playlistResult,
+      anchor,
+      queueEpoch: queueEpochOf(getRuntime() || {}),
+      timing: {
+        resolveMs,
+        ttsMs,
+        totalMs: Date.now() - startedAtMs,
+      },
     });
   });
 }

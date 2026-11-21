@@ -7,7 +7,7 @@ import { buildSystemPrompt as defaultBuildSystemPrompt } from '../context.js';
 import { dbApi as defaultDb } from '../db.js';
 import { synthesize as defaultSynthesize } from '../tts.js';
 import { normalizeForMatch } from '../services/kugou.js';
-import { markQueueSource } from '../queue-source.js';
+import { markQueueSource, queueEpochOf } from '../queue-source.js';
 import { continuePoolView } from '../continue-pool.js';
 import { syncLearnedTraits } from '../memory/learner.js';
 import { get as getSetting, getBoolean as getBoolSetting, getNumber as getNumSetting } from '../services/settings.js';
@@ -80,6 +80,8 @@ export function shouldRefill(runtime, {
   now = Date.now(),
 } = {}) {
   if (!runtime) return { ok: false, reason: 'no-runtime' };
+  // 用户刚清空播放列表：续播池和 DJ 都让位，直到下一次明确点歌。
+  if (runtime.continueSuppressed) return { ok: false, reason: 'cleared' };
   if (!runtime.active) return { ok: false, reason: 'inactive' };
   if (runtime.paused) return { ok: false, reason: 'paused' };
 
@@ -252,8 +254,10 @@ export function startResidentDj({
 
   async function doRefill({ trigger = 'auto' } = {}) {
     if (state.inflight) return { ok: false, reason: 'inflight' };
+    if (runtime.continueSuppressed) return { ok: false, reason: 'cleared' };
     state.inflight = true;
     state.lastAttemptAt = now();
+    const startedEpoch = queueEpochOf(runtime);
     try {
       const systemPrompt = await buildSystemPrompt();
       const recent = db.recentPlays(cfg.recentLimit) || [];
@@ -302,6 +306,13 @@ export function startResidentDj({
         } catch (err) {
           log(`tts skipped: ${err.message}`);
         }
+      }
+
+      // 生成期间队列被清空或被别的显式操作换掉：这批结果作废。
+      if (runtime.continueSuppressed || queueEpochOf(runtime) !== startedEpoch) {
+        state.lastError = 'stale';
+        log('refill discarded: queue cleared or changed during generation');
+        return { ok: false, reason: 'stale' };
       }
 
       const wasEmpty = !Array.isArray(runtime.queue) || runtime.queue.length === 0;

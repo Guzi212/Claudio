@@ -56,11 +56,11 @@ export function init({ audio, container, getCurrentTrack } = {}) {
   let activeIdx = -1;
   let currentHash = null;
   let lastUpdateAt = 0;
-  let userExpanded = false;
+  let userExpanded = true;
   const toggle = document.getElementById('lyrics-toggle');
   if (toggle) {
     toggle.hidden = true;
-    toggle.setAttribute('aria-expanded', 'false');
+    toggle.setAttribute('aria-expanded', 'true');
     toggle.addEventListener('click', () => {
       userExpanded = !userExpanded;
       syncVisibility();
@@ -86,7 +86,6 @@ export function init({ audio, container, getCurrentTrack } = {}) {
     lines = [];
     activeIdx = -1;
     container.textContent = '';
-    userExpanded = false;
     syncVisibility();
   }
 
@@ -140,6 +139,7 @@ export function init({ audio, container, getCurrentTrack } = {}) {
     }
     container.appendChild(frag);
     activeIdx = -1;
+    updateHighlight({ recenter: true });
   }
 
   function centerLine(line) {
@@ -174,11 +174,12 @@ export function init({ audio, container, getCurrentTrack } = {}) {
   audio.addEventListener('loadedmetadata', () => {
     const track = typeof getCurrentTrack === 'function' ? getCurrentTrack() : null;
     loadLyric(track);
+    updateHighlight({ recenter: true });
   });
 
   audio.addEventListener('timeupdate', () => {
     const t = Date.now();
-    if (t - lastUpdateAt < 250) return;
+    if (t - lastUpdateAt < 120) return;
     lastUpdateAt = t;
     updateHighlight();
   });
@@ -205,13 +206,14 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     if (!panel || !audioEl) return;
 
     let currentTrack = null;
-    window.addEventListener('claudio:trackchange', (ev) => {
-      currentTrack = ev.detail || null;
-    });
-    init({
+    const api = init({
       audio: audioEl,
       container: panel,
       getCurrentTrack: () => currentTrack,
+    });
+    window.addEventListener('claudio:trackchange', (ev) => {
+      currentTrack = ev.detail || null;
+      api?.loadLyric(currentTrack);
     });
   };
   if (document.readyState === 'loading') {

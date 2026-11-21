@@ -1,5 +1,6 @@
 // Settings 视图 · 集成健康 + 配置表单
 import { showAlert, toast } from './ui.js';
+import { applyPixelHostSetting, readPixelHostEnabled } from '../host-mood.js';
 
 const MASK = '****已配置';
 
@@ -22,6 +23,7 @@ const fields = {
   weatherCity:      '#set-weather-city',
   calendarProvider: '#set-calendar-provider',
   uiTheme:          '#set-ui-theme',
+  pixelHost:        '#set-pixel-host',
   globalHotkey:     '#set-global-hotkey',
   hotkeyMedia:      '#set-hotkey-media',
   closeToTray:      '#set-close-to-tray',
@@ -181,6 +183,11 @@ function applySettings(s) {
     nodes.uiTheme.value = s?.ui_theme || 'auto';
     window.dispatchEvent(new CustomEvent('claudio:theme', { detail: nodes.uiTheme.value }));
   }
+  if (nodes.pixelHost) {
+    const on = readPixelHostEnabled();
+    nodes.pixelHost.checked = on;
+    applyPixelHostSetting(on, { persist: false });
+  }
   if (nodes.globalHotkey) nodes.globalHotkey.value = s?.global_hotkey || 'CTRL+ALT+K';
   if (nodes.hotkeyMedia) nodes.hotkeyMedia.checked = boolFrom(s?.hotkey_media_key, false);
   if (nodes.closeToTray) nodes.closeToTray.checked = boolFrom(s?.close_to_tray, true);
@@ -273,6 +280,9 @@ async function save() {
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     if (payload.ui_theme) {
       window.dispatchEvent(new CustomEvent('claudio:theme', { detail: payload.ui_theme }));
+    }
+    if (nodes.pixelHost) {
+      applyPixelHostSetting(nodes.pixelHost.checked);
     }
     window.claudioDesktop?.syncSettings?.(payload);
     toast('已保存并生效');
@@ -530,6 +540,12 @@ export function initSettings() {
   nodes.uiTheme?.addEventListener('change', () => {
     window.dispatchEvent(new CustomEvent('claudio:theme', { detail: nodes.uiTheme.value }));
   });
+  if (nodes.pixelHost) {
+    nodes.pixelHost.checked = readPixelHostEnabled();
+    nodes.pixelHost.addEventListener('change', () => {
+      applyPixelHostSetting(nodes.pixelHost.checked);
+    });
+  }
 
   window.addEventListener('claudio:view-shown', e => {
     if (e.detail === 'settings') load();

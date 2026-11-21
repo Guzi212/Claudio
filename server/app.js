@@ -13,8 +13,9 @@ import { dbApi } from './db.js';
 import { ensureLogin, startAutoRefresh, stopAutoRefresh } from './services/kugou-login.js';
 import { start as startScheduler } from './scheduler.js';
 import { brainMode, startBrainServices } from './brain.js';
-import { applyProgress, readSavedScene } from './playback-control.js';
+import { applyMediaEvent, applyProgress, readSavedScene } from './playback-control.js';
 import { readContinuePool } from './continue-pool.js';
+import { newRuntimeInstanceId } from './queue-source.js';
 import { mountContinuePoolRoutes } from './api/continue-pool.js';
 import { mountRuntimeRoutes } from './api/runtime.js';
 import { readSavedVolume, hasSavedVolume, createVolumeSaver } from './volume-store.js';
@@ -29,6 +30,7 @@ import { mountStudioRoutes } from './api/studio.js';
 import { mountTestRoutes } from './api/test.js';
 import { mountPlaylistRoutes } from './api/playlists.js';
 import { mountExternalQueueRoutes } from './api/external-queue.js';
+import { mountQueueClearRoutes } from './api/queue-clear.js';
 import { startResidentDj, djEnabled } from './dj/resident.js';
 import { mountDjRoutes } from './dj/api.js';
 import { mountBootRoute } from './api/boot.js';
@@ -73,11 +75,15 @@ const runtime = {
   volumeExplicit: hasSavedVolume(dbApi), // false 表示 30 只是默认值，用户没显式设过
   currentTime: 0,
   duration: 0,
+  playbackEvent: null,
   lastReason: '',
   queuedAt: null,
   queuedSource: '',
   scene: readSavedScene(dbApi),
   continuePool: readContinuePool(dbApi),
+  queueEpoch: 0,          // 每次 clear 递增，在途异步写回据此丢弃
+  continueSuppressed: false, // 用户 clear 后暂停续播，下一次明确点歌解除
+  runtimeInstanceId: newRuntimeInstanceId(), // 进程级标识，重启后客户端据此重建基准
 };
 
 const wss = new WebSocketServer({ noServer: true });
@@ -270,6 +276,7 @@ mountStudioRoutes(app, { getRuntime: () => runtime });
 mountTestRoutes(app);
 mountPlaylistRoutes(app, { runtime, broadcast });
 mountExternalQueueRoutes(app, { runtime, broadcast });
+mountQueueClearRoutes(app, { runtime, broadcast, db: dbApi });
 mountContinuePoolRoutes(app, { runtime, broadcast });
 mountKugouImportApiRoute(app, { rootDir: ROOT });
 mountUnmatchedRoute(app, { db: dbApi });
@@ -304,6 +311,8 @@ server.on('upgrade', (req, socket, head) => {
         const before = runtime.volume;
         applyProgress(runtime, msg);
         if (runtime.volume !== before) volumeSaver.remember(runtime.volume);
+      } else if (msg?.type === 'media-event') {
+        applyMediaEvent(runtime, msg);
       }
     });
     ws.on('close', () => {

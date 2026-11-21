@@ -1,5 +1,5 @@
-import { playbackStatus, queueFinished } from '../playback-control.js';
-import { applyRuntimePlayback, reportedQueueIndex } from '../queue-source.js';
+import { applyMediaEvent, playbackStatus, queueFinished } from '../playback-control.js';
+import { applyRuntimePlayback, reportedQueueIndex, queueWriteIsStale, queuePlaybackLocked } from '../queue-source.js';
 import { stateBroadcast } from '../runtime-events.js';
 import { continueFromPool } from '../continue-pool.js';
 
@@ -13,7 +13,8 @@ export function mountRuntimeRoutes(app, { runtime, broadcast, db, statusOptions 
     ? boundary : null;
 
   function finish(req, res, stale = false) {
-    const continued = queueFinished(runtime) && continueFromPool(runtime, { db });
+    // 过期写回不能顺带触发续播：clear 之后池还在，但必须保持 suspend。
+    const continued = !stale && queueFinished(runtime) && continueFromPool(runtime, { db });
     if (continued) boundary = {
       track: runtime.queue[runtime.index],
       index: runtime.index + (runtime.queueOffset || 0),
@@ -21,24 +22,41 @@ export function mountRuntimeRoutes(app, { runtime, broadcast, db, statusOptions 
     };
     // 续播是服务端的新播放指令，不能让报告 ended 的页面把它当作自己的回声。
     broadcast(stateBroadcast(runtime, continued ? undefined : req.body?.clientId));
-    res.json({ ok: true, index: runtime.index, queueOffset: runtime.queueOffset || 0, paused: playbackStatus(runtime).paused, continued, stale });
+    res.json({
+      ok: true,
+      index: runtime.index,
+      queueOffset: runtime.queueOffset || 0,
+      paused: playbackStatus(runtime).paused,
+      playbackEvent: runtime.playbackEvent || null,
+      continued,
+      stale,
+    });
   }
 
   app.post('/api/runtime/state', (req, res) => {
-    const { paused, ended } = req.body || {};
+    const { paused, ended, mediaEvent, stage } = req.body || {};
     const index = reportedQueueIndex(runtime, req.body);
     const absolute = index + (runtime.queueOffset || 0);
     const edge = guard();
-    const stale = index < 0 || (edge && ((ended === true && (!Number.isInteger(index) || absolute < edge.index))
-      || (edge.awaitingPlayback && typeof index === 'number' && absolute < edge.index)));
+    const stale = queueWriteIsStale(runtime, req.body || {})
+      || queuePlaybackLocked(runtime)
+      || index < 0
+      || (edge && ((ended === true && (!Number.isInteger(index) || absolute < edge.index))
+        || (edge.awaitingPlayback && typeof index === 'number' && absolute < edge.index)));
     if (!stale) {
       applyRuntimePlayback(runtime, { index, paused, ended });
+      if (mediaEvent || stage) {
+        applyMediaEvent(runtime, req.body);
+      }
       if (edge && ended === false && paused === false && index === runtime.index) edge.awaitingPlayback = false;
     }
     finish(req, res, Boolean(stale));
   });
 
   app.post('/api/runtime/advance', (req, res) => {
+    if (queueWriteIsStale(runtime, req.body || {}) || queuePlaybackLocked(runtime)) {
+      return finish(req, res, true);
+    }
     const explicit = reportedQueueIndex(runtime, req.body);
     const edge = guard();
     if (explicit < 0) return finish(req, res, true);
