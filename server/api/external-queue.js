@@ -3,7 +3,8 @@
 import { dbApi as defaultDb } from '../db.js';
 import { resolveTrack as defaultResolveTrack } from '../services/kugou.js';
 import { writeTracksToPlaylist as defaultWriteTracks } from '../services/kugou-playlist-write.js';
-import { markQueueSource, queueEpochOf, bumpQueueEpoch, clearContinueSuppression } from '../queue-source.js';
+import { markQueueSource, queueEpochOf, bumpQueueEpoch, clearContinueSuppression, runtimeInstanceIdOf } from '../queue-source.js';
+import { resetPlaybackObservation } from '../playback-control.js';
 import { synthesize as defaultSynthesize } from '../tts.js';
 
 export const DEFAULT_PLAYLIST_NAME = 'Claudio推荐';
@@ -142,10 +143,14 @@ export function mountExternalQueueRoutes(app, deps = {}) {
       queueEpochAtStart = queueEpochOf(rt);
     }
 
+    const startedAtMs = Date.now();
+    const resolveStartMs = Date.now();
     const resolved = await Promise.all(wants.map(async want => {
       const track = await resolveTrack(want);
       return { want, track };
     }));
+    const resolveMs = Date.now() - resolveStartMs;
+    let ttsMs = 0;
 
     const matched = [];
     const queueItems = [];
@@ -165,6 +170,7 @@ export function mountExternalQueueRoutes(app, deps = {}) {
 
     let queueResult = null;
     let playlistResult = null;
+    let anchor = null;
 
     if (touchQueue && queueItems.length) {
       const runtime = getRuntime();
@@ -173,6 +179,7 @@ export function mountExternalQueueRoutes(app, deps = {}) {
         return;
       }
       if (say) {
+        const ttsStartMs = Date.now();
         try {
           const voice = await synthesize(say);
           if (voice?.url) {
@@ -191,6 +198,8 @@ export function mountExternalQueueRoutes(app, deps = {}) {
           }
         } catch (err) {
           console.warn('[external-queue] tts skipped:', err.message);
+        } finally {
+          ttsMs = Date.now() - ttsStartMs;
         }
       }
       // 等待搜索 / 语音期间队列被清空：丢弃这次结果，不能把旧歌复活。
@@ -207,6 +216,8 @@ export function mountExternalQueueRoutes(app, deps = {}) {
         runtime.queueOffset = 0;
         runtime.index = 0;
         runtime.paused = false;
+        // replace 切到新歌：归零旧进度与旧媒体观测，避免 PWA 或 /api/status 残留上一首的 currentTime/playing。
+        resetPlaybackObservation(runtime);
         markQueueSource(runtime, 'bot');
       } else {
         const wasEmpty = !Array.isArray(runtime.queue) || runtime.queue.length === 0;
@@ -214,6 +225,7 @@ export function mountExternalQueueRoutes(app, deps = {}) {
         if (wasEmpty) {
           runtime.index = 0;
           runtime.paused = false;
+          resetPlaybackObservation(runtime);
           markQueueSource(runtime, 'bot');
         } else {
           // 接到正在播的队列后面：来源改成 bot，避免开机/定时任务把还没放的歌清掉。
@@ -244,6 +256,16 @@ export function mountExternalQueueRoutes(app, deps = {}) {
       }
       // 缺省、null、空字符串都不是调音量。这个接口不写 prefs。
       if (keepSavedVolume) runtime.volume = savedVolume;
+      const anchorTrack = queueItems.find(item => !item.isTts) || queueItems[0];
+      if (anchorTrack) {
+        anchor = {
+          kugouId: anchorTrack.kugouId || '',
+          title: anchorTrack.title || '',
+          artist: anchorTrack.artist || '',
+          queuedAt: anchorTrack.queuedAt || queuedAt,
+          queueEpoch: nextEpoch,
+        };
+      }
       broadcast({
         type: 'external-queue',
         mode,
@@ -252,6 +274,10 @@ export function mountExternalQueueRoutes(app, deps = {}) {
         reason,
         queuedAt,
         source: requestSource,
+        agentId,
+        agentName,
+        queueEpoch: nextEpoch,
+        runtimeInstanceId: runtimeInstanceIdOf(runtime) || '',
       });
       broadcast({ type: 'state', runtime });
       queueResult = { mode, added: queueItems.length, length: runtime.queue.length, queueEpoch: nextEpoch };
@@ -284,7 +310,13 @@ export function mountExternalQueueRoutes(app, deps = {}) {
       failed,
       queue: queueResult,
       playlist: playlistResult,
+      anchor,
       queueEpoch: queueEpochOf(getRuntime() || {}),
+      timing: {
+        resolveMs,
+        ttsMs,
+        totalMs: Date.now() - startedAtMs,
+      },
     });
   });
 }

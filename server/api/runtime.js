@@ -1,4 +1,4 @@
-import { playbackStatus, queueFinished } from '../playback-control.js';
+import { applyMediaEvent, playbackStatus, queueFinished } from '../playback-control.js';
 import { applyRuntimePlayback, reportedQueueIndex, queueWriteIsStale, queuePlaybackLocked } from '../queue-source.js';
 import { stateBroadcast } from '../runtime-events.js';
 import { continueFromPool } from '../continue-pool.js';
@@ -22,11 +22,19 @@ export function mountRuntimeRoutes(app, { runtime, broadcast, db, statusOptions 
     };
     // 续播是服务端的新播放指令，不能让报告 ended 的页面把它当作自己的回声。
     broadcast(stateBroadcast(runtime, continued ? undefined : req.body?.clientId));
-    res.json({ ok: true, index: runtime.index, queueOffset: runtime.queueOffset || 0, paused: playbackStatus(runtime).paused, continued, stale });
+    res.json({
+      ok: true,
+      index: runtime.index,
+      queueOffset: runtime.queueOffset || 0,
+      paused: playbackStatus(runtime).paused,
+      playbackEvent: runtime.playbackEvent || null,
+      continued,
+      stale,
+    });
   }
 
   app.post('/api/runtime/state', (req, res) => {
-    const { paused, ended } = req.body || {};
+    const { paused, ended, mediaEvent, stage } = req.body || {};
     const index = reportedQueueIndex(runtime, req.body);
     const absolute = index + (runtime.queueOffset || 0);
     const edge = guard();
@@ -37,6 +45,9 @@ export function mountRuntimeRoutes(app, { runtime, broadcast, db, statusOptions 
         || (edge.awaitingPlayback && typeof index === 'number' && absolute < edge.index)));
     if (!stale) {
       applyRuntimePlayback(runtime, { index, paused, ended });
+      if (mediaEvent || stage) {
+        applyMediaEvent(runtime, req.body);
+      }
       if (edge && ended === false && paused === false && index === runtime.index) edge.awaitingPlayback = false;
     }
     finish(req, res, Boolean(stale));
