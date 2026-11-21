@@ -333,22 +333,52 @@ try {
   assert.equal(theme.pixel.dataset, 'pixel');
   assert.equal(theme.light.canvas, '#f2ede1');
   assert.equal(theme.dark.canvas, '#171512');
-  assert.equal(theme.pixel.canvas, '#0b091c');
+  assert.equal(theme.pixel.canvas.toUpperCase(), '#0B1526');
   assert.notEqual(theme.light.bodyBg, theme.dark.bodyBg);
   assert.notEqual(theme.dark.bodyBg, theme.pixel.bodyBg);
   assert.equal(theme.pixel.hostRadius, '0px');
   assert.equal(theme.light.meta, '#f2ede1');
   assert.equal(theme.dark.meta, '#171512');
-  assert.equal(theme.pixel.meta, '#0b091c');
+  assert.equal(theme.pixel.meta.toUpperCase(), '#0B1526');
   assert.equal(theme.light.stored, 'light');
   assert.equal(theme.dark.stored, 'dark');
   assert.equal(theme.pixel.stored, 'pixel');
 
-  // 像素数码全视图截图 + pixel ↔ dark ↔ light 来回切换无残留校验
+  // 像素数码全视图截图 + 数码小人状态切换 + pixel ↔ dark ↔ light 来回切换无残留校验
   await evaluate(`window.dispatchEvent(new CustomEvent('claudio:theme', { detail: 'pixel' }))`);
   await delay(120);
   assert.equal(await evaluate(`document.documentElement.scrollWidth`), 1280, 'pixel desktop player overflow');
+  const pixelHostPlaying = await evaluate(`(() => ({
+    stageDisplay: getComputedStyle(document.querySelector('#pixel-host-stage')).display,
+    spriteSrc: document.querySelector('#pixel-host-sprite')?.getAttribute('src') || '',
+    headDisplay: getComputedStyle(document.querySelector('#pixel-host-head')).display,
+    grokDisplay: getComputedStyle(document.querySelector('#grokbot-avatar')).display,
+  }))()`);
+  assert.notEqual(pixelHostPlaying.stageDisplay, 'none', 'pixel host stage should be visible at 1280px');
+  assert.equal(pixelHostPlaying.spriteSrc, 'assets/pixel/host-listen.webp', 'playing state should show host-listen');
+  assert.notEqual(pixelHostPlaying.headDisplay, 'none', 'pixel host head should be visible in avatar');
+  assert.equal(pixelHostPlaying.grokDisplay, 'none', 'grokbot avatar should be hidden in pixel theme');
   await screenshot('pixel-desktop-player');
+
+  // 点赞瞬间切换竖大拇指并在 1.2s 后恢复
+  await click('[data-feedback="like"]');
+  await delay(350);
+  const likeSrc = await evaluate(`document.querySelector('#pixel-host-sprite')?.getAttribute('src') || ''`);
+  assert.equal(likeSrc, 'assets/pixel/host-thumbsup.webp', 'like flash should show host-thumbsup');
+  await screenshot('pixel-desktop-like');
+  await delay(1050);
+  const revertedSrc = await evaluate(`document.querySelector('#pixel-host-sprite')?.getAttribute('src') || ''`);
+  assert.equal(revertedSrc, 'assets/pixel/host-listen.webp', 'like flash should revert to host-listen');
+  await click('[data-feedback="like"]');
+
+  // 像素主题空队列/等待态截图
+  await evaluate(`document.body.classList.add('is-empty')`);
+  await delay(80);
+  const waitDisplay = await evaluate(`getComputedStyle(document.querySelector('#pixel-host-waiting')).display`);
+  assert.notEqual(waitDisplay, 'none', 'pixel waiting sprite should be visible in empty state');
+  await screenshot('pixel-desktop-empty');
+  await evaluate(`document.body.classList.remove('is-empty')`);
+  await delay(80);
   for (const view of ['playlists', 'profile', 'settings']) {
     await evaluate(`document.querySelector('.tab[data-view="${view}"]').click()`);
     await waitFor(`!document.querySelector('#view-${view}').classList.contains('hidden')`);
@@ -362,6 +392,8 @@ try {
       await evaluate(`(() => { const sel = document.querySelector('#set-ui-theme'); sel.value = 'pixel'; sel.dispatchEvent(new Event('change', { bubbles: true })); })()`);
       await delay(80);
       assert.equal(await evaluate(`document.documentElement.dataset.theme`), 'pixel');
+      const hostToggleVisible = await evaluate(`getComputedStyle(document.querySelector('#set-pixel-host').closest('.setting-row')).display !== 'none'`);
+      assert.equal(hostToggleVisible, true, 'pixel host setting toggle should be visible in pixel theme');
     }
     assert.equal(await evaluate(`document.documentElement.scrollWidth`), 1280, `pixel desktop ${view} overflow`);
     await screenshot(`pixel-desktop-${view}`);

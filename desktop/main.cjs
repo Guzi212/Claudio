@@ -11,6 +11,11 @@ const {
   saveWindowState,
 } = require('./window-state.cjs');
 const { createSupervisor } = require('./supervisor.cjs');
+const {
+  normalizeThemeName,
+  iconSetForTheme,
+  backgroundColorForTheme,
+} = require('./theme-icons.cjs');
 
 function readCliArg(name) {
   const prefix = `--${name}=`;
@@ -43,43 +48,49 @@ const serverPort = Number(readCliArg('port') || process.env.PORT || 8080);
 const explicitUrl = readCliArg('url') || process.env.CLAUDIO_SERVER_URL || '';
 const skipKugou = hasCliFlag('no-kugou') || ['1', 'true', 'yes'].includes(String(process.env.CLAUDIO_SKIP_KUGOU || '').toLowerCase());
 
-function createWaveformIcon(size = 32) {
-  const buf = Buffer.alloc(size * size * 4);
-  const bg = { b: 27, g: 24, r: 24, a: 255 };     // #18181B
-  const accent = { b: 49, g: 75, r: 200, a: 255 }; // #C84B31 (BGRA)
-  const radius = Math.floor(size * 0.22);
+let currentIconVariant = 'ink';
 
-  const inRoundedRect = (x, y) => {
-    const rx = x < radius ? radius - 1 - x : x >= size - radius ? x - (size - radius) : 0;
-    const ry = y < radius ? radius - 1 - y : y >= size - radius ? y - (size - radius) : 0;
-    return rx * rx + ry * ry <= radius * radius;
-  };
+function createTrayImage(icons) {
+  const img = nativeImage.createEmpty();
+  try {
+    if (fs.existsSync(icons.trayIcon16)) {
+      img.addRepresentation({ scaleFactor: 1, buffer: fs.readFileSync(icons.trayIcon16) });
+    }
+    if (fs.existsSync(icons.trayIcon)) {
+      img.addRepresentation({ scaleFactor: 2, buffer: fs.readFileSync(icons.trayIcon) });
+    }
+  } catch { /* fallback below */ }
+  if (!img.isEmpty()) return img;
+  return nativeImage.createFromPath(icons.trayIcon);
+}
 
-  const bars = [
-    { x0: 0.16, x1: 0.28, y0: 0.34, y1: 0.66 },
-    { x0: 0.35, x1: 0.47, y0: 0.18, y1: 0.82 },
-    { x0: 0.54, x1: 0.66, y0: 0.25, y1: 0.75 },
-    { x0: 0.73, x1: 0.84, y0: 0.38, y1: 0.62 },
-  ];
+function applyThemeIcons(theme) {
+  const validTheme = normalizeThemeName(theme);
+  const icons = iconSetForTheme(validTheme);
+  currentIconVariant = icons.variant;
 
-  for (let y = 0; y < size; y += 1) {
-    const ny = y / size;
-    for (let x = 0; x < size; x += 1) {
-      const idx = (y * size + x) * 4;
-      if (!inRoundedRect(x, y)) {
-        buf[idx + 3] = 0;
-        continue;
-      }
-      const nx = x / size;
-      const onBar = bars.some(b => nx >= b.x0 && nx <= b.x1 && ny >= b.y0 && ny <= b.y1);
-      const px = onBar ? accent : bg;
-      buf[idx] = px.b;
-      buf[idx + 1] = px.g;
-      buf[idx + 2] = px.r;
-      buf[idx + 3] = px.a;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      mainWindow.setIcon(icons.windowIcon);
+    } catch {
+      const winImg = nativeImage.createFromPath(icons.windowIcon);
+      if (!winImg.isEmpty()) mainWindow.setIcon(winImg);
     }
   }
-  return nativeImage.createFromBitmap(buf, { width: size, height: size });
+  if (tray && !tray.isDestroyed()) {
+    tray.setImage(createTrayImage(icons));
+  }
+  if (windowState && windowState.theme !== validTheme) {
+    windowState.theme = validTheme;
+    persistStateSoon();
+  }
+  return {
+    ok: true,
+    theme: validTheme,
+    variant: icons.variant,
+    windowIcon: icons.windowIcon,
+    trayIcon: icons.trayIcon,
+  };
 }
 
 let mainWindow = null;
@@ -206,9 +217,8 @@ function applyWindowMode(mini) {
   return targetMini;
 }
 
-function createWindow(icon) {
+function createWindow(icons, initialTheme) {
   const displays = screen.getAllDisplays();
-  windowState = loadWindowState(app.getPath('userData'), { displays });
   // In automated verification mode always boot Standard first so both modes can be verified cleanly.
   if (verifyDumpDir) windowState.isMini = false;
 
@@ -226,9 +236,9 @@ function createWindow(icon) {
     alwaysOnTop: windowState.isMini ? Boolean(desktopSettings.alwaysOnTopMini) : false,
     frame: false,
     show: false,
-    backgroundColor: '#F7F6F2',
+    backgroundColor: backgroundColorForTheme(initialTheme),
     title: 'Claudio',
-    icon,
+    icon: icons.windowIcon,
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -335,6 +345,7 @@ async function runVerifyDump(targetDir) {
     isMini: Boolean(windowState?.isMini),
     alwaysOnTop: Boolean(mainWindow.isAlwaysOnTop()),
     trayReady: Boolean(tray && !tray.isDestroyed()),
+    iconVariant: currentIconVariant,
     registeredShortcuts: [...registeredShortcuts],
   };
   fs.writeFileSync(path.join(targetDir, 'report.json'), JSON.stringify(report, null, 2), 'utf8');
@@ -361,11 +372,14 @@ if (!gotLock) {
   ipcMain.handle('desktop:get-state', () => ({
     isMini: Boolean(windowState?.isMini),
     url: baseUrl,
+    theme: windowState?.theme || 'auto',
+    iconVariant: currentIconVariant,
   }));
   ipcMain.handle('desktop:sync-settings', (_ev, settings) => {
     applySettingsSnapshot(settings || {});
     return { ok: true, registeredShortcuts: [...registeredShortcuts] };
   });
+  ipcMain.handle('desktop:set-theme-icon', (_ev, theme) => applyThemeIcons(theme));
 
   app.whenReady().then(async () => {
     supervisor = createSupervisor({
@@ -378,10 +392,15 @@ if (!gotLock) {
       baseUrl = ready.url;
     }
 
-    const icon = createWaveformIcon(32);
+    const displays = screen.getAllDisplays();
+    windowState = loadWindowState(app.getPath('userData'), { displays });
+    const initialTheme = normalizeThemeName(windowState.theme);
+    const icons = iconSetForTheme(initialTheme);
+    currentIconVariant = icons.variant;
+
     await hydrateRemoteSettings();
-    createWindow(icon);
-    createTray(icon);
+    createWindow(icons, initialTheme);
+    createTray(createTrayImage(icons));
 
     if (verifyDumpDir) {
       mainWindow.webContents.once('did-finish-load', () => {

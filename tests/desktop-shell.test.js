@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 const require = createRequire(import.meta.url);
 const windowState = require('../desktop/window-state.cjs');
 const supervisor = require('../desktop/supervisor.cjs');
+const themeIcons = require('../desktop/theme-icons.cjs');
 
 describe('desktop window-state', () => {
   it('规范化全局快捷键字符串为 Electron Accelerator', () => {
@@ -124,6 +125,60 @@ describe('desktop control bridge', () => {
     expect(main).toContain("headers: { 'Content-Type': 'application/json' }");
     expect(main).toMatch(/body: JSON\.stringify\(\{ command,/);
     expect(main).not.toMatch(/body: JSON\.stringify\(\{ action,/);
+  });
+});
+
+describe('desktop theme icons', () => {
+  it('iconSetForTheme 按主题返回水墨或像素图标组，且全部资源与 7 尺寸 ICO 均有效', () => {
+    const pixelSet = themeIcons.iconSetForTheme('pixel');
+    expect(pixelSet.variant).toBe('pixel');
+    expect(path.basename(pixelSet.windowIcon)).toBe('claudio-pixel.ico');
+    expect(path.basename(pixelSet.trayIcon)).toBe('tray-pixel-32.png');
+    expect(path.basename(pixelSet.trayIcon16)).toBe('tray-pixel-16.png');
+
+    for (const theme of ['auto', 'light', 'dark', '', undefined, 'invalid']) {
+      const inkSet = themeIcons.iconSetForTheme(theme);
+      expect(inkSet.variant).toBe('ink');
+      expect(path.basename(inkSet.windowIcon)).toBe('claudio-ink.ico');
+      expect(path.basename(inkSet.trayIcon)).toBe('tray-ink-32.png');
+      expect(path.basename(inkSet.trayIcon16)).toBe('tray-ink-16.png');
+    }
+
+    for (const set of [themeIcons.iconSetForTheme('ink'), pixelSet]) {
+      expect(fs.existsSync(set.windowIcon)).toBe(true);
+      expect(fs.existsSync(set.trayIcon)).toBe(true);
+      expect(fs.existsSync(set.trayIcon16)).toBe(true);
+      const buf = fs.readFileSync(set.windowIcon);
+      const count = buf.readUInt16LE(4);
+      expect(count).toBe(7);
+      const dims = Array.from({ length: count }, (_, i) => buf[6 + i * 16] || 256);
+      expect(dims).toEqual([16, 24, 32, 48, 64, 128, 256]);
+    }
+  });
+
+  it('window-state 持久化 theme 字段，且 main/preload 移除旧波形图标并接入主题图标 IPC', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'claudio-theme-state-'));
+    try {
+      const saved = {
+        isMini: false,
+        standard: { x: 80, y: 60, width: 1040, height: 700 },
+        mini: {},
+        theme: 'pixel',
+      };
+      expect(windowState.saveWindowState(dir, saved)).toBe(true);
+      const loaded = windowState.loadWindowState(dir, {
+        displays: [{ workArea: { x: 0, y: 0, width: 1920, height: 1080 } }],
+      });
+      expect(loaded.theme).toBe('pixel');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+
+    const main = fs.readFileSync(path.resolve('desktop/main.cjs'), 'utf8');
+    const preload = fs.readFileSync(path.resolve('desktop/preload.cjs'), 'utf8');
+    expect(main).not.toContain('createWaveformIcon');
+    expect(main).toContain("ipcMain.handle('desktop:set-theme-icon'");
+    expect(preload).toContain("setThemeIcon: theme => ipcRenderer.invoke('desktop:set-theme-icon', theme)");
   });
 });
 

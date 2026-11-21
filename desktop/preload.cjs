@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('claudioDesktop', {
   setMini: flag => ipcRenderer.invoke('desktop:set-mini', Boolean(flag)),
   getState: () => ipcRenderer.invoke('desktop:get-state'),
   syncSettings: settings => ipcRenderer.invoke('desktop:sync-settings', settings),
+  setThemeIcon: theme => ipcRenderer.invoke('desktop:set-theme-icon', theme),
   onMiniChanged: callback => {
     if (typeof callback !== 'function') return () => {};
     const listener = (_event, isMini) => callback(Boolean(isMini));
