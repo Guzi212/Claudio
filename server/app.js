@@ -13,7 +13,7 @@ import { dbApi } from './db.js';
 import { ensureLogin, startAutoRefresh, stopAutoRefresh } from './services/kugou-login.js';
 import { start as startScheduler } from './scheduler.js';
 import { brainMode, startBrainServices } from './brain.js';
-import { applyProgress, readSavedScene } from './playback-control.js';
+import { applyMediaEvent, applyProgress, readSavedScene } from './playback-control.js';
 import { readContinuePool } from './continue-pool.js';
 import { newRuntimeInstanceId } from './queue-source.js';
 import { mountContinuePoolRoutes } from './api/continue-pool.js';
@@ -75,6 +75,7 @@ const runtime = {
   volumeExplicit: hasSavedVolume(dbApi), // false 表示 30 只是默认值，用户没显式设过
   currentTime: 0,
   duration: 0,
+  playbackEvent: null,
   lastReason: '',
   queuedAt: null,
   queuedSource: '',
@@ -310,6 +311,8 @@ server.on('upgrade', (req, socket, head) => {
         const before = runtime.volume;
         applyProgress(runtime, msg);
         if (runtime.volume !== before) volumeSaver.remember(runtime.volume);
+      } else if (msg?.type === 'media-event') {
+        applyMediaEvent(runtime, msg);
       }
     });
     ws.on('close', () => {

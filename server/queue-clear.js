@@ -23,6 +23,7 @@ export function clearQueue(runtime, { reason = '' } = {}) {
   runtime.paused = true;
   runtime.currentTime = 0;
   runtime.duration = 0;
+  runtime.playbackEvent = null;
   runtime.trackEnded = false;
   runtime.queueSource = null;
   runtime.queuedAt = null;

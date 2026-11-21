@@ -107,13 +107,110 @@ export function playbackStatus(runtime = {}, { listeners = 0, brain = 'external'
     queueEpoch: queueEpochOf(runtime),
     continueSuppressed: Boolean(runtime.continueSuppressed),
     runtimeInstanceId: runtimeInstanceIdOf(runtime) || null,
+    // 浏览器 <audio> 媒体元素上报的最近事件（loaded/playing），仅代表播放器事件，不代表实际声卡出声。
+    playbackEvent: runtime.playbackEvent || null,
   };
+}
+
+export function resetPlaybackObservation(runtime) {
+  if (!runtime || typeof runtime !== 'object') return;
+  runtime.currentTime = 0;
+  runtime.duration = 0;
+  runtime.playbackEvent = null;
+}
+
+const MEDIA_EVENT_STAGES = new Set(['loaded', 'playing']);
+
+export function normalizeMediaEventStage(stage) {
+  const value = String(stage ?? '').trim().toLowerCase();
+  return MEDIA_EVENT_STAGES.has(value) ? value : null;
+}
+
+/**
+ * 记录浏览器 <audio> 真实触发的媒体阶段（loadeddata / playing）。
+ * 受 queueEpoch、clear 锁定和曲目一致性保护，过期事件一律丢弃。
+ */
+export function applyMediaEvent(runtime, body = {}, { now = () => new Date().toISOString() } = {}) {
+  if (!runtime || typeof runtime !== 'object') return { ok: false, stale: true, reason: 'no_runtime' };
+  const stage = normalizeMediaEventStage(body?.stage ?? body?.mediaEvent);
+  if (!stage) return { ok: false, stale: false, reason: 'invalid_stage' };
+  if (queueWriteIsStale(runtime, body) || queuePlaybackLocked(runtime)) {
+    return { ok: false, stale: true, reason: 'stale_epoch_or_locked' };
+  }
+  const queue = Array.isArray(runtime.queue) ? runtime.queue : [];
+  if (!queue.length) return { ok: false, stale: true, reason: 'empty_queue' };
+
+  const reported = reportedQueueIndex(runtime, body);
+  if (typeof reported === 'number' && reported < 0) {
+    return { ok: false, stale: true, reason: 'trimmed_index' };
+  }
+  const rawIndex = typeof reported === 'number'
+    ? Math.trunc(reported)
+    : (Number.isFinite(runtime.index) ? runtime.index : 0);
+  const clamped = Math.max(0, Math.min(rawIndex, queue.length - 1));
+  const track = queue[clamped] || null;
+
+  const reportedId = String(body?.kugouId || '').trim();
+  if (reportedId && track?.kugouId && reportedId !== String(track.kugouId)) {
+    return { ok: false, stale: true, reason: 'track_mismatch' };
+  }
+
+  const currentEpoch = queueEpochOf(runtime);
+  const currentOffset = runtime.queueOffset || 0;
+  const trackId = String(track?.kugouId || reportedId || '');
+  const prev = runtime.playbackEvent;
+  // 同一首同一轮次已经达到 playing 后，晚到的 loaded 不得倒退状态。
+  if (stage === 'loaded' && prev && prev.stage === 'playing'
+    && prev.queueEpoch === currentEpoch
+    && prev.index === clamped
+    && prev.queueOffset === currentOffset
+    && prev.kugouId === trackId) {
+    return { ok: true, stale: false, ignored: true, event: prev };
+  }
+
+  if (typeof body.currentTime === 'number' && Number.isFinite(body.currentTime)) {
+    runtime.currentTime = Math.max(0, body.currentTime);
+  }
+  if (typeof body.duration === 'number' && Number.isFinite(body.duration)) {
+    runtime.duration = Math.max(0, body.duration);
+  }
+  if (clamped !== runtime.index) {
+    runtime.index = clamped;
+    runtime.trackEnded = false;
+  }
+  if (stage === 'playing') {
+    runtime.paused = false;
+    runtime.trackEnded = false;
+    notePlaybackActivity(runtime);
+  }
+
+  const readyState = Number.isFinite(body?.readyState) ? Math.max(0, Math.trunc(body.readyState)) : null;
+  const clientAt = typeof body?.clientAt === 'string' && body.clientAt.trim() ? body.clientAt.trim() : null;
+  const clientId = typeof body?.clientId === 'string' && body.clientId.trim() ? body.clientId.trim() : null;
+
+  const event = {
+    stage,
+    layer: 'player_media_event',
+    queueEpoch: currentEpoch,
+    index: clamped,
+    queueOffset: currentOffset,
+    kugouId: trackId,
+    title: String(track?.title || body?.title || ''),
+    queuedAt: track?.queuedAt || null,
+    currentTime: Number.isFinite(runtime.currentTime) ? runtime.currentTime : 0,
+    readyState,
+    at: now(),
+    clientAt,
+    clientId,
+  };
+  runtime.playbackEvent = event;
+  return { ok: true, stale: false, ignored: false, event };
 }
 
 function restartFromStart(runtime) {
   // 重播从当前保留队列的第 0 首开始，即裁剪后最早保留的历史曲目。
   runtime.index = 0;
-  runtime.currentTime = 0;
+  resetPlaybackObservation(runtime);
   runtime.paused = false;
   runtime.trackEnded = false;
 }
@@ -149,7 +246,7 @@ export function applyControl(runtime, { command, arg, value } = {}) {
       if (queue.length && runtime.index < queue.length - 1) {
         runtime.index += 1;
         runtime.trackEnded = false;
-        runtime.currentTime = 0;
+        resetPlaybackObservation(runtime);
         runtime.paused = false;
         return {
           ...base(),
@@ -170,7 +267,7 @@ export function applyControl(runtime, { command, arg, value } = {}) {
       if (runtime.index > 0) {
         runtime.index -= 1;
         runtime.trackEnded = false;
-        runtime.currentTime = 0;
+        resetPlaybackObservation(runtime);
         runtime.paused = false;
       }
       return {
@@ -236,7 +333,7 @@ export function applyControl(runtime, { command, arg, value } = {}) {
       }
       runtime.index = Math.max(0, Math.min(Math.trunc(idx), queue.length - 1));
       runtime.trackEnded = false;
-      runtime.currentTime = 0;
+      resetPlaybackObservation(runtime);
       runtime.paused = false;
       return {
         ...base(),

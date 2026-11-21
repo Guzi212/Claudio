@@ -247,23 +247,79 @@ function reportProgress(force = false) {
   }));
 }
 
+function reportMediaEvent(stage) {
+  if (!audio) return;
+  if (!shouldReportPlayback({ audioSourceEpoch, queueEpoch: state.queueEpoch })) return;
+  const cur = currentTrack();
+  const detail = {
+    stage,
+    index: state.index,
+    queueOffset: state.offset,
+    queueEpoch: audioSourceEpoch,
+    kugouId: cur?.kugouId || '',
+    title: cur?.title || '',
+    currentTime: Number.isFinite(audio.currentTime) ? audio.currentTime : 0,
+    duration: Number.isFinite(audio.duration) ? audio.duration : 0,
+    readyState: Number.isFinite(audio.readyState) ? audio.readyState : 0,
+    paused: Boolean(audio.paused),
+    clientAt: new Date().toISOString(),
+    clientId: getClientId(),
+  };
+  window.dispatchEvent(new CustomEvent('claudio:media-event', { detail }));
+  // playing 是播放器真正开始走时的关键观测，同时走受鉴权的 /api/runtime/state 兜底，
+  // 避免 WS 刚重连时丢掉观测；它仅表示浏览器 <audio> playing 事件，不代表系统出声。
+  if (stage === 'playing') {
+    syncToServer(state.index, {
+      paused: false,
+      ended: false,
+      mediaEvent: 'playing',
+      kugouId: detail.kugouId,
+      title: detail.title,
+      currentTime: detail.currentTime,
+      duration: detail.duration,
+      readyState: detail.readyState,
+      clientAt: detail.clientAt,
+    });
+  }
+}
+
 // 把服务端的真实位置推回前端的镜像状态（避免 server / client 两边索引漂移）。
 // clientId 会跟着广播回来；这份页面看到自己的 origin 就不再改播放。
-function syncToServer(index, { paused = false, ended = false } = {}) {
+function syncToServer(index, {
+  paused = false,
+  ended = false,
+  mediaEvent = null,
+  kugouId = '',
+  title = '',
+  currentTime = null,
+  duration = null,
+  readyState = null,
+  clientAt = null,
+} = {}) {
   if (!shouldReportPlayback({ audioSourceEpoch, queueEpoch: state.queueEpoch })) {
     return Promise.resolve(null);
+  }
+  const payload = {
+    index,
+    queueOffset: state.offset,
+    paused,
+    ended,
+    queueEpoch: audioSourceEpoch,
+    clientId: getClientId(),
+  };
+  if (mediaEvent) {
+    payload.mediaEvent = mediaEvent;
+    if (kugouId) payload.kugouId = kugouId;
+    if (title) payload.title = title;
+    if (Number.isFinite(currentTime)) payload.currentTime = currentTime;
+    if (Number.isFinite(duration)) payload.duration = duration;
+    if (Number.isFinite(readyState)) payload.readyState = readyState;
+    if (clientAt) payload.clientAt = clientAt;
   }
   return fetch('/api/runtime/state', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      index,
-      queueOffset: state.offset,
-      paused,
-      ended,
-      queueEpoch: audioSourceEpoch,
-      clientId: getClientId(),
-    }),
+    body: JSON.stringify(payload),
   }).then(res => res.ok ? res.json() : null).catch(() => null);
 }
 
@@ -1346,6 +1402,11 @@ export function applyRuntime(runtime, { origin } = {}) {
     state.queue = plan.queue || [];
     state.index = plan.index;
     state.offset = plan.queueOffset;
+    if (typeof audioSourceEpoch !== 'undefined' && audioSourceEpoch != null && (audio?.getAttribute?.('src') || audio?.src)) {
+      // append 只在队尾加歌并推进 queueEpoch，当前播放源未变时同步绑定最新 epoch，
+      // 避免后续进度/playing/ended 上报被 epoch 门禁误杀。
+      if (typeof bindAudioSourceEpoch === 'function') bindAudioSourceEpoch();
+    }
     renderQueuePanel();
     if (!state.queue.length && brain !== 'internal') {
       setConsoleDialog('等待点歌');
@@ -1394,9 +1455,22 @@ export function applyRuntime(runtime, { origin } = {}) {
 }
 
 // 外部 bot 推来的歌。replace 接管当前队列；append 只在没在播时开播。
-export function applyExternalQueue({ mode, tracks, say, reason, queuedAt: at, agentId, agentName } = {}) {
+export function applyExternalQueue({
+  mode,
+  tracks,
+  say,
+  reason,
+  queuedAt: at,
+  agentId,
+  agentName,
+  queueEpoch,
+  runtimeInstanceId,
+} = {}) {
   const list = Array.isArray(tracks) ? tracks.filter(track => track && track.title) : [];
   if (!list.length) return;
+  if (isStaleRemoteSnapshot(state, { queueEpoch, runtimeInstanceId }, { allowInstanceReset: true })) return;
+  if (runtimeInstanceId) state.runtimeInstanceId = runtimeInstanceId;
+  if (Number.isSafeInteger(queueEpoch)) state.queueEpoch = queueEpoch;
   if (agentName || agentId) {
     activeAgent = { id: agentId || null, name: agentName || agentId || null };
   }
@@ -1417,10 +1491,16 @@ export function applyExternalQueue({ mode, tracks, say, reason, queuedAt: at, ag
   }, { mode, incoming: list.length });
   if (mode === 'append') {
     state.queue = [...state.queue, ...list];
+    if (!plan.autoplay && audioSourceEpoch != null && (audio?.getAttribute?.('src') || audio?.src)) {
+      bindAudioSourceEpoch();
+    }
   } else {
     state.queue = list;
     state.index = 0;
     state.offset = 0;
+    // replace 接管：立刻清掉旧进度缓存与进度条，并强制从 0 开始播放（即使与上一首同名/同 hash）。
+    serverProgress = 0;
+    updateSeekBar(0, 0);
   }
   renderQueuePanel();
   if (!plan.autoplay) return;
@@ -1428,7 +1508,10 @@ export function applyExternalQueue({ mode, tracks, say, reason, queuedAt: at, ag
     playIndex(plan.playIndex ?? state.index, { autoplay: true, resume: true, startAt: audio?.currentTime || serverProgress });
     return;
   }
-  if (plan.playIndex != null) playIndex(plan.playIndex, { autoplay: true });
+  if (plan.playIndex != null) {
+    const isReplace = mode !== 'append';
+    playIndex(plan.playIndex, { autoplay: true, restart: isReplace, startAt: 0 });
+  }
 }
 
 // boot 后台拉完追加的歌曲，通过 WS queue-append 推进来
@@ -1517,6 +1600,8 @@ export function initPlayer() {
   });
   audio.addEventListener('durationchange', () => updateSeekBar(audio.currentTime, audio.duration));
   audio.addEventListener('loadedmetadata', () => updateSeekBar(audio.currentTime, audio.duration));
+  audio.addEventListener('loadeddata', () => reportMediaEvent('loaded'));
+  audio.addEventListener('playing', () => reportMediaEvent('playing'));
   audio.addEventListener('seeked', () => reportProgress(true));
 
   if (npSeek) {
