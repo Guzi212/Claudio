@@ -3,7 +3,7 @@
 import { dbApi as defaultDb } from '../db.js';
 import { buildSystemPrompt as defaultBuildSystemPrompt } from '../context.js';
 import { ask as defaultAsk } from '../claude.js';
-import { hasActiveExternalQueue, markQueueSource } from '../queue-source.js';
+import { hasActiveExternalQueue, markQueueSource, queueEpochOf } from '../queue-source.js';
 import { brainMode } from '../brain.js';
 
 export const BOOT_MSG = '刚打开电台，请根据现在的时间和天气推荐开播曲目';
@@ -46,9 +46,27 @@ export function mountBootRoute(app, deps = {}) {
     }
 
     try {
+      const startedEpoch = queueEpochOf(runtime);
+      // 用户明确清空过：开机电台不自动回填，等下一次明确点歌。
+      if (runtime.continueSuppressed) {
+        res.json({
+          say: '等待点歌',
+          queue: runtime.queue || [],
+          index: runtime.index || 0,
+          queueOffset: runtime.queueOffset || 0,
+          reason: 'cleared',
+          intent: 'boot',
+          brain: 'internal',
+          skipped: true,
+          preserved: 'cleared',
+          _resolveError: false,
+        });
+        return;
+      }
       const systemPrompt = await buildSystemPrompt();
       const { say, queue: songQueue, reason, raw } = await ask(systemPrompt, BOOT_MSG);
 
+      // 外部点歌在等待期间写入：即使 epoch 变了，也优先按「外部队列还在播」处理。
       if (hasActiveExternalQueue(runtime)) {
         const hint = PRESERVE_EXTERNAL_SAY;
         runtime.lastSay = hint;
@@ -64,6 +82,25 @@ export function mountBootRoute(app, deps = {}) {
           intent: 'boot',
           skipped: true,
           preserved: 'external',
+          _resolveError: false,
+        });
+        return;
+      }
+
+      // clear 之后、或等待期间被别的明确点歌换了队列：开机电台都不回填。
+      if (runtime.continueSuppressed || queueEpochOf(runtime) !== startedEpoch) {
+        const hasQueue = Array.isArray(runtime.queue) && runtime.queue.length > 0;
+        broadcast({ type: 'state', runtime });
+        res.json({
+          say: hasQueue ? (runtime.lastSay || '队列已更新，开机电台先不换歌') : '等待点歌',
+          queue: runtime.queue,
+          index: runtime.index,
+          queueOffset: runtime.queueOffset || 0,
+          reason: hasQueue ? '' : 'cleared',
+          intent: 'boot',
+          brain: 'internal',
+          skipped: true,
+          preserved: hasQueue ? 'changed' : 'cleared',
           _resolveError: false,
         });
         return;

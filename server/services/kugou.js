@@ -209,11 +209,12 @@ export function coverUrlFromRaw(raw) {
 export async function resolveTrack({ title = '', artist = '', hint = '', hash = '' }) {
   const explicitHash = String(hash || '').trim();
   if (explicitHash) {
-    const url = await songUrl(explicitHash);
+    // 已知 hash 且带 title 时，并行拉直链与元数据，省掉一次串行上游往返。
+    const [url, meta] = await Promise.all([
+      songUrl(explicitHash),
+      title ? resolveTrackMeta({ title, artist, hash: explicitHash }).catch(() => null) : Promise.resolve(null),
+    ]);
     if (url) {
-      const meta = title
-        ? await resolveTrackMeta({ title, artist, hash: explicitHash }).catch(() => null)
-        : null;
       return {
         kugouId: explicitHash,
         title: meta?.title || title || explicitHash,

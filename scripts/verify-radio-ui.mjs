@@ -260,12 +260,20 @@ try {
   await evaluate(`navigator.serviceWorker?.getRegistrations().then(rs => Promise.all(rs.map(r => r.unregister())))`).catch(() => {});
 
   const results = {};
-  for (const [name, width, height] of [['desktop', 1280, 900], ['wide', 1440, 900], ['mobile', 390, 844], ['small', 320, 760]]) {
+  for (const [name, width, height] of [['desktop', 1280, 900], ['desktop-1040', 1040, 700], ['wide', 1440, 900], ['mobile', 390, 844], ['small', 320, 760]]) {
     await viewport(width, height);
     await navigate();
-    await waitFor(`document.querySelector('#queue-list').children.length === 3`);
+    await waitFor(`document.querySelector('#queue-list').children.length === 3 && !!document.querySelector('#lyrics-panel .lyric-line')`);
     results[name] = await layout(name, width, height);
   }
+  assert.ok(results.desktop.cover.width <= 180, `Desktop cover should be compact, got ${results.desktop.cover.width}`);
+  const desktopLyricsRect = await evaluate(`(() => {
+    const cover = document.querySelector('.cover').getBoundingClientRect();
+    const panel = document.querySelector('#lyrics-panel').getBoundingClientRect();
+    return { coverWidth: cover.width, coverBottom: cover.bottom, lyricsTop: panel.top, lyricsVisible: getComputedStyle(document.querySelector('#lyrics-panel')).display !== 'none' };
+  })()`);
+  assert.equal(desktopLyricsRect.lyricsVisible, true, 'Lyrics should display automatically in real time');
+  assert.ok(desktopLyricsRect.lyricsTop >= desktopLyricsRect.coverBottom - 1, 'Lyrics panel should sit below the compact cover');
 
   // 水墨宣纸画风、时辰染色、场景胶囊、显式双主题切换验证
   await viewport(1280, 900); await navigate();
@@ -300,17 +308,20 @@ try {
   assert.notEqual(dayparts.dawn.tint, dayparts.night.tint);
 
   const theme = {};
-  for (const name of ['light', 'dark']) {
+  for (const name of ['light', 'dark', 'pixel']) {
     await evaluate(`window.dispatchEvent(new CustomEvent('claudio:theme', { detail: ${JSON.stringify(name)} }))`);
     await delay(120);
     theme[name] = await evaluate(`(() => {
       const root = getComputedStyle(document.documentElement);
       const body = getComputedStyle(document.body);
+      const card = document.querySelector('.host');
       return {
         dataset: document.documentElement.dataset.theme,
         canvas: root.getPropertyValue('--canvas').trim(),
         ink: root.getPropertyValue('--ink').trim(),
         bodyBg: body.backgroundColor,
+        bodyBgImage: body.backgroundImage,
+        hostRadius: card ? getComputedStyle(card).borderRadius : '',
         meta: document.querySelector('meta[name="theme-color"]')?.content || '',
         stored: localStorage.getItem('claudio:ui-theme') || '',
       };
@@ -319,14 +330,150 @@ try {
   }
   assert.equal(theme.light.dataset, 'light');
   assert.equal(theme.dark.dataset, 'dark');
+  assert.equal(theme.pixel.dataset, 'pixel');
   assert.equal(theme.light.canvas, '#f2ede1');
   assert.equal(theme.dark.canvas, '#171512');
+  assert.equal(theme.pixel.canvas.toUpperCase(), '#0B1526');
   assert.notEqual(theme.light.bodyBg, theme.dark.bodyBg);
+  assert.notEqual(theme.dark.bodyBg, theme.pixel.bodyBg);
+  assert.equal(theme.pixel.hostRadius, '0px');
   assert.equal(theme.light.meta, '#f2ede1');
   assert.equal(theme.dark.meta, '#171512');
+  assert.equal(theme.pixel.meta.toUpperCase(), '#0B1526');
   assert.equal(theme.light.stored, 'light');
   assert.equal(theme.dark.stored, 'dark');
-  await evaluate(`window.dispatchEvent(new CustomEvent('claudio:theme', { detail: 'auto' }))`);
+  assert.equal(theme.pixel.stored, 'pixel');
+
+  // 像素数码全视图截图 + 数码小人状态切换 + pixel ↔ dark ↔ light 来回切换无残留校验
+  await evaluate(`window.dispatchEvent(new CustomEvent('claudio:theme', { detail: 'pixel' }))`);
+  await delay(120);
+  assert.equal(await evaluate(`document.documentElement.scrollWidth`), 1280, 'pixel desktop player overflow');
+  const pixelHostPlaying = await evaluate(`(() => ({
+    stageDisplay: getComputedStyle(document.querySelector('#pixel-host-stage')).display,
+    spriteSrc: document.querySelector('#pixel-host-sprite')?.getAttribute('src') || '',
+    headDisplay: getComputedStyle(document.querySelector('#pixel-host-head')).display,
+    grokDisplay: getComputedStyle(document.querySelector('#grokbot-avatar')).display,
+  }))()`);
+  assert.notEqual(pixelHostPlaying.stageDisplay, 'none', 'pixel host stage should be visible at 1280px');
+  assert.equal(pixelHostPlaying.spriteSrc, 'assets/pixel/host-listen.webp', 'playing state should show host-listen');
+  assert.notEqual(pixelHostPlaying.headDisplay, 'none', 'pixel host head should be visible in avatar');
+  assert.equal(pixelHostPlaying.grokDisplay, 'none', 'grokbot avatar should be hidden in pixel theme');
+  await screenshot('pixel-desktop-player');
+
+  // 点赞瞬间切换竖大拇指并在 1.2s 后恢复
+  await click('[data-feedback="like"]');
+  await delay(350);
+  const likeSrc = await evaluate(`document.querySelector('#pixel-host-sprite')?.getAttribute('src') || ''`);
+  assert.equal(likeSrc, 'assets/pixel/host-thumbsup.webp', 'like flash should show host-thumbsup');
+  await screenshot('pixel-desktop-like');
+  await delay(1050);
+  const revertedSrc = await evaluate(`document.querySelector('#pixel-host-sprite')?.getAttribute('src') || ''`);
+  assert.equal(revertedSrc, 'assets/pixel/host-listen.webp', 'like flash should revert to host-listen');
+  await click('[data-feedback="like"]');
+
+  // 像素主题空队列/等待态截图
+  await evaluate(`document.body.classList.add('is-empty')`);
+  await delay(80);
+  const waitDisplay = await evaluate(`getComputedStyle(document.querySelector('#pixel-host-waiting')).display`);
+  assert.notEqual(waitDisplay, 'none', 'pixel waiting sprite should be visible in empty state');
+  await screenshot('pixel-desktop-empty');
+  await evaluate(`document.body.classList.remove('is-empty')`);
+  await delay(80);
+  for (const view of ['playlists', 'profile', 'settings']) {
+    await evaluate(`document.querySelector('.tab[data-view="${view}"]').click()`);
+    await waitFor(`!document.querySelector('#view-${view}').classList.contains('hidden')`);
+    await delay(120);
+    if (view === 'playlists') {
+      await evaluate(`(() => { const input = document.querySelector('#search-input'); input.value = '晴天'; document.querySelector('#search-form').requestSubmit(); })()`);
+      await waitFor(`document.querySelectorAll('#search-results .search-result').length > 0`);
+    }
+    if (view === 'settings') {
+      await waitFor(`document.querySelector('#kugou-status')?.textContent !== '读取中…'`);
+      await evaluate(`(() => { const sel = document.querySelector('#set-ui-theme'); sel.value = 'pixel'; sel.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+      await delay(80);
+      assert.equal(await evaluate(`document.documentElement.dataset.theme`), 'pixel');
+      const hostToggleVisible = await evaluate(`getComputedStyle(document.querySelector('#set-pixel-host').closest('.setting-row')).display !== 'none'`);
+      assert.equal(hostToggleVisible, true, 'pixel host setting toggle should be visible in pixel theme');
+    }
+    assert.equal(await evaluate(`document.documentElement.scrollWidth`), 1280, `pixel desktop ${view} overflow`);
+    await screenshot(`pixel-desktop-${view}`);
+    if (view === 'settings') {
+      await evaluate(`document.querySelector('#set-ui-theme').scrollIntoView({ block: 'center', behavior: 'instant' })`);
+      const shot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+      await writeFile(path.join(output, 'pixel-desktop-settings-theme.png'), Buffer.from(shot.data, 'base64'));
+      await evaluate(`document.querySelector('#view-settings').scrollTo({ top: 0, behavior: 'instant' })`);
+    }
+  }
+  // 通过设置页下拉真实触发 pixel -> dark -> light -> pixel -> auto 往返切换，验证无样式残留
+  const roundTrip = {};
+  for (const targetTheme of ['pixel', 'dark', 'light', 'pixel', 'auto']) {
+    await evaluate(`(() => {
+      const sel = document.querySelector('#set-ui-theme');
+      sel.value = ${JSON.stringify(targetTheme)};
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    })()`);
+    await delay(80);
+    roundTrip[targetTheme] = await evaluate(`(() => {
+      const root = getComputedStyle(document.documentElement);
+      const body = getComputedStyle(document.body);
+      const topbar = getComputedStyle(document.querySelector('#topbar'));
+      const firstCard = getComputedStyle(document.querySelector('#view-settings .card'));
+      return {
+        dataset: document.documentElement.dataset.theme,
+        canvas: root.getPropertyValue('--canvas').trim(),
+        bodyBg: body.backgroundColor,
+        bodyBgImage: body.backgroundImage,
+        topbarBorderTopWidth: topbar.borderTopWidth,
+        cardRadius: firstCard.borderRadius,
+        meta: document.querySelector('meta[name="theme-color"]')?.content || '',
+      };
+    })()`);
+  }
+  assert.equal(roundTrip.dark.canvas, '#171512');
+  assert.equal(roundTrip.dark.topbarBorderTopWidth, '0px');
+  assert.equal(roundTrip.dark.cardRadius, '4px');
+  assert.equal(roundTrip.light.canvas, '#f2ede1');
+  assert.equal(roundTrip.light.topbarBorderTopWidth, '0px');
+  assert.equal(roundTrip.light.cardRadius, '4px');
+  assert.equal(roundTrip.auto.canvas, '#f2ede1');
+  assert.equal(roundTrip.auto.meta, '#f2ede1');
+
+  await viewport(390, 844);
+  await evaluate(`window.dispatchEvent(new CustomEvent('claudio:theme', { detail: 'pixel' }))`);
+  for (const view of ['player', 'playlists', 'profile', 'settings']) {
+    await evaluate(`document.querySelector('.tab[data-view="${view}"]').click()`);
+    await waitFor(`!document.querySelector('#view-${view}').classList.contains('hidden')`);
+    await delay(100);
+    assert.equal(await evaluate(`document.documentElement.scrollWidth`), 390, `pixel mobile ${view} overflow`);
+    await screenshot(`pixel-mobile-${view}`);
+  }
+  await viewport(1280, 900);
+  await evaluate(`document.querySelector('.tab[data-view="player"]').click()`);
+  // 380x136 迷你陪伴窗口下 pixel 主题控制钮尺寸与裁切验证
+  await viewport(380, 136);
+  await evaluate(`document.documentElement.classList.add('is-desktop', 'is-mini'); window.dispatchEvent(new CustomEvent('claudio:theme', { detail: 'pixel' }));`);
+  await delay(80);
+  const pixelMini = await evaluate(`(() => {
+    const play = document.querySelector('.main-play').getBoundingClientRect();
+    const prev = document.querySelector('[data-console-control="prev"]').getBoundingClientRect();
+    return {
+      scrollWidth: document.documentElement.scrollWidth,
+      playW: Math.round(play.width),
+      playH: Math.round(play.height),
+      playBottom: Math.round(play.bottom),
+      prevW: Math.round(prev.width),
+      prevH: Math.round(prev.height),
+    };
+  })()`);
+  assert.equal(pixelMini.scrollWidth, 380, 'pixel mini overflow');
+  assert.equal(pixelMini.playW, 36);
+  assert.equal(pixelMini.playH, 36);
+  assert.equal(pixelMini.prevW, 32);
+  assert.equal(pixelMini.prevH, 32);
+  assert.ok(pixelMini.playBottom <= 136, `pixel mini play clipped at ${pixelMini.playBottom}`);
+  await screenshot('pixel-mini');
+  await evaluate(`document.documentElement.classList.remove('is-desktop', 'is-mini'); window.dispatchEvent(new CustomEvent('claudio:theme', { detail: 'auto' }));`);
+  await viewport(1280, 900);
 
   await viewport(390, 844); await navigate();
   await waitFor(`!document.body.classList.contains('is-empty')`);
@@ -425,7 +572,7 @@ try {
   }
   await evaluate(`document.querySelector('.tab[data-view="player"]').click()`);
   let focus;
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 16; i++) {
     await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
     await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 });
     focus = await evaluate(`({ outline: getComputedStyle(document.activeElement).outlineStyle, element: document.activeElement.dataset.consoleControl || document.activeElement.dataset.view, visible: document.activeElement.matches(':focus-visible') })`);
@@ -458,6 +605,11 @@ try {
   const longQueue = await evaluate(`({ width: document.documentElement.scrollWidth, count: document.querySelector('#queue-list').children.length, titleWidth: document.querySelector('.queue-title').getBoundingClientRect().width, scrollHeight: document.documentElement.scrollHeight })`);
   assert.equal(longQueue.width, 320); assert.equal(longQueue.count, 7);
   await screenshot('small-long-queue');
+  await evaluate(`window.dispatchEvent(new CustomEvent('claudio:theme', { detail: 'pixel' }))`);
+  await delay(80);
+  assert.equal(await evaluate('document.documentElement.scrollWidth'), 320, 'pixel small long queue overflow');
+  await screenshot('pixel-small-long-queue');
+  await evaluate(`window.dispatchEvent(new CustomEvent('claudio:theme', { detail: 'auto' }))`);
   state.queue = savedQueue.map(track => ({ ...track, cover: '/missing-cover.png' }));
   await navigate();
   await waitFor(`document.querySelector('#np-cover-img').hidden && !document.querySelector('#np-cover-fallback').hidden`);
@@ -473,14 +625,16 @@ try {
   await viewport(1280, 900); await navigate();
   await waitFor(`document.querySelector('#lyrics-panel .lyric-line')`);
   const internal = await evaluate(`({ chat: getComputedStyle(document.querySelector('#console-chat')).display, lyrics: getComputedStyle(document.querySelector('#lyrics-panel')).display, toggle: document.querySelector('#lyrics-toggle').hidden, aiSettings: null, scrollWidth: document.documentElement.scrollWidth })`);
-  assert.notEqual(internal.chat, 'none'); assert.equal(internal.lyrics, 'none'); assert.equal(internal.toggle, false); assert.equal(internal.scrollWidth, 1280);
-  await screenshot('desktop-internal');
-  await click('#lyrics-toggle');
-  await waitFor(`getComputedStyle(document.querySelector('#lyrics-panel')).display !== 'none'`);
-  internal.lyrics = await evaluate(`getComputedStyle(document.querySelector('#lyrics-panel')).display`);
+  assert.notEqual(internal.chat, 'none'); assert.notEqual(internal.lyrics, 'none'); assert.equal(internal.toggle, false); assert.equal(internal.scrollWidth, 1280);
   await screenshot('desktop-internal-lyrics');
+  await evaluate(`window.dispatchEvent(new CustomEvent('claudio:theme', { detail: 'pixel' }))`);
+  await delay(80);
+  assert.equal(await evaluate('document.documentElement.scrollWidth'), 1280, 'pixel internal lyrics overflow');
+  await screenshot('pixel-desktop-internal-lyrics');
+  await evaluate(`window.dispatchEvent(new CustomEvent('claudio:theme', { detail: 'auto' }))`);
   await click('#lyrics-toggle');
   await waitFor(`getComputedStyle(document.querySelector('#lyrics-panel')).display === 'none'`);
+  await screenshot('desktop-internal');
   const internalOptions = {};
   await click('[data-console-control="loop"]');
   await waitFor(`document.querySelector('[data-console-control="loop"]').textContent === '列表循环'`);
@@ -529,6 +683,12 @@ try {
   const empty = await evaluate(`({ stage: getComputedStyle(document.querySelector('.stage')).display, empty: getComputedStyle(document.querySelector('.empty-stage')).display, overlay: getComputedStyle(document.querySelector('#boot-overlay')).display, scrollWidth: document.documentElement.scrollWidth })`);
   assert.equal(empty.stage, 'none'); assert.notEqual(empty.empty, 'none'); assert.equal(empty.overlay, 'none'); assert.equal(empty.scrollWidth, 390);
   await screenshot('mobile-empty');
+  await viewport(1280, 900);
+  await evaluate(`window.dispatchEvent(new CustomEvent('claudio:theme', { detail: 'pixel' }))`);
+  await delay(80);
+  assert.equal(await evaluate('document.documentElement.scrollWidth'), 1280, 'pixel desktop empty overflow');
+  await screenshot('pixel-desktop-empty');
+  await evaluate(`window.dispatchEvent(new CustomEvent('claudio:theme', { detail: 'auto' }))`);
 
   assert.equal(errors.length, 0, `Browser errors: ${errors.join('\n')}`);
   await writeFile(path.join(output, 'verification.json'), JSON.stringify({ results, theme, playback, motionPlaying, motionPaused, selected, liked, exclusive, cancelled, favorited, seek, rememberedVolume, nav, focus, consoleHidden, externalOptionsHidden, longQueue, internal, internalOptions, lyricPosition, lyricFollow, empty, errors }, null, 2));

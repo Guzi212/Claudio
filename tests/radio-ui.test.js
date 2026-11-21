@@ -15,9 +15,12 @@ describe('radio visual contract (ink-on-xuan-paper)', () => {
     expect(html).toContain('id="desktop-titlebar"');
   });
 
-  it('歌词是播放舞台的一部分，internal 聊天保留独立入口', () => {
+  it('歌词位于紧凑封面正下方实时展示，internal 聊天保留独立入口', () => {
     const stage = html.slice(html.indexOf('class="stage"'), html.indexOf('class="queue"'));
-    expect(stage).toContain('id="lyrics-panel"');
+    const coverColumn = stage.slice(stage.indexOf('class="cover-column"'), stage.indexOf('class="playback-panel"'));
+    expect(coverColumn).toContain('id="np-cover"');
+    expect(coverColumn).toContain('id="lyrics-panel"');
+    expect(coverColumn.indexOf('id="np-cover"')).toBeLessThan(coverColumn.indexOf('id="lyrics-panel"'));
     expect(html).toContain('id="console-chat"');
     expect(html).toContain('id="chat"');
     expect(html).toContain('id="composer"');
@@ -87,8 +90,9 @@ describe('radio visual contract (ink-on-xuan-paper)', () => {
     expect(html).toContain('id="trait-list"');
   });
 
-  it('桌面双栏、手机紧凑舞台与 380x136 迷你陪伴态均有明确断点', () => {
-    expect(css).toMatch(/\.stage\s*\{[^}]*grid-template-columns:\s*minmax\(280px,\s*420px\)/);
+  it('桌面双栏紧凑封面、手机紧凑舞台与 380x136 迷你陪伴态均有明确断点', () => {
+    expect(css).toMatch(/\.stage\s*\{[^}]*grid-template-columns:\s*minmax\(248px,\s*324px\)/);
+    expect(css).toMatch(/\.cover\s*\{[^}]*width:\s*clamp\(144px,\s*14\.5vw,\s*176px\)/);
     expect(css).toMatch(/@media\s*\(max-height:\s*220px\)/);
     expect(css).toMatch(/@media\s*\(max-width:\s*700px\)[\s\S]*?\.stage\s*\{[^}]*grid-template-areas:\s*"art info"/);
     expect(css).toContain('@media (prefers-reduced-motion: reduce)');
@@ -96,9 +100,15 @@ describe('radio visual contract (ink-on-xuan-paper)', () => {
     expect(css).toMatch(/\.queue-title\s*\{[^}]*overflow-wrap:\s*anywhere/);
   });
 
-  it('离线壳缓存覆盖新增资源与全部水墨素材', () => {
-    expect(sw).toMatch(/const CACHE = 'claudio-shell-v25'/);
+  it('离线壳缓存覆盖新增资源与全部水墨/品牌/像素素材', () => {
+    expect(sw).toMatch(/const CACHE = 'claudio-shell-v32'/);
     expect(sw).toContain('\'/theme-store.js\'');
+    expect(sw).toContain('\'/host-mood.js\'');
+    expect(sw).toContain('\'/assets/brand/mark-ink.svg\'');
+    expect(sw).toContain('\'/assets/brand/mark-pixel.png\'');
+    expect(sw).toContain('\'/assets/pixel/host-listen.webp\'');
+    expect(sw).toContain('\'/assets/pixel/host-thumbsup.webp\'');
+    expect(sw).toContain('\'/assets/pixel/host-head.webp\'');
     expect(sw).toContain('\'/external-playback.js\'');
     expect(sw).toContain('\'/boot-playback.js\'');
     expect(sw).toContain('\'/runtime-sync.js\'');
@@ -106,6 +116,38 @@ describe('radio visual contract (ink-on-xuan-paper)', () => {
     expect(sw).toContain('\'/views/playlists.js\'');
     expect(sw).not.toContain('studio-visual.js');
     expect(sw).not.toContain('env-strip.js');
+  });
+
+  it('设置页提供像素数码第 4 主题选项与数码小人开关，深夜蓝金样式严格隔离在 [data-theme="pixel"] 下', () => {
+    const selectMatch = html.match(/<select id="set-ui-theme">([\s\S]*?)<\/select>/);
+    expect(selectMatch).not.toBeNull();
+    expect(selectMatch[1]).toContain('<option value="auto">跟随系统</option>');
+    expect(selectMatch[1]).toContain('<option value="light">浅色</option>');
+    expect(selectMatch[1]).toContain('<option value="dark">深色</option>');
+    expect(selectMatch[1]).toContain('<option value="pixel">像素数码</option>');
+    expect(html).toContain('id="set-pixel-host"');
+    expect(html).toContain('id="pixel-host-sprite"');
+    expect(html).toContain('id="pixel-host-head"');
+    expect(html).toContain('id="pixel-host-waiting"');
+    expect(html).toContain('assets/brand/mark-ink.svg');
+    expect(html).toContain('assets/brand/mark-pixel.png');
+    expect(manifest.description).toBe('有记忆、越用越懂你的私人 AI 电台');
+    expect(css).toContain(':root[data-theme="pixel"]');
+    expect(css).toContain('--canvas: #0B1526');
+    expect(css).toContain('--pixel-sky: #469BE7');
+    expect(css).toContain('--pixel-gold: #F4B66A');
+    for (const forbidden of ['#b8f135', '#a3e635', '#e84393', '#f472b6', '#150824', '#2a0d3f', '#461257']) {
+      expect(css.toLowerCase()).not.toContain(forbidden);
+    }
+  });
+
+  it('pixel 主题在 380x136 迷你陪伴态重置控制钮尺寸，且扫码弹窗错误态不用青柠主色', () => {
+    const pixelSection = css.slice(css.indexOf('/* Festival Pixel Salon theme'));
+    const miniBlock = pixelSection.match(/@media\s*\(max-height:\s*220px\)\s*\{([\s\S]*?)\n\}/)?.[1] || '';
+    expect(miniBlock).toMatch(/:root\[data-theme="pixel"\]\s+\.icon-button\s*\{[^}]*width:\s*32px/);
+    expect(miniBlock).toMatch(/:root\[data-theme="pixel"\]\s+\.main-play\s*\{[^}]*width:\s*36px/);
+    expect(miniBlock).toMatch(/:root\[data-theme="pixel"\]\s+\.track-info\s+h1\s*\{[^}]*text-shadow:\s*none/);
+    expect(pixelSection).toMatch(/:root\[data-theme="pixel"\]\s+\.modal-status\.off\s*\{[^}]*color:\s*var\(--pixel-red\)/);
   });
 
   it('歌单页支持搜索、设置默认红心单并精确播放单曲', () => {

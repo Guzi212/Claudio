@@ -69,7 +69,9 @@ async function playPlaylist(playlist) {
     if (!data.ok) throw new Error(data.error || `HTTP ${r.status}`);
     toast(`开始播放《${playlist.name}》· ${data.count} 首`);
     // 让 Player 视图替换本地队列并从第一首开始播；同时切到 Player tab
-    window.dispatchEvent(new CustomEvent('claudio:queue-replace', { detail: data.queue }));
+    window.dispatchEvent(new CustomEvent('claudio:queue-replace', {
+      detail: { queue: data.queue, queueEpoch: data.queueEpoch, runtimeInstanceId: data.runtimeInstanceId },
+    }));
     window.dispatchEvent(new CustomEvent('claudio:navigate', { detail: 'player' }));
   } catch (err) {
     showAlert(`整单播放失败：${err.message}`);
@@ -106,7 +108,9 @@ async function playTrack(track, mode) {
       return;
     }
     toast(`开始播放：${track.title}`);
-    window.dispatchEvent(new CustomEvent('claudio:queue-replace', { detail: data.queue }));
+    window.dispatchEvent(new CustomEvent('claudio:queue-replace', {
+      detail: { queue: data.queue, queueEpoch: data.queueEpoch, runtimeInstanceId: data.runtimeInstanceId },
+    }));
     window.dispatchEvent(new CustomEvent('claudio:navigate', { detail: 'player' }));
   } catch (err) {
     showAlert(`播放失败：${err.message}`);
