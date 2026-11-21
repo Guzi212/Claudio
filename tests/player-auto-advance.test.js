@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { describe, it, expect, vi } from 'vitest';
+import { isStaleRemoteEpoch } from '../pwa/runtime-sync.js';
 
 const playerJs = fs.readFileSync('./pwa/views/player.js', 'utf8');
 
@@ -30,11 +31,11 @@ describe('audio 自动推进与错误处理', () => {
     const end = playerJs.indexOf('\nfunction requestNextBatch', start);
     const state = { continuePoolActive: true };
     const fetch = vi.fn(async () => ({ ok: true, json: async () => ({ queue: [] }) }));
-    const autoRecommend = new Function('state', 'fetch', `
+    const autoRecommend = new Function('state', 'fetch', 'isStaleRemoteEpoch', `
       let autoRecommending = false, autoRecommendGen = 0, pendingPlayFrom = -1;
       ${playerJs.slice(start, end)}
       return autoRecommend;
-    `)(state, fetch);
+    `)(state, fetch, isStaleRemoteEpoch);
     await autoRecommend('下一批');
     expect(fetch).not.toHaveBeenCalled();
     state.continuePoolActive = false;
