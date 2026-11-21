@@ -5,7 +5,7 @@ import { showAlert, clearAlert, setStatus, toast } from './ui.js';
 import { planExternalPlayback } from '../external-playback.js';
 import { planBootPlayback } from '../boot-playback.js';
 import { claimPlayLoad, isOwnEcho, planRuntimeSync } from '../runtime-sync.js';
-import { externalUnlockPlan, planExternalBoot, planPlayCommand, planPlayError } from '../player-mode.js';
+import { externalUnlockPlan, planExternalBoot, planPlayCommand, planPlayError, stopAudioForEmptyQueue } from '../player-mode.js';
 import { readLocalVolume, writeLocalVolume } from '../volume-memory.js';
 import { getClientId } from '../client-id.js';
 import { hostSprite, PIXEL_HOST_SPRITES, readPixelHostEnabled } from '../host-mood.js';
@@ -857,15 +857,24 @@ function renderQueuePanel() {
   paintHostChrome();
   updatePixelHost();
   const count = document.getElementById('queue-count');
+  const clearBtn = document.getElementById('queue-clear');
   const dialogText = document.getElementById('console-dialog-text');
   if (!queueList) return;
   if (!state.queue.length) {
     queueList.innerHTML = '';
     if (count) count.textContent = '0 首';
+    if (clearBtn) {
+      clearBtn.hidden = true;
+      clearBtn.disabled = true;
+    }
     queueList.classList.add('hidden');
     if (dialogText) dialogText.classList.remove('hidden');
     if (queueBtn) queueBtn.setAttribute('aria-pressed', 'false');
     return;
+  }
+  if (clearBtn) {
+    clearBtn.hidden = false;
+    clearBtn.disabled = false;
   }
   const upcoming = [];
   for (let i = state.index + 1; i < state.queue.length; i += 1) {
@@ -935,6 +944,46 @@ function toggleQueuePanel() {
   }
   queueVisible = !queueVisible;
   renderQueuePanel();
+}
+
+// 危险动作：一次确认后调用正式清空接口。失败时不碰本地状态，界面和音频保持原状。
+async function clearQueueFromUi() {
+  if (!state.queue.length) return { ok: false, reason: 'empty' };
+  if (!window.confirm('清空播放列表？当前队列会被移除，续播池保留但暂停自动续播。')) {
+    return { ok: false, reason: 'cancelled' };
+  }
+  try {
+    const res = await fetch('/api/queue/clear', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason: 'ui-clear', clientId: getClientId() }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.ok) {
+      throw new Error(data?.error || `HTTP ${res.status}`);
+    }
+    // 采用服务端返回的真实状态（同时会收到 state 广播），不在前端伪造清空。
+    applyRuntime(data);
+    toast('播放列表已清空');
+    return { ok: true, data };
+  } catch (err) {
+    showAlert(`清空失败：${err.message}`);
+    return { ok: false, reason: 'error', error: err.message };
+  }
+}
+
+function bindQueueClearButton() {
+  const btn = document.getElementById('queue-clear');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    if (btn.disabled) return;
+    btn.disabled = true;
+    try {
+      await clearQueueFromUi();
+    } finally {
+      btn.disabled = !state.queue.length;
+    }
+  });
 }
 
 function bindConsoleControls() {
@@ -1259,6 +1308,23 @@ export function applyRuntime(runtime, { origin } = {}) {
       dismissBootOverlay();
     }
   }
+  // 远端队列为空：不只是 pause，还要卸载 src 并把进度归零，避免残留声音或旧进度复活。
+  if (plan.unload) {
+    state.queue = [];
+    state.index = 0;
+    state.offset = plan.queueOffset || 0;
+    playLoadIndex = null;
+    stopAudioForEmptyQueue(audio);
+    serverProgress = 0;
+    updateSeekBar(0, 0);
+    updatePlayButtons(false);
+    npBox?.classList.add('hidden');
+    window.dispatchEvent(new CustomEvent('claudio:trackchange', { detail: null }));
+    renderQueuePanel();
+    setConsoleDialog(brain === 'internal' ? '队列已清空' : '等待点歌');
+    dismissBootOverlay();
+    return;
+  }
   if (plan.playIndex != null) {
     if (plan.applyQueue) state.queue = plan.queue;
     state.offset = plan.queueOffset;
@@ -1429,6 +1495,7 @@ export function initPlayer() {
   }
 
   bindConsoleControls();
+  bindQueueClearButton();
   bindFeedback();
   bindIntentForm();
   bindScenePills();

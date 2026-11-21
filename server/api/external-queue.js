@@ -3,7 +3,7 @@
 import { dbApi as defaultDb } from '../db.js';
 import { resolveTrack as defaultResolveTrack } from '../services/kugou.js';
 import { writeTracksToPlaylist as defaultWriteTracks } from '../services/kugou-playlist-write.js';
-import { markQueueSource } from '../queue-source.js';
+import { markQueueSource, queueEpochOf, clearContinueSuppression } from '../queue-source.js';
 import { synthesize as defaultSynthesize } from '../tts.js';
 
 export const DEFAULT_PLAYLIST_NAME = 'Claudio推荐';
@@ -129,6 +129,19 @@ export function mountExternalQueueRoutes(app, deps = {}) {
       return;
     }
 
+    const touchQueue = target === 'queue' || target === 'both';
+    const touchPlaylist = target === 'kugou_playlist' || target === 'both';
+    // 搜索/合成语音期间可能有人清空队列。捕获当前 epoch，写回前再核对。
+    let queueEpochAtStart = null;
+    if (touchQueue) {
+      const rt = getRuntime();
+      if (!rt) {
+        res.status(500).json({ ok: false, error: 'runtime 不可用' });
+        return;
+      }
+      queueEpochAtStart = queueEpochOf(rt);
+    }
+
     const resolved = await Promise.all(wants.map(async want => {
       const track = await resolveTrack(want);
       return { want, track };
@@ -150,8 +163,6 @@ export function mountExternalQueueRoutes(app, deps = {}) {
       }));
     }
 
-    const touchQueue = target === 'queue' || target === 'both';
-    const touchPlaylist = target === 'kugou_playlist' || target === 'both';
     let queueResult = null;
     let playlistResult = null;
 
@@ -182,6 +193,11 @@ export function mountExternalQueueRoutes(app, deps = {}) {
           console.warn('[external-queue] tts skipped:', err.message);
         }
       }
+      // 等待搜索 / 语音期间队列被清空：丢弃这次结果，不能把旧歌复活。
+      if (queueEpochOf(runtime) !== queueEpochAtStart) {
+        res.status(409).json({ ok: false, stale: true, error: '队列已被清空，本次点歌已丢弃，请重新点歌' });
+        return;
+      }
       // 点歌请求在合成语音之后才改队列。音量快照放在这段同步改动之前，
       // 这样等待搜索/语音时用户调过的音量不会被后面的还原盖掉。
       const savedVolume = runtime.volume;
@@ -205,6 +221,8 @@ export function mountExternalQueueRoutes(app, deps = {}) {
           runtime.queueSource = 'bot';
         }
       }
+      // 明确点歌是用户/主持人新的播放意图：解除 clear 留下的续播抑制。
+      clearContinueSuppression(runtime);
       if (say) runtime.lastSay = say;
       if (reason) runtime.lastReason = reason;
       runtime.queuedAt = queuedAt;

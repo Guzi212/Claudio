@@ -1,5 +1,5 @@
 import { playbackStatus, queueFinished } from '../playback-control.js';
-import { applyRuntimePlayback, reportedQueueIndex } from '../queue-source.js';
+import { applyRuntimePlayback, reportedQueueIndex, queueWriteIsStale } from '../queue-source.js';
 import { stateBroadcast } from '../runtime-events.js';
 import { continueFromPool } from '../continue-pool.js';
 
@@ -13,7 +13,8 @@ export function mountRuntimeRoutes(app, { runtime, broadcast, db, statusOptions 
     ? boundary : null;
 
   function finish(req, res, stale = false) {
-    const continued = queueFinished(runtime) && continueFromPool(runtime, { db });
+    // 过期写回不能顺带触发续播：clear 之后池还在，但必须保持 suspend。
+    const continued = !stale && queueFinished(runtime) && continueFromPool(runtime, { db });
     if (continued) boundary = {
       track: runtime.queue[runtime.index],
       index: runtime.index + (runtime.queueOffset || 0),
@@ -29,8 +30,10 @@ export function mountRuntimeRoutes(app, { runtime, broadcast, db, statusOptions 
     const index = reportedQueueIndex(runtime, req.body);
     const absolute = index + (runtime.queueOffset || 0);
     const edge = guard();
-    const stale = index < 0 || (edge && ((ended === true && (!Number.isInteger(index) || absolute < edge.index))
-      || (edge.awaitingPlayback && typeof index === 'number' && absolute < edge.index)));
+    const stale = queueWriteIsStale(runtime, req.body || {})
+      || index < 0
+      || (edge && ((ended === true && (!Number.isInteger(index) || absolute < edge.index))
+        || (edge.awaitingPlayback && typeof index === 'number' && absolute < edge.index)));
     if (!stale) {
       applyRuntimePlayback(runtime, { index, paused, ended });
       if (edge && ended === false && paused === false && index === runtime.index) edge.awaitingPlayback = false;
@@ -39,6 +42,7 @@ export function mountRuntimeRoutes(app, { runtime, broadcast, db, statusOptions 
   });
 
   app.post('/api/runtime/advance', (req, res) => {
+    if (queueWriteIsStale(runtime, req.body || {})) return finish(req, res, true);
     const explicit = reportedQueueIndex(runtime, req.body);
     const edge = guard();
     if (explicit < 0) return finish(req, res, true);

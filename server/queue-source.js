@@ -3,6 +3,31 @@
 
 export const PAUSE_RESET_MS = 10 * 60_000;
 
+// 队列版本号。clear 每次递增，在途的异步写回带上旧值就不许再改队列。
+export function queueEpochOf(runtime) {
+  const n = runtime?.queueEpoch;
+  return Number.isSafeInteger(n) && n >= 0 ? n : 0;
+}
+
+// 写回是否过期：
+// - 带 queueEpoch：必须等于当前值，否则视为过期；
+// - 不带 queueEpoch：旧客户端。clear 抑制续播期间，忽略一切会改播放状态的写回。
+export function queueWriteIsStale(runtime, body = {}) {
+  const raw = body?.queueEpoch;
+  if (raw !== undefined && raw !== null && raw !== '') {
+    const n = Number(raw);
+    return !Number.isInteger(n) || n !== queueEpochOf(runtime);
+  }
+  return Boolean(runtime?.continueSuppressed);
+}
+
+// 用户/主持人明确点歌后，允许新队列重新走正常续播逻辑。
+export function clearContinueSuppression(runtime) {
+  if (runtime && typeof runtime === 'object' && runtime.continueSuppressed) {
+    runtime.continueSuppressed = false;
+  }
+}
+
 export function queueFinished(runtime = {}) {
   const queue = Array.isArray(runtime.queue) ? runtime.queue : [];
   if (!queue.length || runtime.trackEnded !== true) return false;

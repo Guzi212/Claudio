@@ -5,7 +5,7 @@ import { buildSystemPrompt as defaultBuildSystemPrompt } from '../context.js';
 import { ask as defaultAsk } from '../claude.js';
 import { synthesize as defaultSynthesize } from '../tts.js';
 import { detectSignal as defaultDetectSignal, appendJournalEntry as defaultAppendJournal } from '../services/journal.js';
-import { markQueueSource } from '../queue-source.js';
+import { markQueueSource, queueEpochOf, clearContinueSuppression } from '../queue-source.js';
 import { brainMode } from '../brain.js';
 import { applyControl, EXTERNAL_CHAT_HINT } from '../playback-control.js';
 
@@ -86,6 +86,7 @@ export function mountChatRoute(app, deps = {}) {
 
     // internal chat: 走 Claude 子进程
     try {
+      const startedEpoch = queueEpochOf(runtime);
       const systemPrompt = await buildSystemPrompt();
       const { say, queue: songQueue, reason, raw } = await ask(systemPrompt, message);
 
@@ -108,12 +109,20 @@ export function mountChatRoute(app, deps = {}) {
 
       const finalQueue = ttsTrack ? [ttsTrack, ...songQueue] : songQueue;
 
+      // 生成期间用户清空了队列：这次结果作废，不能把歌复活。
+      if (runtime.continueSuppressed || queueEpochOf(runtime) !== startedEpoch) {
+        db.addMessage('assistant', say);
+        res.json({ say, queue: [], reason, intent: 'chat', stale: true });
+        return;
+      }
+
       if (finalQueue.length > 0) {
         runtime.queue = finalQueue;
         runtime.queueOffset = 0;
         runtime.index = 0;
         runtime.paused = false;
         markQueueSource(runtime, 'claude');
+        clearContinueSuppression(runtime);
         // 只把真正的歌写入历史（跳过 TTS 串场条）
         for (const q of finalQueue) {
           if (q.isTts) continue;

@@ -6,6 +6,8 @@ import {
   queueFinished,
   notePlaybackActivity,
   continuousListenMinutes,
+  queueEpochOf,
+  queueWriteIsStale,
   PAUSE_RESET_MS,
 } from './queue-source.js';
 
@@ -99,6 +101,9 @@ export function playbackStatus(runtime = {}, { listeners = 0, brain = 'external'
     source: runtime.queuedSource || '',
     activeAgent: runtime.activeAgent || null,
     continuePool: continuePoolView(runtime),
+    // 只读的队列版本与续播抑制状态，方便客户端识别 clear 后的窗口期。
+    queueEpoch: queueEpochOf(runtime),
+    continueSuppressed: Boolean(runtime.continueSuppressed),
   };
 }
 
@@ -177,6 +182,11 @@ export function applyControl(runtime, { command, arg, value } = {}) {
       return { ...base(), command: 'pause', say: '⏸ 暂停', feedback: null };
     case 'play':
     case 'resume':
+      if (!queue.length) {
+        runtime.paused = true;
+        runtime.trackEnded = false;
+        return { ...base(), command: 'play', say: '队列是空的', feedback: null };
+      }
       if (queueFinished(runtime)) {
         restartFromStart(runtime);
         return { ...base(), command: 'play', say: `▶ ${queue[0]?.title || ''}`, feedback: null };
@@ -272,6 +282,14 @@ export function applyControl(runtime, { command, arg, value } = {}) {
 
 export function applyProgress(runtime, body = {}) {
   if (!runtime) return;
+  // 音量不是播放进度：即使这条上报已经过期，用户刚拖过的音量仍然算数。
+  const volume = clampVolume(body.volume);
+  if (volume != null && body.volume != null) {
+    runtime.volume = volume;
+    runtime.volumeExplicit = true;
+  }
+  // clear 之后的旧 epoch / 旧客户端上报不能把队列或进度复活。
+  if (queueWriteIsStale(runtime, body)) return;
   const index = reportedQueueIndex(runtime, body);
   if (index < 0) return;
   // 旧曲的 WS 进度可能晚于队尾的 HTTP 请求抵达；不能把续播指针拉回去。
@@ -282,11 +300,6 @@ export function applyProgress(runtime, body = {}) {
   }
   if (typeof body.duration === 'number' && Number.isFinite(body.duration)) {
     runtime.duration = Math.max(0, body.duration);
-  }
-  const volume = clampVolume(body.volume);
-  if (volume != null && body.volume != null) {
-    runtime.volume = volume;
-    runtime.volumeExplicit = true;
   }
   if (typeof index === 'number' && Array.isArray(runtime.queue) && runtime.queue.length) {
     const next = Math.max(0, Math.min(Math.trunc(index), runtime.queue.length - 1));

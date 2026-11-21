@@ -35,7 +35,18 @@ export function planRuntimeSync(local = {}, remote = {}) {
   const index = Number.isFinite(remote.index) ? remote.index : 0;
   const queueOffset = remote.queueOffset || 0;
   if (!remote.queue.length) {
-    return { volume, applyQueue: local.queue?.length > 0, queue: [], index: 0, queueOffset, playIndex: null, pause: true, restart: false };
+    return {
+      volume,
+      applyQueue: local.queue?.length > 0,
+      queue: [],
+      index: 0,
+      queueOffset,
+      playIndex: null,
+      pause: true,
+      restart: false,
+      // 清空必须真正停声：即使本地队列已经是空的，只要还残留 src 也要卸载。
+      unload: Boolean(local.queue?.length || local.hasSrc),
+    };
   }
   const clamped = Math.max(0, Math.min(index, remote.queue.length - 1));
   const position = { index: clamped, queueOffset };

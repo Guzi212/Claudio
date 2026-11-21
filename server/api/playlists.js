@@ -11,7 +11,7 @@ import {
   setPool as defaultSetPool,
   clearPool as defaultClearPool,
 } from '../services/candidate-pool.js';
-import { markQueueSource } from '../queue-source.js';
+import { markQueueSource, queueEpochOf, clearContinueSuppression } from '../queue-source.js';
 import { dbApi as defaultDb } from '../db.js';
 
 function proxyUrl(upstream) {
@@ -153,19 +153,30 @@ export function mountPlaylistRoutes(app, deps = {}) {
       return;
     }
     try {
+      const runtime = getRuntime();
+      if (!runtime) {
+        res.status(500).json({ ok: false, error: 'runtime 不可用' });
+        return;
+      }
+      // 拉歌单期间可能被 clear；写回前核对 epoch，不能把旧歌单复活。
+      const startedEpoch = queueEpochOf(runtime);
       const { tracks } = await fetchUserPlaylistTracks({ listid, globalCollectionId });
       const queue = tracks.filter(t => t.hash).map(toQueueItem);
       if (!queue.length) {
         res.status(404).json({ ok: false, error: '歌单没有可播放曲目' });
         return;
       }
-      const runtime = getRuntime();
+      if (runtime.continueSuppressed || queueEpochOf(runtime) !== startedEpoch) {
+        res.status(409).json({ ok: false, stale: true, error: '队列已被清空或更换，本次整单播放已丢弃' });
+        return;
+      }
       const db = deps.db || defaultDb;
       runtime.queue = queue;
       runtime.queueOffset = 0;
       runtime.index = 0;
       runtime.paused = false;
       markQueueSource(runtime, 'playlist');
+      clearContinueSuppression(runtime);
       runtime.lastSay = `已切到歌单《${playlist.name || '未命名'}》，共 ${queue.length} 首。`;
       try {
         db?.addPlay?.({
@@ -216,6 +227,7 @@ export function mountPlaylistRoutes(app, deps = {}) {
     }
     const db = deps.db || defaultDb;
     markQueueSource(runtime, 'search');
+    clearContinueSuppression(runtime);
     runtime.lastSay = `播放《${title}》${item.artist ? ` — ${item.artist}` : ''}。`;
     try {
       db?.addPlay?.({

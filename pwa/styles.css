@@ -414,6 +414,10 @@ body:not(.brain-internal) [data-internal-only], body:not(.brain-internal) [data-
 .queue-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .queue-heading h2 { margin: 0; font-family: var(--font-brush); font-size: 19px; font-weight: 500; letter-spacing: .18em; }
 .queue-heading span { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.queue-heading-actions { display: flex; align-items: center; gap: 14px; }
+.queue-clear { color: var(--muted); }
+.queue-clear:hover { color: var(--seal); }
+.queue-clear:disabled { opacity: .45; cursor: default; }
 .queue ol { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; margin: 0; padding: 0; list-style: none; }
 .queue-track { display: flex; align-items: center; gap: 12px; width: 100%; min-width: 0; min-height: 66px; padding: 9px 8px; border: 0; border-radius: 4px; color: inherit; background: transparent; text-align: left; transition: background-color 160ms ease; }
 .queue-track:hover { background: rgba(var(--ink-rgb), .05); }

@@ -3,7 +3,7 @@
 import { dbApi as defaultDb } from '../db.js';
 import { buildSystemPrompt as defaultBuildSystemPrompt } from '../context.js';
 import { ask as defaultAsk } from '../claude.js';
-import { hasActiveExternalQueue, markQueueSource } from '../queue-source.js';
+import { hasActiveExternalQueue, markQueueSource, queueEpochOf } from '../queue-source.js';
 import { brainMode } from '../brain.js';
 
 export const BOOT_MSG = '刚打开电台，请根据现在的时间和天气推荐开播曲目';
@@ -46,8 +46,42 @@ export function mountBootRoute(app, deps = {}) {
     }
 
     try {
+      const startedEpoch = queueEpochOf(runtime);
+      // 用户明确清空过：开机电台不自动回填，等下一次明确点歌。
+      if (runtime.continueSuppressed) {
+        res.json({
+          say: '等待点歌',
+          queue: runtime.queue || [],
+          index: runtime.index || 0,
+          queueOffset: runtime.queueOffset || 0,
+          reason: 'cleared',
+          intent: 'boot',
+          brain: 'internal',
+          skipped: true,
+          preserved: 'cleared',
+          _resolveError: false,
+        });
+        return;
+      }
       const systemPrompt = await buildSystemPrompt();
       const { say, queue: songQueue, reason, raw } = await ask(systemPrompt, BOOT_MSG);
+
+      if (runtime.continueSuppressed || queueEpochOf(runtime) !== startedEpoch) {
+        broadcast({ type: 'state', runtime });
+        res.json({
+          say: '等待点歌',
+          queue: runtime.queue,
+          index: runtime.index,
+          queueOffset: runtime.queueOffset || 0,
+          reason: 'cleared',
+          intent: 'boot',
+          brain: 'internal',
+          skipped: true,
+          preserved: 'cleared',
+          _resolveError: false,
+        });
+        return;
+      }
 
       if (hasActiveExternalQueue(runtime)) {
         const hint = PRESERVE_EXTERNAL_SAY;
