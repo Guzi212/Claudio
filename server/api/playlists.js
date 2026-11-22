@@ -3,7 +3,8 @@
 import {
   fetchUserPlaylists as defaultFetchUserPlaylists,
   fetchUserPlaylistTracks as defaultFetchUserPlaylistTracks,
-  songUrl as defaultSongUrl,
+  songUrlForPlayback as defaultSongUrlForPlayback,
+  isValidQuality,
 } from '../services/kugou.js';
 import {
   getPool as defaultGetPool,
@@ -54,7 +55,7 @@ function playlistRef(playlist = {}) {
 export function mountPlaylistRoutes(app, deps = {}) {
   const fetchUserPlaylists = deps.fetchUserPlaylists || defaultFetchUserPlaylists;
   const fetchUserPlaylistTracks = deps.fetchUserPlaylistTracks || defaultFetchUserPlaylistTracks;
-  const resolveSongUrl = deps.resolveSongUrl || defaultSongUrl;
+  const resolveSongUrl = deps.resolveSongUrl || defaultSongUrlForPlayback;
   const getPool = deps.getPool || defaultGetPool;
   const getPoolTracks = deps.getPoolTracks || defaultGetPoolTracks;
   const setPool = deps.setPool || defaultSetPool;
@@ -252,20 +253,38 @@ export function mountPlaylistRoutes(app, deps = {}) {
     res.json({ ok: true, mode, queue: runtime.queue, index: runtime.index, queueEpoch: nextEpoch, runtimeInstanceId: runtime.runtimeInstanceId || null });
   });
 
-  // 直链懒解析：hash → 可播放代理 URL
+  // 直链懒解析：hash → 可播放代理 URL。quality 可选（播放页切档用），非法值 400。
   app.get('/api/kugou/track-url', async (req, res) => {
     const hash = String(req.query?.hash || '');
     if (!hash) {
       res.status(400).json({ ok: false, error: 'hash 必填' });
       return;
     }
+    const quality = String(req.query?.quality || '').trim().toLowerCase();
+    if (quality && !isValidQuality(quality)) {
+      res.status(400).json({ ok: false, error: `未知音质档位: ${quality}` });
+      return;
+    }
     try {
-      const upstream = await resolveSongUrl(hash);
+      const resolved = await resolveSongUrl(hash, quality ? { targetQuality: quality } : undefined);
+      // 兼容旧注入：string 直链 / {url, quality}
+      const upstream = typeof resolved === 'string' ? resolved : resolved?.url;
+      const audioQuality = typeof resolved === 'object' ? (resolved?.quality || null) : null;
       if (!upstream) {
         res.status(404).json({ ok: false, error: '未取到直链' });
         return;
       }
-      res.json({ ok: true, url: proxyUrl(upstream) });
+      const url = proxyUrl(upstream);
+      // 播放页切档时同步运行中队列项，让 /api/status 读到实际档
+      const runtime = getRuntime();
+      const q = Array.isArray(runtime?.queue) ? runtime.queue : [];
+      for (const item of q) {
+        if (item?.kugouId === hash) {
+          item.audioUrl = url;
+          item.audioQuality = audioQuality;
+        }
+      }
+      res.json({ ok: true, url, audioQuality });
     } catch (err) {
       console.error('[playlists-api] track-url failed:', err.message);
       res.status(500).json({ ok: false, error: err.message });

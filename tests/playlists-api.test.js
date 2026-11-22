@@ -45,7 +45,7 @@ function makeDeps(overrides = {}) {
       fetchedCount: 2,
       truncated: false,
     })),
-    resolveSongUrl: vi.fn(async () => 'http://upstream/a.mp3'),
+    resolveSongUrl: vi.fn(async () => ({ url: 'http://upstream/a.mp3', quality: 'flac' })),
     getPool: () => pool,
     getPoolTracks: () => poolTracks,
     ...overrides,
@@ -300,7 +300,7 @@ describe('GET /api/kugou/track-url', () => {
     expect(res.statusCode).toBe(400);
   });
 
-  it('有 hash → 返回代理 URL', async () => {
+  it('有 hash → 返回代理 URL + 实际档位', async () => {
     const app = mockApp();
     mountPlaylistRoutes(app, makeDeps());
     const res = mockRes();
@@ -308,6 +308,32 @@ describe('GET /api/kugou/track-url', () => {
     expect(res.body.ok).toBe(true);
     expect(res.body.url).toContain('/api/proxy?u=');
     expect(res.body.url).toContain(encodeURIComponent('http://upstream/a.mp3'));
+    expect(res.body.audioQuality).toBe('flac');
+  });
+
+  it('quality 参数透传给解析器，非法值 400', async () => {
+    const app = mockApp();
+    const deps = makeDeps();
+    mountPlaylistRoutes(app, deps);
+    const res = mockRes();
+    await app.routes['GET /api/kugou/track-url']({ query: { hash: 'h1', quality: '320' } }, res);
+    expect(res.statusCode).toBe(200);
+    expect(deps.resolveSongUrl).toHaveBeenCalledWith('h1', { targetQuality: '320' });
+
+    const bad = mockRes();
+    await app.routes['GET /api/kugou/track-url']({ query: { hash: 'h1', quality: 'piano' } }, bad);
+    expect(bad.statusCode).toBe(400);
+  });
+
+  it('取到直链时同步运行中队列项的 audioQuality/audioUrl', async () => {
+    const runtime = { queue: [{ title: 'A', kugouId: 'h1', audioUrl: null, audioQuality: null }], index: 0 };
+    const app = mockApp();
+    mountPlaylistRoutes(app, makeDeps({ runtime }));
+    const res = mockRes();
+    await app.routes['GET /api/kugou/track-url']({ query: { hash: 'h1', quality: '320' } }, res);
+    expect(res.body.ok).toBe(true);
+    expect(runtime.queue[0].audioQuality).toBe('flac'); // 实际档按解析器返回值
+    expect(runtime.queue[0].audioUrl).toContain('/api/proxy?u=');
   });
 
   it('取不到直链 → 404', async () => {

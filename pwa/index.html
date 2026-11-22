@@ -131,7 +131,7 @@
             <div class="track-info">
               <div class="playing-state"><span class="live-dot"></span><span id="playing-label">已暂停</span></div>
               <h1 id="np-title">晴天</h1>
-              <p class="artist" id="np-artist">周杰伦</p>
+              <p class="artist"><span id="np-artist">周杰伦</span> <span id="np-quality" class="audio-quality" hidden></span></p>
               <p class="reason" id="track-reason" hidden></p>
             </div>
             <div class="progress">
@@ -150,6 +150,10 @@
               <button class="feedback-button" type="button" data-feedback="like" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#like"/></svg>喜欢</button>
               <button class="feedback-button" type="button" data-feedback="dislike" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#dislike"/></svg>不喜欢</button>
               <button class="feedback-button" type="button" data-console-control="favorite" aria-label="收藏到我喜欢" aria-pressed="false"><svg class="icon" aria-hidden="true"><use href="#heart"/></svg>收藏</button>
+              <span class="quality-picker">
+                <button id="np-quality-btn" class="feedback-button" type="button" aria-label="切换音质" aria-expanded="false">音质</button>
+                <ul id="np-quality-menu" class="quality-menu" hidden></ul>
+              </span>
             </div>
             <div class="player-options" aria-label="播放选项">
               <button id="lyrics-toggle" class="lyrics-toggle" type="button" aria-controls="lyrics-panel" aria-expanded="true" hidden>收起歌词</button>
@@ -261,6 +265,7 @@
       <section class="card">
         <h3>自适应播放与红心</h3>
         <div class="setting-rows">
+          <label class="setting-row"><span>播放音质</span><select id="set-playback-quality"><option value="flac">无损 FLAC</option><option value="320">高品 320k</option><option value="128">标准 128k</option><option value="high">Hi-Res</option><option value="viper_atmos">全景声</option><option value="viper_clear">超清 · 体积大</option></select></label>
           <label class="setting-row"><span>按作息自动设置初始音量</span><input id="set-adaptive-vol" type="checkbox"></label>
           <label class="setting-row"><span>安全音量上限（%）</span><input id="set-vol-max" type="number" min="10" max="100" placeholder="85"></label>
           <label class="setting-row"><span>默认红心目标歌单</span><div class="field-row"><input id="set-like-target-name" type="text" autocomplete="off" placeholder="未指定（酷狗我喜欢）"><input id="set-like-target-id" type="hidden"><button type="button" id="btn-clear-like-target" class="btn ghost">清空</button></div></label>

@@ -167,6 +167,7 @@ function toQueueItem(track, { queuedAt, reason }) {
     duration: Number(track.duration) || 0,
     kugouId: track.kugouId || '',
     audioUrl: track.audioUrl || null,
+    audioQuality: track.audioQuality || null,
     comment: track.comment || '',
     source: DJ_SOURCE,
     queuedAt,

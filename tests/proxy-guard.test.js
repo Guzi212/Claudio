@@ -202,4 +202,16 @@ describe('proxy-guard · 接线', () => {
     // 判定必须在真正发请求之前
     expect(body.indexOf('checkProxyUrl(target)')).toBeLessThan(body.indexOf('axios.get(target'));
   });
+
+  it('/api/proxy 把上游 4xx（如 Range 越界 416）透传给客户端，不吞成 502', () => {
+    const appSource = fs.readFileSync(path.join(ROOT, 'server', 'app.js'), 'utf8');
+    const route = appSource.slice(appSource.indexOf("app.get('/api/proxy'"));
+    const body = route.slice(0, route.indexOf('// PWA 通知队列指针变化'));
+
+    // catch 分支应读 err.response.status 并原样返回，而不是一律 502
+    expect(body).toContain('err.response?.status');
+    expect(body).toContain('res.status(upstreamStatus)');
+    // 416 的 content-range 也应透传，客户端才能知道总长度
+    expect(body).toContain("['content-range']");
+  });
 });

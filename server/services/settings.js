@@ -24,6 +24,7 @@ export const KEYS = [
   'close_to_tray',
   'always_on_top_mini',
   'play_window_mode',
+  'playback_quality',
 ];
 
 export const DEFAULTS = {
@@ -43,6 +44,7 @@ export const DEFAULTS = {
   close_to_tray: 'true',
   always_on_top_mini: 'true',
   play_window_mode: 'background',
+  playback_quality: 'flac',
 };
 
 const SENSITIVE = new Set(['openweather_api_key', 'fish_api_key', 'deepseek_api_key']);

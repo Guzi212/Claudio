@@ -33,6 +33,7 @@ function toQueueItem(track, { reason = '', queuedAt = '', source = 'bot' } = {})
     audioUrl: track.upstreamUrl
       ? `/api/proxy?u=${encodeURIComponent(track.upstreamUrl)}`
       : null,
+    audioQuality: track.audioQuality || null,
     comment: '',
     source: source || 'bot',
     queuedAt,

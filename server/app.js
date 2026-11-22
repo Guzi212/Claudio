@@ -224,8 +224,17 @@ app.get('/api/proxy', async (req, res) => {
       return;
     }
     console.error('[proxy] failed:', err.message);
-    if (!res.headersSent) res.status(502).send('upstream failed: ' + err.message);
-    else try { res.end(); } catch { /* */ }
+    // 上游明确拒绝的状态（如 416 范围越界）透传给客户端，不吞成 502
+    const upstreamStatus = err.response?.status;
+    if (!res.headersSent) {
+      if (upstreamStatus && upstreamStatus >= 400) {
+        const cr = err.response?.headers?.['content-range'];
+        if (cr) res.setHeader('content-range', cr);
+        res.status(upstreamStatus).send('upstream rejected: ' + upstreamStatus);
+      } else {
+        res.status(502).send('upstream failed: ' + err.message);
+      }
+    } else try { res.end(); } catch { /* */ }
   }
 });
 

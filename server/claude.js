@@ -200,6 +200,7 @@ export async function ask(systemPrompt, userMessage) {
       duration: track.duration,
       kugouId:  track.kugouId,
       audioUrl: `/api/proxy?u=${encodeURIComponent(track.upstreamUrl)}`,
+      audioQuality: track.audioQuality || null,
       comment,
       // 模型原本要的是哪首。resolveTrack 偶尔张冠李戴，调用方可以据此校验。
       requested: { title: want?.title || '', artist: want?.artist || '' },

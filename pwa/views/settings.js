@@ -13,6 +13,7 @@ const fields = {
   deepseekKey:      '#set-deepseek-key',
   deepseekModel:    '#set-deepseek-model',
   adaptiveVol:      '#set-adaptive-vol',
+  playbackQuality:  '#set-playback-quality',
   volMax:           '#set-vol-max',
   likeTargetName:   '#set-like-target-name',
   likeTargetId:     '#set-like-target-id',
@@ -169,6 +170,7 @@ function applySettings(s) {
   if (nodes.djBatch) nodes.djBatch.value = s?.dj_batch_size || '5';
   if (nodes.deepseekKey) nodes.deepseekKey.value = s?.deepseek_api_key || '';
   if (nodes.deepseekModel) nodes.deepseekModel.value = s?.deepseek_model || 'deepseek-chat';
+  if (nodes.playbackQuality) nodes.playbackQuality.value = s?.playback_quality || 'flac';
   if (nodes.adaptiveVol) nodes.adaptiveVol.checked = boolFrom(s?.adaptive_volume_enabled, true);
   if (nodes.volMax) nodes.volMax.value = s?.volume_safe_max || '85';
   if (nodes.likeTargetId) nodes.likeTargetId.value = s?.like_target_listid || '';
@@ -212,6 +214,7 @@ function buildPayload() {
   }
   if (nodes.deepseekModel) payload.deepseek_model = nodes.deepseekModel.value || 'deepseek-chat';
 
+  if (nodes.playbackQuality) payload.playback_quality = nodes.playbackQuality.value || 'flac';
   if (nodes.adaptiveVol) payload.adaptive_volume_enabled = String(Boolean(nodes.adaptiveVol.checked));
   if (nodes.volMax) payload.volume_safe_max = String(nodes.volMax.value || '85').trim();
   if (nodes.likeTargetId) payload.like_target_listid = nodes.likeTargetId.value.trim();
