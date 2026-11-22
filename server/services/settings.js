@@ -23,6 +23,7 @@ export const KEYS = [
   'hotkey_media_key',
   'close_to_tray',
   'always_on_top_mini',
+  'playback_quality',
 ];
 
 export const DEFAULTS = {
@@ -41,6 +42,7 @@ export const DEFAULTS = {
   hotkey_media_key: 'false',
   close_to_tray: 'true',
   always_on_top_mini: 'true',
+  playback_quality: 'flac',
 };
 
 const SENSITIVE = new Set(['openweather_api_key', 'fish_api_key', 'deepseek_api_key']);

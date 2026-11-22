@@ -18,6 +18,17 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+// 播放音质六档，从高到低；上游没有 viper_tape / super（假档）和魔法音质。
+const QUALITY_OPTIONS = [
+  { q: 'viper_clear', label: '超清',      hint: '约 130 MB/首' },
+  { q: 'viper_atmos', label: '全景声',    hint: '约 42 MB/首'  },
+  { q: 'high',        label: 'Hi-Res',    hint: '约 29 MB/首'  },
+  { q: 'flac',        label: '无损 FLAC', hint: '约 28 MB/首'  },
+  { q: '320',         label: '高品 320k', hint: '约 16 MB/首'  },
+  { q: '128',         label: '标准 128k', hint: '约 6 MB/首'   },
+];
+const QUALITY_LABEL = Object.fromEntries(QUALITY_OPTIONS.map(o => [o.q, o.label]));
+
 const $ = sel => document.querySelector(sel);
 
 const LOOP_MODES = ['list', 'one', 'auto'];
@@ -362,6 +373,174 @@ function paintHostChrome() {
   time.textContent = '';
 }
 
+function paintAudioQuality(track) {
+  const el = document.getElementById('np-quality');
+  if (!el) return;
+  // 角标显示实际拿到的档（回落时显示真实值，不显示用户想要的档）
+  const q = String(track?.audioQuality || '').toLowerCase();
+  const label = QUALITY_LABEL[q] || '';
+  el.textContent = label;
+  el.hidden = !label;
+}
+
+// ────── 播放页音质切换 ──────
+function qualityMenuItems() {
+  const actual = String(currentTrack()?.audioQuality || '').toLowerCase();
+  return QUALITY_OPTIONS.map(o => ({
+    ...o,
+    current: o.q === currentQuality,
+    actual: o.q === actual,
+  }));
+}
+
+function renderQualityMenu() {
+  const menu = document.getElementById('np-quality-menu');
+  if (!menu) return;
+  menu.innerHTML = '';
+  for (const it of qualityMenuItems()) {
+    const li = document.createElement('li');
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'quality-option' + (it.current ? ' current' : '');
+    const name = document.createElement('span');
+    name.className = 'q-name';
+    name.textContent = `${it.current ? '✓ ' : ''}${it.label}`;
+    const meta = document.createElement('span');
+    meta.className = 'q-meta';
+    meta.textContent = it.hint + (it.actual ? ' · 实际' : '');
+    btn.append(name, meta);
+    btn.addEventListener('click', () => {
+      closeQualityMenu();
+      switchPlaybackQuality(it.q);
+    });
+    li.append(btn);
+    menu.appendChild(li);
+  }
+}
+
+function closeQualityMenu() {
+  const menu = document.getElementById('np-quality-menu');
+  const btn = document.getElementById('np-quality-btn');
+  if (menu) menu.hidden = true;
+  if (btn) btn.setAttribute('aria-expanded', 'false');
+}
+
+function toggleQualityMenu() {
+  const menu = document.getElementById('np-quality-menu');
+  const btn = document.getElementById('np-quality-btn');
+  if (!menu || !btn) return;
+  const opening = menu.hidden;
+  if (opening) {
+    renderQualityMenu();
+    menu.hidden = false;
+    btn.setAttribute('aria-expanded', 'true');
+  } else {
+    closeQualityMenu();
+  }
+}
+
+// 无缝换 src：保持 currentTime，原本在播就续播。换 src 会先触发一次 pause，
+// suppressPauseSync 挡住它，等 play / 超时再放开。
+function seamlessSrcChange(src, resumeAt, { autoplay = true } = {}) {
+  return new Promise(resolve => {
+    suppressPauseSync = true;
+    const cleanup = () => {
+      clearTimeout(timer);
+      audio.removeEventListener('canplay', onMeta);
+      audio.removeEventListener('loadedmetadata', onMeta);
+    };
+    const done = () => {
+      cleanup();
+      suppressPauseSync = false;
+      resolve();
+    };
+    let fired = false;
+    const onMeta = () => {
+      if (fired) return;
+      fired = true;
+      try { if (resumeAt > 0) audio.currentTime = resumeAt; } catch { /* 超过时长交给浏览器夹取 */ }
+      if (autoplay) {
+        audio.play().then(done).catch(done);
+      } else {
+        done();
+      }
+    };
+    const timer = setTimeout(done, 8000); // 兜底：加载卡住也别永远压住 pause 同步
+    audio.addEventListener('loadedmetadata', onMeta, { once: true });
+    audio.addEventListener('canplay', onMeta, { once: true });
+    audio.src = src;
+    audio.load();
+  });
+}
+
+// 切换音质：立刻作用于正在播的这首——重新取直链、seek 回切换前位置。
+// 新档整链拿不到 → 保持原播放并报错；拿到但低于目标 → 标实际档并提示回落。
+export async function switchPlaybackQuality(q, { track = null } = {}) {
+  const opt = QUALITY_OPTIONS.find(o => o.q === q);
+  if (!opt) return { ok: false, error: 'unknown quality' };
+  const token = ++qualitySwitchToken;
+
+  // 目标档写进设置（后续新解析沿用）。失败不阻塞本次切换。
+  try {
+    await fetch('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playback_quality: q }),
+    });
+    currentQuality = q;
+  } catch { /* 设置写失败不挡切换 */ }
+
+  const t = track || currentTrack();
+  if (!t || !t.kugouId) {
+    toast('当前没有在播曲目，新档位从下一首生效');
+    return { ok: true, applied: q, deferred: true };
+  }
+
+  const resumeAt = Number.isFinite(audio?.currentTime) ? audio.currentTime : 0;
+  const wasPlaying = Boolean(audio && !audio.paused && !audio.ended);
+  const resolved = await resolveTrackUrl(t.kugouId, q);
+  if (token !== qualitySwitchToken) return { ok: false, cancelled: true };
+  if (!resolved?.url) {
+    showAlert(`切到「${opt.label}」失败：所有档位都拿不到，保持原档`);
+    return { ok: false, error: 'resolve failed' };
+  }
+
+  t.audioUrl = resolved.url;
+  t.audioQuality = resolved.audioQuality || q;
+  paintAudioQuality(t);
+  const actualLabel = QUALITY_LABEL[t.audioQuality] || t.audioQuality;
+
+  if (audio) {
+    await seamlessSrcChange(resolved.url, resumeAt, { autoplay: wasPlaying });
+    if (token !== qualitySwitchToken) return { ok: false, cancelled: true };
+  }
+  if (t.audioQuality !== q) {
+    toast(`已回落到 ${actualLabel}（该曲无「${opt.label}」）`);
+  }
+  return { ok: true, applied: t.audioQuality, requested: q, resumedAt: resumeAt };
+}
+
+function bindQualityPicker() {
+  const btn = document.getElementById('np-quality-btn');
+  if (!btn) return;
+  btn.addEventListener('click', e => {
+    e.stopPropagation();
+    toggleQualityMenu();
+  });
+  document.addEventListener('click', e => {
+    const picker = e.target.closest?.('.quality-picker');
+    if (!picker) closeQualityMenu();
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeQualityMenu();
+  });
+  // 读当前设置档，给菜单打勾
+  fetch('/api/settings').then(r => r.ok ? r.json() : null).then(s => {
+    const q = String(s?.playback_quality || 'flac').toLowerCase();
+    if (QUALITY_LABEL[q]) currentQuality = q;
+  }).catch(() => {});
+}
+
 function paintCover(track) {
   const img = document.getElementById('np-cover-img');
   const fallback = document.getElementById('np-cover-fallback');
@@ -463,6 +642,7 @@ function setStudioTrack(track) {
   if (npArtist) npArtist.textContent = track.artist || '';
   const info = document.querySelector('#now-playing .track-info');
   if (info) info.classList.toggle('long-title', String(track.title || '').length > 4);
+  paintAudioQuality(track);
   paintTrackReason(track);
   paintCover(track);
   inkInTrack(track);
@@ -645,14 +825,19 @@ function requestNextBatch({ playWhenReady = false } = {}) {
   autoRecommend(NEXT_BATCH_PROMPT);
 }
 
+let currentQuality = 'flac';
+let qualitySwitchToken = 0;
+
 // 歌单队列只带 hash，播到这首时才向服务端换直链（避免大歌单一上来解析几百条）。
-async function resolveTrackUrl(hash) {
+async function resolveTrackUrl(hash, quality = '') {
   if (!hash) return null;
   try {
-    const r = await fetch(`/api/kugou/track-url?hash=${encodeURIComponent(hash)}`);
+    const q = quality ? `&quality=${encodeURIComponent(quality)}` : '';
+    const r = await fetch(`/api/kugou/track-url?hash=${encodeURIComponent(hash)}${q}`);
     if (!r.ok) return null;
     const d = await r.json();
-    return d?.url || null;
+    if (!d?.url) return null;
+    return { url: d.url, audioQuality: d.audioQuality || null };
   } catch {
     return null;
   }
@@ -661,8 +846,18 @@ async function resolveTrackUrl(hash) {
 async function resolveAudioSrc(track) {
   if (!track) return null;
   if (track.audioUrl) return track.audioUrl;
-  const url = await resolveTrackUrl(track.kugouId);
-  if (url) track.audioUrl = url;
+  const resolved = await resolveTrackUrl(track.kugouId);
+  // 兼容旧后端只回 {url} 或直接 string 的情况
+  const url = typeof resolved === 'string' ? resolved : resolved?.url;
+  const q = typeof resolved === 'object' ? (resolved?.audioQuality || null) : null;
+  if (url) {
+    track.audioUrl = url;
+    if (q) {
+      track.audioQuality = q;
+      // 懒解析档位到手晚于首屏渲染，补一次
+      paintAudioQuality(track);
+    }
+  }
   return url;
 }
 
@@ -1430,6 +1625,7 @@ export function initPlayer() {
 
   bindConsoleControls();
   bindFeedback();
+  bindQualityPicker();
   bindIntentForm();
   bindScenePills();
   updatePlayButtons(false);

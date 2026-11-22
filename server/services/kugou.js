@@ -1,6 +1,7 @@
 import axios from 'axios';
 import 'dotenv/config';
 import { dbApi } from '../db.js';
+import { getWithDefault as getSettingWithDefault } from './settings.js';
 import { axiosProxyOptions } from '../outbound-proxy.js';
 import { DEFAULT_KUGOU_API_BASE } from '../kugou-api-base.js';
 
@@ -151,24 +152,104 @@ function firstUrl(field) {
   return null;
 }
 
-export async function songUrl(hash) {
+// songUrlInfo: 拿直链 + 实际档位信息（extName / bitRate / fileSize）
+// 注意：上游 high / viper 档 bitRate 返回 0，判断档位只能看 extName + url，不能看 bitRate。
+export async function songUrlInfo(hash, quality = '') {
   if (!hash) return null;
   try {
-    const res = await client().get(ENDPOINTS.songUrl, { params: { hash } });
+    const params = quality ? { hash, quality } : { hash };
+    const res = await client().get(ENDPOINTS.songUrl, { params });
     const data = res.data;
+    // status!=1（如风控 errcode/缺权限）视为本次档位不可用
+    if (data && data.status != null && data.status !== 1) {
+      console.warn('[kugou] songUrl status', data.status, 'for hash', hash, 'quality', quality || '(default)');
+      return null;
+    }
+    const body = (data && data.data && typeof data.data === 'object') ? data.data : data;
     const url = firstUrl(data?.url)
       || firstUrl(data?.backupUrl)
-      || firstUrl(data?.data?.url)
+      || firstUrl(body?.url)
+      || firstUrl(body?.backupUrl)
       || firstUrl(data?.play_url)
       || null;
     if (!url) {
-      console.warn('[kugou] songUrl empty for hash', hash, '· raw:', JSON.stringify(data).slice(0, 200));
+      console.warn('[kugou] songUrl empty for hash', hash, 'quality', quality || '(default)', '· raw:', JSON.stringify(data).slice(0, 200));
+      return null;
     }
-    return url;
+    return {
+      url,
+      extName: String(body?.extName || data?.extName || '').toLowerCase(),
+      bitRate: Number(body?.bitRate ?? data?.bitRate) || 0,
+      fileSize: Number(body?.fileSize ?? data?.fileSize) || 0,
+    };
   } catch (err) {
     console.error('[kugou] songUrl failed:', err.message);
     return null;
   }
+}
+
+// songUrl: 拿可播放直链（保持旧签名：只回 url 字符串）。quality 可选，透传给上游。
+export async function songUrl(hash, quality = '') {
+  const info = await songUrlInfo(hash, quality);
+  return info?.url || null;
+}
+
+// 播放可选档位，从高到低逐级回落：viper_clear → viper_atmos → high → flac → 320 → 128。
+// 上游实测（同曲）：viper_clear flac≈139MB、viper_atmos flac≈42MB、high flac≈29MB、
+// flac flac≈28MB、320 mp3≈16MB、128 mp3≈6MB。
+// super / viper_tape 是假档（静默回 128/320 mp3），不进列表。
+// 魔法音质（piano/acappella/subwoofer/ancient/surnay/dj）不接：piano 是钢琴改编版，
+// 撞品味硬规则；acappella 返回 mkv 双音轨 <audio> 播不了；无音轨时还会静默回落不报错。
+export const PLAYBACK_QUALITIES = ['viper_clear', 'viper_atmos', 'high', 'flac', '320', '128'];
+
+// 上游返回的实际信息是否满足目标档：
+// - 无损族（viper_clear / viper_atmos / high / flac）都必须真 flac（extName），mp3 伪装不算。
+//   viper_clear / viper_atmos 体积远超普通 flac（139MB / 42MB vs 28MB），用 fileSize 阈值
+//   把「上游静默给成普通 flac」挡掉；阈值保守取低，长曲目的大 flac 宁可算过。
+// - 320：flac 也算满足（更高），否则看 bitRate；bitRate=0（high/viper）时只能信 extName
+// - 128：拿到任何可播直链都算
+function qualitySatisfies(target, info) {
+  if (!info?.url) return false;
+  switch (target) {
+    case 'viper_clear':
+      return info.extName === 'flac' && info.fileSize > 80_000_000;
+    case 'viper_atmos':
+      return info.extName === 'flac' && info.fileSize > 30_000_000;
+    case 'high':
+    case 'flac':
+      return info.extName === 'flac';
+    case '320':
+      if (info.extName === 'flac') return true;
+      if (info.bitRate > 0) return info.bitRate >= 320000;
+      return info.extName === 'mp3'; // bitRate=0 的高阶档，extName 兜底
+    default:
+      return true; // '128' 及未知档：拿到直链即可
+  }
+}
+
+export function isValidQuality(q) {
+  return PLAYBACK_QUALITIES.includes(String(q || '').trim().toLowerCase());
+}
+
+function qualityChain(targetQuality) {
+  const target = String(targetQuality || getSettingWithDefault('playback_quality') || 'flac').trim().toLowerCase();
+  const idx = PLAYBACK_QUALITIES.indexOf(target);
+  return idx >= 0 ? PLAYBACK_QUALITIES.slice(idx) : [...PLAYBACK_QUALITIES];
+}
+
+// 按设置的目标档取直链，拿不到逐级回落（flac → 320 → 128）。
+// 返回 { url, quality }：quality 是实际拿到的档，用于在队列项上如实标注。
+// 整链失败返回 null，调用方走原有 unmatched 流程，不谎报。
+export async function songUrlForPlayback(hash, { targetQuality = '' } = {}) {
+  const chain = qualityChain(targetQuality);
+  for (const q of chain) {
+    const info = await songUrlInfo(hash, q);
+    if (qualitySatisfies(q, info)) {
+      return { url: info.url, quality: q };
+    }
+    // 目标档拿不到但拿到了可用的更低档直链：继续走链试下一档，不提前收
+  }
+  return null;
 }
 
 export async function lyric(hash) {
@@ -209,8 +290,8 @@ export function coverUrlFromRaw(raw) {
 export async function resolveTrack({ title = '', artist = '', hint = '', hash = '' }) {
   const explicitHash = String(hash || '').trim();
   if (explicitHash) {
-    const url = await songUrl(explicitHash);
-    if (url) {
+    const resolved = await songUrlForPlayback(explicitHash);
+    if (resolved) {
       const meta = title
         ? await resolveTrackMeta({ title, artist, hash: explicitHash }).catch(() => null)
         : null;
@@ -220,11 +301,12 @@ export async function resolveTrack({ title = '', artist = '', hint = '', hash = 
         artist: meta?.artist || artist || '',
         album: meta?.album || '',
         duration: meta?.duration || 0,
-        upstreamUrl: url,
+        upstreamUrl: resolved.url,
         score: 200,
         albumId: meta?.albumId || '',
         mixsongid: meta?.mixsongid || '',
         cover: meta?.cover || '',
+        audioQuality: resolved.quality,
       };
     }
     if (!title) {
@@ -238,19 +320,20 @@ export async function resolveTrack({ title = '', artist = '', hint = '', hash = 
 
   for (const c of candidates) {
     if (c.score < SCORE_THRESHOLD) break;
-    const url = await songUrl(c.hash);
-    if (url) {
+    const resolved = await songUrlForPlayback(c.hash);
+    if (resolved) {
       return {
         kugouId: c.hash,
         title: c.title,
         artist: c.artist,
       album: c.album,
       duration: c.duration,
-      upstreamUrl: url,
+      upstreamUrl: resolved.url,
       score: c.score,
       albumId: c.raw?.AlbumID || c.raw?.album_id || c.raw?.albumid || '',
       mixsongid: c.raw?.MixSongID || c.raw?.mixsongid || c.raw?.album_audio_id || '',
       cover: coverUrlFromRaw(c.raw),
+      audioQuality: resolved.quality,
     };
     }
   }
@@ -571,6 +654,8 @@ export async function listPlaylistFileIds({ listid } = {}) {
 export default {
   search,
   songUrl,
+  songUrlInfo,
+  songUrlForPlayback,
   lyric,
   resolveTrack,
   resolveTrackMeta,
