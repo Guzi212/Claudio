@@ -1,7 +1,7 @@
 # Claudio v2 五方向核验报告
 
 - 日期：2026-11-15
-- 仓库 / 工作区：`D:\<workspace>\claudio-v2`（既有 worktree，未新开并行写入者）
+- 仓库 / 工作区：`D:/<workspace>\claudio-v2`（既有 worktree，未新开并行写入者）
 - 分支：`feat/claudio-v2`
 - 核验基线：`7938a79`（含五个本地提交）
   - `5351083` feat(memory): 情境记忆学习引擎、画像遥测表与本地个人档案优先读写
