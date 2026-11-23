@@ -1,5 +1,6 @@
 import { dbApi as defaultDb } from '../db.js';
-import { resolveTrack as defaultResolveTrack, fetchUserPlaylistTracks as defaultFetchTracks } from '../services/kugou.js';
+import { fetchUserPlaylistTracks as defaultFetchTracks } from '../services/kugou.js';
+import { resolveTrack as defaultResolveTrack } from '../services/music.js';
 import { continuePoolView, saveContinuePool, shuffleTracks } from '../continue-pool.js';
 
 const clip = (value, max) => Array.from(String(value ?? '').trim()).slice(0, max).join('');
@@ -7,7 +8,9 @@ const clip = (value, max) => Array.from(String(value ?? '').trim()).slice(0, max
 function poolTrack(track, reason = '') {
   const item = {
     title: track.title || '', artist: track.artist || '', album: track.album || '',
-    duration: track.duration || 0, kugouId: track.kugouId || track.hash,
+    duration: track.duration || 0,
+    ...(track.provider ? { provider: track.provider } : {}),
+    kugouId: track.kugouId || track.hash,
     cover: track.cover || '',
   };
   if (reason) item.reason = reason;

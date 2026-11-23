@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,6 +18,14 @@ function npmCommand(platform) {
   return platform === 'win32' ? 'npm.cmd' : 'npm';
 }
 
+function resolveQqPython(qqApiDir, platform) {
+  const venvPy = platform === 'win32'
+    ? path.join(qqApiDir, '.venv', 'Scripts', 'python.exe')
+    : path.join(qqApiDir, '.venv', 'bin', 'python');
+  if (fs.existsSync(venvPy)) return venvPy;
+  return platform === 'win32' ? 'python' : 'python3';
+}
+
 export function buildDevConfig({
   env = process.env,
   projectRoot = PROJECT_ROOT,
@@ -29,6 +38,14 @@ export function buildDevConfig({
   // 或落回 3000，和 KUGOU_API_BASE 对不上。
   const kugouApiPort = localKugouApiPort(kugouApiBase);
 
+  const neteaseApiBase = String(env.NETEASE_API_BASE || '').trim();
+  const neteaseApiDir = path.resolve(projectRoot, env.NETEASE_API_DIR || '../NeteaseCloudMusicApiEnhanced');
+  const neteaseApiPort = neteaseApiBase ? localKugouApiPort(neteaseApiBase) : null;
+
+  const qqApiBase = String(env.QQ_API_BASE || '').trim();
+  const qqApiDir = path.resolve(projectRoot, env.QQ_API_DIR || '../QQMusicApi');
+  const qqApiPort = qqApiBase ? localKugouApiPort(qqApiBase) : null;
+
   return {
     kugouApiBase,
     kugouApiPort,
@@ -40,6 +57,24 @@ export function buildDevConfig({
       cwd: kugouApiDir,
       // Node >= 18.20 / 20.12 refuses to spawn .cmd/.bat without a shell on Windows (EINVAL).
       shell: platform === 'win32',
+    },
+    neteaseApiBase,
+    neteaseApiPort,
+    neteaseApiDir,
+    netease: {
+      command: npmCommand(platform),
+      args: ['start'],
+      cwd: neteaseApiDir,
+      shell: platform === 'win32',
+    },
+    qqApiBase,
+    qqApiPort,
+    qqApiDir,
+    qq: {
+      command: resolveQqPython(qqApiDir, platform),
+      args: [path.join(projectRoot, 'scripts', 'qq-music-server.py')],
+      cwd: projectRoot,
+      shell: false,
     },
     claudio: {
       command: process.execPath,
@@ -111,6 +146,7 @@ export async function startDev({
   spawnProcess = spawn,
   isApiReachable = isHttpReachable,
   waitForApi = waitForHttp,
+  pathExists = fs.existsSync,
   log = console.log,
   error = console.error,
   manageSignals = false,
@@ -137,10 +173,14 @@ export async function startDev({
     if (manageSignals) process.exit(code);
   };
 
-  const watchExit = (child, label) => {
+  const watchExit = (child, label, { optional = false } = {}) => {
     child.on?.('exit', (code, signal) => {
       if (shuttingDown) return;
       const suffix = signal ? `signal ${signal}` : `code ${code ?? 0}`;
+      if (optional) {
+        error(`[dev] ${label} exited (${suffix}); continuing without it`);
+        return;
+      }
       error(`[dev] ${label} exited (${suffix}); stopping the other process`);
       shutdown(code || 1);
     });
@@ -179,6 +219,75 @@ export async function startDev({
     }
   }
 
+  let neteaseStarted = false;
+  if (config.neteaseApiBase && config.neteaseApiPort) {
+    if (await isApiReachable(config.neteaseApiBase)) {
+      log(`[dev] NeteaseApi already reachable at ${config.neteaseApiBase}`);
+    } else if (pathExists(config.neteaseApiDir)) {
+      const neteaseEnv = {
+        ...childEnv,
+        PORT: config.neteaseApiPort,
+        ENABLE_GENERAL_UNBLOCK: 'false',
+      };
+      const neteaseChild = spawnChild({
+        ...config.netease,
+        env: neteaseEnv,
+        spawnProcess,
+        log,
+        label: 'NeteaseApi',
+      });
+      children.push(neteaseChild);
+      watchExit(neteaseChild, 'NeteaseApi', { optional: true });
+      neteaseStarted = true;
+
+      const ready = await waitForApi(`${config.neteaseApiBase.replace(/\/+$/, '')}/search?keywords=test&limit=1`, {
+        timeoutMs: DEFAULT_WAIT_MS,
+        intervalMs: DEFAULT_INTERVAL_MS,
+        isReachable: isApiReachable,
+      });
+      if (!ready) {
+        error(`[dev] NeteaseApi did not become reachable at ${config.neteaseApiBase} (continuing)`);
+      }
+    } else {
+      log(`[dev] NETEASE_API_BASE set, but directory missing: ${config.neteaseApiDir}`);
+    }
+  }
+
+  let qqStarted = false;
+  if (config.qqApiBase && config.qqApiPort) {
+    if (await isApiReachable(`${config.qqApiBase.replace(/\/+$/, '')}/health`)) {
+      log(`[dev] QQMusicApi wrapper already reachable at ${config.qqApiBase}`);
+    } else if (pathExists(config.qqApiDir)) {
+      const qqEnv = {
+        ...childEnv,
+        PORT: config.qqApiPort,
+        QQ_API_DIR: config.qqApiDir,
+        PYTHONDONTWRITEBYTECODE: '1',
+      };
+      const qqChild = spawnChild({
+        ...config.qq,
+        env: qqEnv,
+        spawnProcess,
+        log,
+        label: 'QQMusicApi',
+      });
+      children.push(qqChild);
+      watchExit(qqChild, 'QQMusicApi', { optional: true });
+      qqStarted = true;
+
+      const ready = await waitForApi(`${config.qqApiBase.replace(/\/+$/, '')}/health`, {
+        timeoutMs: DEFAULT_WAIT_MS,
+        intervalMs: DEFAULT_INTERVAL_MS,
+        isReachable: isApiReachable,
+      });
+      if (!ready) {
+        error(`[dev] QQMusicApi wrapper did not become reachable at ${config.qqApiBase} (continuing)`);
+      }
+    } else {
+      log(`[dev] QQ_API_BASE set, but directory missing: ${config.qqApiDir}`);
+    }
+  }
+
   const claudioChild = spawnChild({
     ...config.claudio,
     env: childEnv,
@@ -198,6 +307,8 @@ export async function startDev({
   return {
     ...config,
     kugouStarted,
+    neteaseStarted,
+    qqStarted,
     children,
   };
 }

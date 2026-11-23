@@ -11,6 +11,8 @@ cache/
 # OS
 .DS_Store
 Thumbs.db
+__pycache__/
+*.pyc
 
 # Claude Code MCP (含本地路径和 token，不提交)
 .mcp.json

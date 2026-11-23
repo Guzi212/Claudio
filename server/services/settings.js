@@ -1,4 +1,5 @@
 import { dbApi } from '../db.js';
+import { normalizeProviderName } from './providers/base.js';
 
 export const KEYS = [
   'brain_mode',
@@ -24,6 +25,7 @@ export const KEYS = [
   'close_to_tray',
   'always_on_top_mini',
   'playback_quality',
+  'music_provider',
 ];
 
 export const DEFAULTS = {
@@ -43,6 +45,7 @@ export const DEFAULTS = {
   close_to_tray: 'true',
   always_on_top_mini: 'true',
   playback_quality: 'flac',
+  music_provider: 'multi',
 };
 
 const SENSITIVE = new Set(['openweather_api_key', 'fish_api_key', 'deepseek_api_key']);
@@ -104,9 +107,17 @@ export function set(key, value) {
   }
   if (value === '' || value == null) {
     dbApi.delPref(key);
-  } else {
-    dbApi.setPref(key, String(value));
+    return;
   }
+  let nextValue = String(value);
+  if (key === 'music_provider') {
+    const normalized = normalizeProviderName(nextValue, { allowMulti: true });
+    if (!normalized) {
+      throw new Error(`invalid music_provider: ${nextValue}`);
+    }
+    nextValue = normalized;
+  }
+  dbApi.setPref(key, nextValue);
 }
 
 export default { KEYS, DEFAULTS, getAll, get, getWithDefault, getBoolean, getNumber, set, isSensitive };

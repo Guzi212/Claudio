@@ -7,6 +7,11 @@ import {
   isValidQuality,
 } from '../services/kugou.js';
 import {
+  trackUrl as defaultMusicTrackUrl,
+  decodeTrackId,
+  normalizeProviderName,
+} from '../services/music.js';
+import {
   getPool as defaultGetPool,
   getPoolTracks as defaultGetPoolTracks,
   setPool as defaultSetPool,
@@ -32,12 +37,17 @@ function toQueueItem(track) {
 }
 
 function searchQueueItem(track) {
+  const rawHash = String(track.hash || track.kugouId || track.id || '').trim();
+  const decoded = decodeTrackId(rawHash, track.provider);
+  const provider = normalizeProviderName(track.provider) || decoded.provider || 'kugou';
   const item = {
     title: track.title,
     artist: track.artist || '',
     album: track.album || '',
     duration: track.duration || 0,
-    kugouId: track.hash || track.kugouId || '',
+    provider,
+    id: String(track.id || decoded.rawId || rawHash).trim(),
+    kugouId: rawHash,
     audioUrl: null,
     source: 'search',
   };
@@ -56,6 +66,7 @@ export function mountPlaylistRoutes(app, deps = {}) {
   const fetchUserPlaylists = deps.fetchUserPlaylists || defaultFetchUserPlaylists;
   const fetchUserPlaylistTracks = deps.fetchUserPlaylistTracks || defaultFetchUserPlaylistTracks;
   const resolveSongUrl = deps.resolveSongUrl || defaultSongUrlForPlayback;
+  const resolveMusicTrackUrl = deps.resolveMusicTrackUrl || defaultMusicTrackUrl;
   const getPool = deps.getPool || defaultGetPool;
   const getPoolTracks = deps.getPoolTracks || defaultGetPoolTracks;
   const setPool = deps.setPool || defaultSetPool;
@@ -186,11 +197,11 @@ export function mountPlaylistRoutes(app, deps = {}) {
     }
   });
 
-  // 单曲播放：按用户选中的 hash 精确进队列，不再重新搜索打分。
-  app.post('/api/kugou/play', (req, res) => {
+  // 单曲播放：按用户选中的 hash/id 精确进队列，不再重新搜索打分。
+  const handlePlaySingle = (req, res) => {
     const track = req.body?.track || {};
     const mode = req.body?.mode === 'append' ? 'append' : 'replace';
-    const hash = String(track.hash || track.kugouId || '').trim();
+    const hash = String(track.hash || track.kugouId || track.id || '').trim();
     const title = String(track.title || '').trim();
     if (!hash || !title) {
       res.status(400).json({ ok: false, error: 'track.hash 和 track.title 必填' });
@@ -201,7 +212,7 @@ export function mountPlaylistRoutes(app, deps = {}) {
       res.status(500).json({ ok: false, error: 'runtime 不可用' });
       return;
     }
-    const item = searchQueueItem({ ...track, hash, title });
+    const item = searchQueueItem({ ...track, hash, title, provider: track.provider || req.body?.provider });
     if (mode === 'append') {
       const wasEmpty = !Array.isArray(runtime.queue) || runtime.queue.length === 0;
       runtime.queue = [...(runtime.queue || []), item];
@@ -230,12 +241,15 @@ export function mountPlaylistRoutes(app, deps = {}) {
     } catch { /* 播放历史记录失败不影响点歌 */ }
     broadcast({ type: 'state', runtime });
     res.json({ ok: true, mode, queue: runtime.queue, index: runtime.index });
-  });
+  };
+  app.post('/api/kugou/play', handlePlaySingle);
+  app.post('/api/music/play', handlePlaySingle);
 
-  // 直链懒解析：hash → 可播放代理 URL。quality 可选（播放页切档用），非法值 400。
-  app.get('/api/kugou/track-url', async (req, res) => {
-    const hash = String(req.query?.hash || '');
-    if (!hash) {
+  // 直链懒解析：hash/id → 可播放代理 URL。quality 可选（播放页切档用），非法值 400。
+  const handleTrackUrl = async (req, res) => {
+    const rawIdOrHash = String(req.query?.hash || req.query?.id || '').trim();
+    const explicitProvider = String(req.query?.provider || '').trim();
+    if (!rawIdOrHash) {
       res.status(400).json({ ok: false, error: 'hash 必填' });
       return;
     }
@@ -244,8 +258,18 @@ export function mountPlaylistRoutes(app, deps = {}) {
       res.status(400).json({ ok: false, error: `未知音质档位: ${quality}` });
       return;
     }
+    if (explicitProvider && !normalizeProviderName(explicitProvider)) {
+      res.status(400).json({ ok: false, error: `未知音乐源: ${explicitProvider}` });
+      return;
+    }
+    const decoded = decodeTrackId(rawIdOrHash, explicitProvider);
     try {
-      const resolved = await resolveSongUrl(hash, quality ? { targetQuality: quality } : undefined);
+      const resolved = decoded.provider === 'kugou'
+        ? await resolveSongUrl(decoded.rawId, quality ? { targetQuality: quality } : undefined)
+        : await resolveMusicTrackUrl(decoded.rawId, {
+            provider: decoded.provider,
+            ...(quality ? { targetQuality: quality } : {}),
+          });
       // 兼容旧注入：string 直链 / {url, quality}
       const upstream = typeof resolved === 'string' ? resolved : resolved?.url;
       const audioQuality = typeof resolved === 'object' ? (resolved?.quality || null) : null;
@@ -258,17 +282,23 @@ export function mountPlaylistRoutes(app, deps = {}) {
       const runtime = getRuntime();
       const q = Array.isArray(runtime?.queue) ? runtime.queue : [];
       for (const item of q) {
-        if (item?.kugouId === hash) {
+        if (
+          item?.kugouId === rawIdOrHash
+          || item?.kugouId === decoded.rawId
+          || (item?.provider === decoded.provider && item?.id === decoded.rawId)
+        ) {
           item.audioUrl = url;
           item.audioQuality = audioQuality;
         }
       }
-      res.json({ ok: true, url, audioQuality });
+      res.json({ ok: true, url, audioQuality, provider: decoded.provider });
     } catch (err) {
       console.error('[playlists-api] track-url failed:', err.message);
       res.status(500).json({ ok: false, error: err.message });
     }
-  });
+  };
+  app.get('/api/kugou/track-url', handleTrackUrl);
+  app.get('/api/music/track-url', handleTrackUrl);
 }
 
 export default { mountPlaylistRoutes };

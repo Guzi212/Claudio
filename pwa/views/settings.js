@@ -12,6 +12,7 @@ const fields = {
   djBatch:          '#set-dj-batch',
   deepseekKey:      '#set-deepseek-key',
   deepseekModel:    '#set-deepseek-model',
+  musicProvider:    '#set-music-provider',
   adaptiveVol:      '#set-adaptive-vol',
   playbackQuality:  '#set-playback-quality',
   volMax:           '#set-vol-max',
@@ -36,9 +37,12 @@ let healthList, kugouStatus, btnSave, btnRefresh, btnRelogin;
 let loaded = false;
 let loading = false;
 let reloginState = null;  // { key, pollId, modal } 当前活的扫码会话
+let lastSavedProvider = 'multi';
 
 const HEALTH_KEYS = [
   { key: 'kugou',    label: 'KuGou'    },
+  { key: 'netease',  label: 'Netease'  },
+  { key: 'qq',       label: 'QQ Music' },
   { key: 'weather',  label: 'Weather'  },
   { key: 'tts',      label: 'TTS'      },
   { key: 'ai',       label: 'AI'       },
@@ -169,6 +173,10 @@ function applySettings(s) {
   if (nodes.djBatch) nodes.djBatch.value = s?.dj_batch_size || '5';
   if (nodes.deepseekKey) nodes.deepseekKey.value = s?.deepseek_api_key || '';
   if (nodes.deepseekModel) nodes.deepseekModel.value = s?.deepseek_model || 'deepseek-chat';
+  if (nodes.musicProvider) {
+    lastSavedProvider = s?.music_provider || 'multi';
+    nodes.musicProvider.value = lastSavedProvider;
+  }
   if (nodes.playbackQuality) nodes.playbackQuality.value = s?.playback_quality || 'flac';
   if (nodes.adaptiveVol) nodes.adaptiveVol.checked = boolFrom(s?.adaptive_volume_enabled, true);
   if (nodes.volMax) nodes.volMax.value = s?.volume_safe_max || '85';
@@ -209,6 +217,7 @@ function buildPayload() {
   }
   if (nodes.deepseekModel) payload.deepseek_model = nodes.deepseekModel.value || 'deepseek-chat';
 
+  if (nodes.musicProvider) payload.music_provider = nodes.musicProvider.value || 'multi';
   if (nodes.playbackQuality) payload.playback_quality = nodes.playbackQuality.value || 'flac';
   if (nodes.adaptiveVol) payload.adaptive_volume_enabled = String(Boolean(nodes.adaptiveVol.checked));
   if (nodes.volMax) payload.volume_safe_max = String(nodes.volMax.value || '85').trim();
@@ -534,6 +543,25 @@ export function initSettings() {
   });
   nodes.uiTheme?.addEventListener('change', () => {
     window.dispatchEvent(new CustomEvent('claudio:theme', { detail: nodes.uiTheme.value }));
+  });
+  nodes.musicProvider?.addEventListener('change', async () => {
+    const next = nodes.musicProvider.value || 'multi';
+    nodes.musicProvider.disabled = true;
+    try {
+      const r = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ music_provider: next }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      lastSavedProvider = next;
+      toast('音源已切换并生效');
+    } catch (err) {
+      nodes.musicProvider.value = lastSavedProvider;
+      showAlert(`切换音源失败：${err.message}`);
+    } finally {
+      nodes.musicProvider.disabled = false;
+    }
   });
   if (nodes.pixelHost) {
     nodes.pixelHost.checked = readPixelHostEnabled();

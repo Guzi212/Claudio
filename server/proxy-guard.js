@@ -1,12 +1,21 @@
-// /api/proxy 的目标白名单：只替酷狗音频和图片域名转发，挡掉 SSRF。
+// /api/proxy 的目标白名单：替受信任音乐源音频和图片域名转发，挡掉 SSRF。
 //
-// 只按域名判断，不做 DNS 解析后再按 IP 拦：开着 Clash fake-IP 时酷狗域名会解析到
+// 只按域名判断，不做 DNS 解析后再按 IP 拦：开着 Clash fake-IP 时域名会解析到
 // 198.18.x.x，按 IP 拦会把正常播放拦掉。这里只额外排除「主机名本身就是 IP」的情况。
 //
-// 白名单默认 kugou.com、kgimg.com 及其子域，可用 CLAUDIO_PROXY_ALLOWED_HOSTS
+// 白名单默认包含酷狗、网易云、QQ 音乐实测 CDN 域及其子域，可用 CLAUDIO_PROXY_ALLOWED_HOSTS
 // （逗号分隔）追加。漏了某个 CDN 域名时在 .env 里补一行就能恢复播放。
 
-export const DEFAULT_ALLOWED_HOSTS = ['kugou.com', 'kgimg.com'];
+export const DEFAULT_ALLOWED_HOSTS = [
+  'kugou.com',
+  'kgimg.com',
+  'music.126.net',
+  'music.163.com',
+  'qqmusic.qq.com',
+  'tc.qq.com',
+  'y.qq.com',
+  'y.gtimg.cn',
+];
 
 // 被拒目标统一带这个 code，路由层据此返回 403 而不是 502。
 export const BLOCKED_CODE = 'CLAUDIO_PROXY_BLOCKED';
@@ -90,6 +99,32 @@ export function isAllowedProxyUrl(rawUrl, env = process.env) {
   return checkProxyUrl(rawUrl, env).ok;
 }
 
+function hostMatches(hostname, domain) {
+  return hostname === domain || hostname.endsWith(`.${domain}`);
+}
+
+export function refererForProxyUrl(rawUrl) {
+  let hostname = '';
+  try {
+    hostname = normalizeHost(new URL(String(rawUrl ?? '')).hostname);
+  } catch {
+    return 'https://www.kugou.com';
+  }
+  if (!hostname) return 'https://www.kugou.com';
+  if (hostMatches(hostname, 'music.126.net') || hostMatches(hostname, 'music.163.com')) {
+    return 'https://music.163.com/';
+  }
+  if (
+    hostMatches(hostname, 'qqmusic.qq.com')
+    || hostMatches(hostname, 'tc.qq.com')
+    || hostMatches(hostname, 'y.qq.com')
+    || hostMatches(hostname, 'y.gtimg.cn')
+  ) {
+    return 'https://y.qq.com/';
+  }
+  return 'https://www.kugou.com';
+}
+
 function proxyBlockedError(reason, hostname) {
   const err = new Error(`proxy target blocked: ${reason}`);
   err.code = BLOCKED_CODE;
@@ -145,6 +180,7 @@ export default {
   allowedHosts,
   checkProxyUrl,
   isAllowedProxyUrl,
+  refererForProxyUrl,
   redirectTargetOf,
   createRedirectGuard,
   findProxyBlock,

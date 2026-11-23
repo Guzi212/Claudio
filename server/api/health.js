@@ -8,6 +8,7 @@ import { dbApi } from '../db.js';
 import { axiosProxyOptions } from '../outbound-proxy.js';
 import { get as getSetting } from '../services/settings.js';
 import { DEFAULT_KUGOU_API_BASE } from '../kugou-api-base.js';
+import { checkProvidersHealth } from '../services/music.js';
 
 const execAsync = promisify(exec);
 const LARK_TIMEOUT_MS = 3_000;
@@ -123,11 +124,17 @@ export function mountHealthRoute(app, deps = {}) {
   const getDj = typeof deps.getDj === 'function' ? deps.getDj : () => null;
 
   app.get('/api/health/integrations', async (req, res) => {
-    const [lark, kugou] = await Promise.all([checkLark(), checkKugou()]);
+    const [lark, kugou, providersHealth] = await Promise.all([
+      checkLark(),
+      checkKugou(),
+      checkProvidersHealth(),
+    ]);
     const djHandle = getDj();
     const djStatus = djHandle?.status?.() || null;
     res.json({
       kugou,
+      netease: providersHealth.netease,
+      qq: providersHealth.qq,
       weather: checkWeather(),
       tts: checkSettingKey('fish_api_key'),
       ai: checkAi(),

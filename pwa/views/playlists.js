@@ -82,6 +82,8 @@ function formatDuration(ms) {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
 }
 
+const PROVIDER_LABEL = { kugou: '酷狗', netease: '网易云', qq: 'QQ' };
+
 async function playTrack(track, mode) {
   try {
     const r = await fetch('/api/kugou/play', {
@@ -89,6 +91,8 @@ async function playTrack(track, mode) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         track: {
+          provider: track.provider || 'kugou',
+          id: track.id || track.hash,
           hash: track.hash,
           title: track.title,
           artist: track.artist,
@@ -139,10 +143,14 @@ function renderSearchResults(tracks) {
     duration.className = 'muted';
     const time = formatDuration(track.duration);
     duration.textContent = time ? ` · ${time}` : '';
+    const sourceTag = document.createElement('span');
+    sourceTag.className = 'badge';
+    sourceTag.textContent = PROVIDER_LABEL[track.provider] || '酷狗';
     meta.appendChild(title);
     meta.appendChild(artist);
     meta.appendChild(album);
     meta.appendChild(duration);
+    meta.appendChild(sourceTag);
 
     const actions = document.createElement('div');
     actions.className = 'search-actions';
@@ -175,7 +183,7 @@ async function searchTracks(query) {
   searchStatus.textContent = '搜索中…';
   searchResults.textContent = '';
   try {
-    const r = await fetch(`/api/kugou/search?q=${encodeURIComponent(q)}`);
+    const r = await fetch(`/api/music/search?q=${encodeURIComponent(q)}`);
     const data = await r.json();
     if (!data.ok) throw new Error(data.error || `HTTP ${r.status}`);
     renderSearchResults(Array.isArray(data.tracks) ? data.tracks : []);

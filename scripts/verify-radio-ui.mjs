@@ -99,8 +99,8 @@ function createPreview() {
   app.get('/api/now', (_req, res) => res.json({ ok: true, ...state, nowPlaying: state.queue[state.index] }));
   app.get('/api/status', (_req, res) => res.json({ ok: true, ...state, nowPlaying: state.queue[state.index] }));
   app.get('/api/health', (_req, res) => res.json({ ok: true }));
-  app.get('/api/health/integrations', (_req, res) => res.json({ kugou: { ok: true, detail: '试听就绪' }, weather: { ok: true, detail: 'Open-Meteo (keyless)' }, tts: { ok: false, detail: '未配置' }, ai: { ok: false, detail: '未配置' }, lark: { ok: false, detail: '未配置' }, calendar: { ok: false, detail: '未配置' }, dj: { ok: false, detail: 'standby' } }));
-  app.get('/api/settings', (_req, res) => res.json({ openweather_city: 'Changsha', ui_theme: 'auto' }));
+  app.get('/api/health/integrations', (_req, res) => res.json({ kugou: { ok: true, detail: '试听就绪' }, netease: { ok: true, detail: 'anonymous' }, qq: { ok: true, detail: 'search only' }, weather: { ok: true, detail: 'Open-Meteo (keyless)' }, tts: { ok: false, detail: '未配置' }, ai: { ok: false, detail: '未配置' }, lark: { ok: false, detail: '未配置' }, calendar: { ok: false, detail: '未配置' }, dj: { ok: false, detail: 'standby' } }));
+  app.get('/api/settings', (_req, res) => res.json({ openweather_city: 'Changsha', ui_theme: 'auto', music_provider: 'multi' }));
   app.get('/api/memory/brief', (_req, res) => res.json({ ok: true, scene: state.scene, context: { coldStart: true, confidence: 0.1, vocalPreference: 'neutral', energyTarget: 'neutral' }, traits: [], tasteSummary: { sessionCount: 0 } }));
   app.get('/api/memory/traits', (_req, res) => res.json({ ok: true, traits: [] }));
   app.post('/api/scene', (req, res) => {
@@ -115,17 +115,20 @@ function createPreview() {
   app.get('/api/kugou/playlists', (_req, res) => res.json({ ok: true, playlists: [{ listid: '1', name: '深夜循环', songCount: 28 }, { listid: '2', name: '通勤路上', songCount: 45 }, { listid: '3', name: '那些年的华语歌', songCount: 62 }] }));
   app.get('/api/kugou/playlists/pool', (_req, res) => res.json({ ok: true, pool: null }));
   app.get('/api/kugou/search', (_req, res) => res.json({ ok: true, tracks: [{ hash: 'preview-search', title: '晴天', artist: '周杰伦', album: '叶惠美', duration: 269000, cover: '' }] }));
+  app.get('/api/music/search', (_req, res) => res.json({ ok: true, provider: 'multi', providersUsed: ['kugou', 'netease', 'qq'], tracks: [{ provider: 'kugou', id: 'preview-search', hash: 'preview-search', title: '晴天', artist: '周杰伦', album: '叶惠美', duration: 269, cover: '' }, { provider: 'netease', id: '186016', hash: 'netease:186016', title: '晴天', artist: '周杰伦', album: '叶惠美', duration: 269, cover: '' }] }));
   app.get('/api/kugou/favorite', (_req, res) => res.json({ ok: true, liked: false }));
   app.post('/api/kugou/favorite', (req, res) => res.json({ ok: true, liked: req.body?.action !== 'remove', duplicate: false, pendingId: 1 }));
-  app.post('/api/kugou/play', (req, res) => {
+  const handlePreviewPlay = (req, res) => {
     const track = req.body?.track || {};
-    const item = { title: track.title, artist: track.artist, album: track.album, duration: track.duration, kugouId: track.hash, audioUrl: '/preview-tone.wav', source: 'search' };
+    const item = { provider: track.provider || 'kugou', id: track.id || track.hash, title: track.title, artist: track.artist, album: track.album, duration: track.duration, kugouId: track.hash || track.id, audioUrl: '/preview-tone.wav', source: 'search' };
     if (req.body?.mode === 'append') state.queue = [...state.queue, item];
     else { state.queue = [item]; state.index = 0; }
     state.paused = false;
     broadcastState();
     res.json({ ok: true, mode: req.body?.mode || 'replace', queue: state.queue, index: state.index });
-  });
+  };
+  app.post('/api/kugou/play', handlePreviewPlay);
+  app.post('/api/music/play', handlePreviewPlay);
   app.get('/api/lyric', (_req, res) => res.json({ lyric: Array.from({ length: 40 }, (_, index) => {
     const seconds = index * 5;
     const time = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
@@ -153,6 +156,7 @@ function createPreview() {
   app.post('/api/feedback', (_req, res) => res.json({ ok: true, id: 1 }));
   app.get('/api/track-url', (_req, res) => res.json({ ok: true, url: '/preview-tone.wav' }));
   app.get('/api/kugou/track-url', (_req, res) => res.json({ ok: true, url: '/preview-tone.wav' }));
+  app.get('/api/music/track-url', (_req, res) => res.json({ ok: true, url: '/preview-tone.wav' }));
   app.use(express.static(path.join(root, 'pwa')));
   server = http.createServer(app);
   const wss = new WebSocketServer({ noServer: true });
