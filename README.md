@@ -397,7 +397,7 @@ Content-Type: application/json
 | 待分类列表 | `GET /api/likes/pending` | Query：`limit`（默认 100，最大 200） | `ok`，`items[]`：`id`，`kugouId`，`title`，`artist`，`album`，`albumId`，`mixsongid`，`status`，`createdAt` |
 | 分类到歌单 | `POST /api/likes/:id/classify` | JSON：`playlist`（`listid` 或 `name`） | `ok`，`item`，`playlist`，`duplicate`。只写 `type=0` 自建歌单，不自动新建 |
 | 跳过分类 | `POST /api/likes/:id/skip` | JSON：`note`（可选，最多 200 字） | `ok`，`item` |
-| 聊天（external） | `POST /api/chat` | JSON：`message` | 控制命令（`/skip` `/pause` `/play` `/toggle` `/vol N` `/prev` `/now` `/queue`）照常执行。普通文字返回「选歌请在 Grok Bot 里找 Claudio主持人。」，不调用 Claude |
+| 聊天（external） | `POST /api/chat` | JSON：`message` | 控制命令（`/skip` `/pause` `/play` `/toggle` `/vol N` `/prev` `/now` `/queue`）照常执行。普通文字返回「当前为外部主持模式，请通过已接入的 Agent 或常驻 DJ 点歌。」，不调用 Claude |
 | 开机（external） | `POST /api/boot` | 无 | 不调用 Claude。返回当前 `queue` 和 `index`，`brain: "external"`，`skipped: true` |
 
 页面在 external 模式下只出声和显示。加载时，以及主持人投下新队列时，会先直接 `play()`。成功就不出遮罩；只有浏览器返回 `NotAllowedError` 才显示「点击开声」，点一下从当前队列和进度接着放。队列是空的就显示「等主持人点歌」，不盖遮罩。服务器记着暂停时，打开页面不会自己播；主持人用 replace 或 append 投下新队列，或者发 play，会再直接播。一首播完会放到队列里的下一首，整个队列播完就停。
