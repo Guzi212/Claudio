@@ -362,8 +362,11 @@ section.view-player { position: relative; overflow-y: auto; background: transpar
 .live-dot { display: inline-block; width: 7px; height: 7px; flex: none; border-radius: 1px; background: var(--seal); transform: rotate(45deg); }
 .is-playing .playing-state .live-dot { animation: signal 3s ease-in-out infinite; }
 .paused .playing-state .live-dot { background: var(--off); }
-.track-info h1 { margin: 14px 0 6px; color: var(--ink); font-family: var(--font-brush); font-size: clamp(46px, 5vw, 72px); font-weight: 500; line-height: 1.15; letter-spacing: .06em; overflow-wrap: anywhere; text-wrap: balance; }
+.track-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 12px; margin: 14px 0 6px; min-width: 0; }
+.track-info h1 { margin: 0; color: var(--ink); font-family: var(--font-brush); font-size: clamp(46px, 5vw, 72px); font-weight: 500; line-height: 1.15; letter-spacing: .06em; overflow-wrap: anywhere; text-wrap: balance; }
 .track-info.long-title h1 { font-size: clamp(34px, 4vw, 52px); letter-spacing: .03em; }
+.track-provider { flex: none; line-height: 1.5; letter-spacing: .06em; }
+.track-provider[hidden] { display: none; }
 .artist { margin: 0; color: rgba(var(--ink-rgb), .78); font-family: var(--font-serif); font-size: 18px; line-height: 1.7; letter-spacing: .1em; overflow-wrap: anywhere; }
 .audio-quality { display: inline-block; margin-left: 8px; padding: 1px 6px; border: 1px solid rgba(var(--seal-rgb), .45); border-radius: 3px; color: var(--seal); font-size: 11px; line-height: 1.5; vertical-align: 2px; letter-spacing: .5px; }
 .audio-quality[hidden] { display: none; }
@@ -657,7 +660,8 @@ details.card[open] > summary::before { content: "−"; }
   .signal-wave { width: 100%; height: 20px; padding-top: 8px; gap: 2px; }
   .playback-panel { display: contents; }
   .track-info { grid-area: info; }
-  .track-info h1 { margin: 10px 0 4px; font-size: 38px; }
+  .track-heading { margin: 10px 0 4px; gap: 6px 10px; }
+  .track-info h1 { margin: 0; font-size: 38px; }
   .track-info.long-title h1 { font-size: 28px; line-height: 1.3; }
   .artist { font-size: 15px; }
   .reason { margin-top: 11px; font-size: 13px; line-height: 1.7; }
@@ -741,7 +745,9 @@ html.is-mini, html.is-mini body { overflow: hidden; }
   .cover { width: 56px; height: 56px; border-radius: 4px; box-shadow: 0 0 0 1px rgba(var(--ink-rgb), .18); }
   .playback-panel { display: contents; }
   .track-info { min-width: 0; }
-  .track-info h1 { margin: 0; font-size: 16px !important; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .track-heading { margin: 0; flex-wrap: nowrap; gap: 6px; }
+  .track-info h1 { margin: 0; min-width: 0; font-size: 16px !important; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .track-provider { padding: 1px 6px; font-size: 10px; }
   .artist { font-size: 12px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .transport { margin-top: 0; gap: 6px; flex-wrap: nowrap; }
   .playback { gap: 4px; }

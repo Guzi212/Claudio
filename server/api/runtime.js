@@ -3,7 +3,7 @@ import { applyRuntimePlayback, reportedQueueIndex } from '../queue-source.js';
 import { stateBroadcast } from '../runtime-events.js';
 import { continueFromPool } from '../continue-pool.js';
 
-export function mountRuntimeRoutes(app, { runtime, broadcast, db, statusOptions = () => ({}) }) {
+export function mountRuntimeRoutes(app, { runtime, broadcast, db, statusOptions = () => ({}), canReportState = () => true }) {
   for (const path of ['/api/status', '/api/now']) {
     app.get(path, (_req, res) => res.json(playbackStatus(runtime, statusOptions())));
   }
@@ -25,7 +25,11 @@ export function mountRuntimeRoutes(app, { runtime, broadcast, db, statusOptions 
   }
 
   app.post('/api/runtime/state', (req, res) => {
-    const { paused, ended } = req.body || {};
+    const { paused, ended, clientId } = req.body || {};
+    if (clientId && !canReportState(clientId)) {
+      res.json({ ok: true, index: runtime.index, queueOffset: runtime.queueOffset || 0, paused: playbackStatus(runtime).paused, continued: false, stale: true });
+      return;
+    }
     const index = reportedQueueIndex(runtime, req.body);
     const absolute = index + (runtime.queueOffset || 0);
     const edge = guard();

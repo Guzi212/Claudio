@@ -56,6 +56,7 @@ export function init({ audio, container, getCurrentTrack } = {}) {
   let activeIdx = -1;
   let currentHash = null;
   let lastUpdateAt = 0;
+  let externalTime = null;
   let userExpanded = true;
   const toggle = document.getElementById('lyrics-toggle');
   if (toggle) {
@@ -152,7 +153,7 @@ export function init({ audio, container, getCurrentTrack } = {}) {
 
   function updateHighlight({ recenter = false } = {}) {
     if (!lines.length) return;
-    const now = audio.currentTime || 0;
+    const now = Number.isFinite(externalTime) ? externalTime : (audio.currentTime || 0);
 
     // 线性查找：歌词行数通常 < 200，简单且 cache-friendly
     let idx = -1;
@@ -178,20 +179,31 @@ export function init({ audio, container, getCurrentTrack } = {}) {
   });
 
   audio.addEventListener('timeupdate', () => {
+    if (!audio.paused) externalTime = null;
     const t = Date.now();
     if (t - lastUpdateAt < 120) return;
     lastUpdateAt = t;
     updateHighlight();
   });
 
-  audio.addEventListener('seeked', () => updateHighlight({ recenter: true }));
+  audio.addEventListener('seeked', () => {
+    externalTime = null;
+    updateHighlight({ recenter: true });
+  });
 
   audio.addEventListener('emptied', () => {
     currentHash = null;
+    externalTime = null;
     clearLyrics();
   });
 
-  return { loadLyric, refresh: renderLines };
+  function setExternalTime(seconds) {
+    if (!Number.isFinite(seconds) || seconds < 0) return;
+    externalTime = seconds;
+    updateHighlight();
+  }
+
+  return { loadLyric, refresh: renderLines, setExternalTime };
 }
 
 // ──── 兜底：DOMContentLoaded 自动 attach（W2 没显式接入时生效）────
@@ -214,6 +226,9 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
     window.addEventListener('claudio:trackchange', (ev) => {
       currentTrack = ev.detail || null;
       api?.loadLyric(currentTrack);
+    });
+    window.addEventListener('claudio:lyric-time', (ev) => {
+      api?.setExternalTime(ev?.detail?.currentTime);
     });
   };
   if (document.readyState === 'loading') {

@@ -32,3 +32,20 @@ export function planPlayError(error) {
   if (error.name === 'NotAllowedError') return { ok: false, userActivated: false, showOverlay: true };
   return { ok: false, userActivated: false, showOverlay: false };
 }
+
+export const TRACK_PROVIDER_LABELS = {
+  kugou: '酷狗音乐',
+  netease: '网易云',
+  qq: 'QQ 音乐',
+};
+
+export function trackProviderLabel(track) {
+  if (!track || track.isTts) return '';
+  const explicit = String(track.provider || '').trim().toLowerCase();
+  if (TRACK_PROVIDER_LABELS[explicit]) return TRACK_PROVIDER_LABELS[explicit];
+  const rawId = String(track.kugouId || '').trim().toLowerCase();
+  if (rawId.startsWith('netease:')) return TRACK_PROVIDER_LABELS.netease;
+  if (rawId.startsWith('qq:')) return TRACK_PROVIDER_LABELS.qq;
+  if (rawId) return TRACK_PROVIDER_LABELS.kugou;
+  return '';
+}

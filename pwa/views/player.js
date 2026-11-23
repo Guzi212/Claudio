@@ -5,7 +5,14 @@ import { showAlert, clearAlert, setStatus, toast } from './ui.js';
 import { planExternalPlayback } from '../external-playback.js';
 import { planBootPlayback } from '../boot-playback.js';
 import { claimPlayLoad, isOwnEcho, planRuntimeSync } from '../runtime-sync.js';
-import { externalUnlockPlan, planExternalBoot, planPlayCommand, planPlayError } from '../player-mode.js';
+import {
+  externalUnlockPlan,
+  planExternalBoot,
+  planPlayCommand,
+  planPlayError,
+  TRACK_PROVIDER_LABELS,
+  trackProviderLabel,
+} from '../player-mode.js';
 import { readLocalVolume, writeLocalVolume } from '../volume-memory.js';
 import { getClientId } from '../client-id.js';
 import { hostSprite, PIXEL_HOST_SPRITES, readPixelHostEnabled } from '../host-mood.js';
@@ -29,6 +36,8 @@ const QUALITY_OPTIONS = [
 ];
 const QUALITY_LABEL = Object.fromEntries(QUALITY_OPTIONS.map(o => [o.q, o.label]));
 
+export { TRACK_PROVIDER_LABELS, trackProviderLabel };
+
 const $ = sel => document.querySelector(sel);
 
 const LOOP_MODES = ['list', 'one', 'auto'];
@@ -46,6 +55,10 @@ const state = {
   loopMode: 'auto',
   brain: 'external',
   continuePoolActive: false,
+  isFollower: false,
+  serverPaused: false,
+  serverDuration: 0,
+  leader: null,
 };
 
 let autoRecommending = false;
@@ -152,6 +165,7 @@ let userActivated = false;
 let serverProgress = 0;
 let playLoadIndex = null;
 let suppressPauseSync = false;
+let renderedFollowerKey = '';
 function markActivated() { userActivated = true; }
 
 function ensurePlaybackVolume() {
@@ -170,7 +184,8 @@ function showUnlockOverlay() {
 }
 
 async function attemptPlay() {
-  if (!audio) return false;
+  if (!audio || state.isFollower) return false;
+  audio.muted = false;
   ensurePlaybackVolume();
   try {
     await audio.play();
@@ -227,9 +242,9 @@ function applyHeardVolume(volume) {
 }
 
 function reportProgress(force = false) {
-  if (!audio) return;
+  if (!audio || state.isFollower) return;
   const now = Date.now();
-  if (!force && now - lastProgressAt < 2000) return;
+  if (!force && now - lastProgressAt < 1000) return;
   lastProgressAt = now;
   window.dispatchEvent(new CustomEvent('claudio:progress', {
     detail: {
@@ -247,6 +262,7 @@ function reportProgress(force = false) {
 // 把服务端的真实位置推回前端的镜像状态（避免 server / client 两边索引漂移）。
 // clientId 会跟着广播回来；这份页面看到自己的 origin 就不再改播放。
 function syncToServer(index, { paused = false, ended = false } = {}) {
+  if (state.isFollower) return Promise.resolve(null);
   return fetch('/api/runtime/state', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -371,6 +387,14 @@ function paintHostChrome() {
   }
   time.hidden = true;
   time.textContent = '';
+}
+
+function paintTrackProvider(track) {
+  const el = document.getElementById('np-provider');
+  if (!el) return;
+  const label = trackProviderLabel(track);
+  el.textContent = label;
+  el.hidden = !label;
 }
 
 function paintAudioQuality(track) {
@@ -642,6 +666,7 @@ function setStudioTrack(track) {
   if (npArtist) npArtist.textContent = track.artist || '';
   const info = document.querySelector('#now-playing .track-info');
   if (info) info.classList.toggle('long-title', String(track.title || '').length > 4);
+  paintTrackProvider(track);
   paintAudioQuality(track);
   paintTrackReason(track);
   paintCover(track);
@@ -898,17 +923,114 @@ function shouldCountAsUserSkip() {
   return !((dur > 0 && cur / dur >= 0.65) || cur >= 90);
 }
 
+function fallbackDurationSec(track) {
+  if (Number.isFinite(state.serverDuration) && state.serverDuration > 0) return state.serverDuration;
+  const raw = Number(track?.duration) || 0;
+  if (raw <= 0) return 0;
+  return raw > 1800 ? raw / 1000 : raw;
+}
+
+function seekAudioSafely(targetSec, expectedTrack) {
+  if (!audio || !Number.isFinite(targetSec) || targetSec <= 0) return;
+  const applySeek = () => {
+    if (expectedTrack && !trackStillCurrent(expectedTrack)) return;
+    try { audio.currentTime = targetSec; } catch { /* ignore */ }
+  };
+  if (audio.readyState >= 1) {
+    applySeek();
+    return;
+  }
+  try { audio.currentTime = targetSec; } catch { /* wait metadata */ }
+  audio.addEventListener('loadedmetadata', () => {
+    if (Math.abs((audio.currentTime || 0) - targetSec) > 0.8) {
+      applySeek();
+    }
+  }, { once: true });
+}
+
+function silenceFollowerAudio() {
+  if (!audio) return;
+  audio.muted = true;
+  if (!audio.paused) {
+    suppressPauseSync = true;
+    try { audio.pause(); } catch { /* ignore */ }
+    suppressPauseSync = false;
+  }
+}
+
+function syncFollowerStage({ forceTrackEvent = false } = {}) {
+  if (!state.queue.length || state.index < 0 || state.index >= state.queue.length) {
+    renderedFollowerKey = '';
+    if (npBox) npBox.classList.add('hidden');
+    paintTrackProvider(null);
+    paintAudioQuality(null);
+    updatePlayButtons(false);
+    updateSeekBar(0, 0);
+    window.dispatchEvent(new CustomEvent('claudio:trackchange', { detail: null }));
+    renderQueuePanel();
+    return;
+  }
+  const clamped = Math.max(0, Math.min(state.index, state.queue.length - 1));
+  state.index = clamped;
+  const t = state.queue[clamped];
+  const nextKey = `${clamped + state.offset}:${trackKey(t)}`;
+  const changed = forceTrackEvent || nextKey !== renderedFollowerKey;
+  renderedFollowerKey = nextKey;
+  if (npTitle) npTitle.textContent = t.title || '';
+  if (npArtist) npArtist.textContent = t.artist || '';
+  setStudioTrack(t);
+  if (npBox) npBox.classList.remove('hidden');
+  if (changed) {
+    resetFavoriteState();
+    window.dispatchEvent(new CustomEvent('claudio:trackchange', { detail: t }));
+  }
+  updateSeekBar(serverProgress, fallbackDurationSec(t));
+  window.dispatchEvent(new CustomEvent('claudio:lyric-time', { detail: { currentTime: serverProgress } }));
+  updatePlayButtons(!state.serverPaused);
+  renderQueuePanel();
+}
+
+function syncFollowerRuntime(runtime) {
+  silenceFollowerAudio();
+  dismissBootOverlay();
+  const keepAdaptiveVolume = adaptiveVolumeApplied && runtime.volumeExplicit !== true;
+  if (Number.isFinite(runtime.volume) && !keepAdaptiveVolume) applyHeardVolume(runtime.volume);
+  if (Array.isArray(runtime.queue)) {
+    state.queue = runtime.queue;
+    state.offset = runtime.queueOffset || 0;
+    if (!runtime.queue.length) {
+      state.index = 0;
+      state.serverPaused = true;
+      if (brain !== 'internal') setConsoleDialog('等待点歌');
+    } else {
+      const idx = Number.isFinite(runtime.index) ? runtime.index : 0;
+      state.index = Math.max(0, Math.min(idx, runtime.queue.length - 1));
+    }
+  }
+  syncFollowerStage();
+}
+
 async function playIndex(i, { autoplay = true, startAt = 0, resume = false, restart = false, outcomeHint = 'switch' } = {}) {
   if (i < 0 || i >= state.queue.length) {
     npBox.classList.add('hidden');
+    paintTrackProvider(null);
+    paintAudioQuality(null);
     audio.removeAttribute('src');
     window.dispatchEvent(new CustomEvent('claudio:trackchange', { detail: null }));
     return;
   }
+  if (state.isFollower) {
+    state.index = i;
+    if (Number.isFinite(startAt) && startAt >= 0) serverProgress = startAt;
+    silenceFollowerAudio();
+    syncFollowerStage();
+    return;
+  }
   if (resume && audio?.getAttribute('src')) {
+    audio.muted = false;
     ensurePlaybackVolume();
     if (Number.isFinite(startAt) && startAt > 0) {
-      try { audio.currentTime = startAt; } catch { /* 元数据还没到 */ }
+      seekAudioSafely(startAt, state.queue[i]);
     }
     if (autoplay) await attemptPlay();
     return;
@@ -936,6 +1058,11 @@ async function playIndex(i, { autoplay = true, startAt = 0, resume = false, rest
     const src = await resolveAudioSrc(t);
     // await 期间用户可能又点了别的曲目，确认当前目标没变再写 src
     if (playLoadIndex !== loadToken || state.index + state.offset !== loadToken || !trackStillCurrent(t)) return;
+    if (state.isFollower) {
+      silenceFollowerAudio();
+      syncFollowerStage({ forceTrackEvent: true });
+      return;
+    }
     if (!src) {
       if (state.index < state.queue.length - 1) {
         playLoadIndex = null;
@@ -946,10 +1073,13 @@ async function playIndex(i, { autoplay = true, startAt = 0, resume = false, rest
       return;
     }
 
+    audio.muted = false;
     audio.src = src;
     const seekTo = restart ? 0 : (Number.isFinite(startAt) ? startAt : 0);
-    if (seekTo > 0 || restart || audio.ended) {
-      try { audio.currentTime = seekTo; } catch { /* 还不能 seek 时，play() 会从 0 开始 */ }
+    if (seekTo > 0) {
+      seekAudioSafely(seekTo, t);
+    } else if (restart || audio.ended) {
+      try { audio.currentTime = 0; } catch { /* 还不能 seek 时，play() 会从 0 开始 */ }
     }
     // 通知 components/lyrics.js 当前是哪首（它通过 #lyrics-panel 自动 attach）
     window.dispatchEvent(new CustomEvent('claudio:trackchange', { detail: t }));
@@ -1099,7 +1229,16 @@ function renderQueuePanel() {
   queueList.querySelectorAll('[data-idx]').forEach(btn => {
     btn.addEventListener('click', () => {
       markActivated();
-      playIndex(Number(btn.dataset.idx), {
+      const targetIdx = Number(btn.dataset.idx);
+      if (state.isFollower) {
+        fetch('/api/control', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ command: 'jump', value: targetIdx }),
+        }).catch(() => {});
+        return;
+      }
+      playIndex(targetIdx, {
         outcomeHint: shouldCountAsUserSkip() ? 'skipped' : 'switch',
       });
     });
@@ -1147,6 +1286,15 @@ function bindConsoleControls() {
     btn.addEventListener('click', () => {
       markActivated();
       const action = btn.dataset.consoleControl;
+      if (state.isFollower && (action === 'prev' || action === 'play-pause' || action === 'next')) {
+        const command = action === 'play-pause' ? 'toggle' : action;
+        fetch('/api/control', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ command }),
+        }).catch(() => {});
+        return;
+      }
       if (action === 'prev') goPrev();
       if (action === 'play-pause') togglePlayback();
       if (action === 'next') goNext({ userInitiated: true });
@@ -1443,6 +1591,12 @@ export function applyRuntime(runtime, { origin } = {}) {
   }
   paintHostChrome();
   if (Number.isFinite(runtime.currentTime)) serverProgress = runtime.currentTime;
+  if (typeof runtime.paused === 'boolean') state.serverPaused = runtime.paused;
+  if (Number.isFinite(runtime.duration) && runtime.duration > 0) state.serverDuration = runtime.duration;
+  if (state.isFollower) {
+    syncFollowerRuntime(runtime);
+    return;
+  }
   const plan = planRuntimeSync({
     queue: state.queue,
     index: state.index,
@@ -1514,6 +1668,12 @@ export function applyExternalQueue({ mode, tracks, say, reason, queuedAt: at, ag
     state.queue = list;
     state.index = 0;
     state.offset = 0;
+    serverProgress = 0;
+    state.serverPaused = false;
+  }
+  if (state.isFollower) {
+    syncFollowerStage();
+    return;
   }
   renderQueuePanel();
   if (!plan.autoplay) return;
@@ -1531,6 +1691,98 @@ export function appendToQueue(tracks) {
   renderQueuePanel();
 }
 
+async function resumeAsLeader() {
+  if (!audio) return;
+  audio.muted = false;
+  ensurePlaybackVolume();
+  if (!state.queue.length) {
+    updatePlayButtons(false);
+    return;
+  }
+  const idx = Math.max(0, Math.min(state.index, state.queue.length - 1));
+  state.index = idx;
+  const t = state.queue[idx];
+  const resumeAt = Number.isFinite(serverProgress) ? Math.max(0, serverProgress) : 0;
+  const autoplay = !state.serverPaused && !(brain === 'internal' && !userActivated);
+
+  if (playLoadIndex === idx + state.offset) return;
+
+  const currentSrc = audio.getAttribute?.('src') || '';
+  if (currentSrc && t?.audioUrl && currentSrc === t.audioUrl) {
+    setStudioTrack(t);
+    if (npBox) npBox.classList.remove('hidden');
+    window.dispatchEvent(new CustomEvent('claudio:trackchange', { detail: t }));
+    if (resumeAt > 0) seekAudioSafely(resumeAt, t);
+    updateSeekBar(resumeAt, Number(audio.duration) || fallbackDurationSec(t));
+    renderQueuePanel();
+    if (autoplay) {
+      const ok = await attemptPlay();
+      if (!ok) updatePlayButtons(false);
+    } else {
+      updatePlayButtons(false);
+    }
+    return;
+  }
+
+  await playIndex(idx, {
+    autoplay,
+    startAt: resumeAt,
+    restart: false,
+  });
+}
+
+export function applyLeader(leader) {
+  const prevFollower = Boolean(state.isFollower);
+  const nextLeader = leader && leader.clientId
+    ? { clientId: String(leader.clientId), kind: leader.kind === 'electron' ? 'electron' : 'pwa' }
+    : null;
+  state.leader = nextLeader;
+  const myId = getClientId();
+  const nextFollower = Boolean(nextLeader && nextLeader.clientId !== myId);
+  state.isFollower = nextFollower;
+
+  if (nextFollower) {
+    activeSession = null;
+    silenceFollowerAudio();
+    dismissBootOverlay();
+    syncFollowerStage({ forceTrackEvent: !prevFollower });
+    return;
+  }
+
+  if (audio) audio.muted = false;
+  if (prevFollower) {
+    renderedFollowerKey = '';
+    resumeAsLeader();
+  }
+}
+
+export function applyRemoteProgress(evt = {}) {
+  if (!evt || isOwnEcho(evt.origin, getClientId())) return;
+  if (typeof evt.currentTime === 'number' && Number.isFinite(evt.currentTime)) {
+    serverProgress = Math.max(0, evt.currentTime);
+  }
+  if (typeof evt.duration === 'number' && Number.isFinite(evt.duration) && evt.duration > 0) {
+    state.serverDuration = evt.duration;
+  }
+  if (typeof evt.paused === 'boolean') {
+    state.serverPaused = evt.paused;
+  }
+  if (!state.isFollower) return;
+  silenceFollowerAudio();
+  if (typeof evt.index === 'number' && Number.isFinite(evt.index) && state.queue.length) {
+    const nextIdx = Math.max(0, Math.min(Math.trunc(evt.index), state.queue.length - 1));
+    if (nextIdx !== state.index) {
+      state.index = nextIdx;
+      syncFollowerStage({ forceTrackEvent: true });
+      return;
+    }
+  }
+  const curTrack = currentTrack();
+  updateSeekBar(serverProgress, fallbackDurationSec(curTrack));
+  window.dispatchEvent(new CustomEvent('claudio:lyric-time', { detail: { currentTime: serverProgress } }));
+  updatePlayButtons(state.queue.length > 0 && !state.serverPaused);
+}
+
 export function initPlayer() {
   chat      = $('#chat');
   composer  = $('#composer');
@@ -1545,6 +1797,7 @@ export function initPlayer() {
   document.addEventListener('keydown', markActivated, { capture: true, once: true });
 
   audio.addEventListener('ended', async () => {
+    if (state.isFollower) return;
     settleActiveSession('completed');
     if (state.brain === 'internal' && state.loopMode === 'one') {
       audio.currentTime = 0;
@@ -1567,6 +1820,7 @@ export function initPlayer() {
 
   // 歌曲加载失败（URL 过期、代理出错等）→ 跳到下一首，避免静默卡死
   audio.addEventListener('error', () => {
+    if (state.isFollower) return;
     if (state.index < state.queue.length - 1) {
       playIndex(state.index + 1);
     } else {
@@ -1576,7 +1830,13 @@ export function initPlayer() {
 
   // 只对真实歌曲才清除 alert，避免 TTS 播放时把"酷狗搜索失败"之类的错误提示抹掉
   audio.addEventListener('play',  () => {
+    if (state.isFollower) {
+      silenceFollowerAudio();
+      return;
+    }
+    state.serverPaused = false;
     syncToServer(state.index, { paused: false });
+    reportProgress(true);
     updatePlayButtons(true);
     const cur = currentTrack();
     if (!cur?.isTts) {
@@ -1585,10 +1845,13 @@ export function initPlayer() {
     }
   });
   audio.addEventListener('pause', () => {
+    if (state.isFollower) return;
     updatePlayButtons(false);
     // 换 src 会先冒出一次 pause。这次正在 playIndex 里，真正的暂停由 play 事件或显式 sync 报。
     if (suppressPauseSync) return;
+    state.serverPaused = true;
     syncToServer(state.index, { paused: true, ended: Boolean(audio.ended) });
+    reportProgress(true);
   });
 
   consolePlayBtn = $('[data-console-control="play-pause"]');
@@ -1605,15 +1868,26 @@ export function initPlayer() {
   applyLocalVolume();
 
   audio.addEventListener('timeupdate', () => {
+    if (state.isFollower) return;
     updateSeekBar(audio.currentTime, audio.duration);
     reportProgress();
   });
-  audio.addEventListener('durationchange', () => updateSeekBar(audio.currentTime, audio.duration));
-  audio.addEventListener('loadedmetadata', () => updateSeekBar(audio.currentTime, audio.duration));
-  audio.addEventListener('seeked', () => reportProgress(true));
+  audio.addEventListener('durationchange', () => {
+    if (state.isFollower) return;
+    updateSeekBar(audio.currentTime, audio.duration);
+  });
+  audio.addEventListener('loadedmetadata', () => {
+    if (state.isFollower) return;
+    updateSeekBar(audio.currentTime, audio.duration);
+  });
+  audio.addEventListener('seeked', () => {
+    if (state.isFollower) return;
+    reportProgress(true);
+  });
 
   if (npSeek) {
     npSeek.addEventListener('input', () => {
+      if (state.isFollower) return;
       if (audio.duration) audio.currentTime = (npSeek.value / 100) * audio.duration;
     });
   }
@@ -1726,7 +2000,10 @@ async function bootCurrent({ silent = false, keepOverlay = false } = {}) {
     // 服务端 volume 总是有限数字（默认 30），只有 volumeExplicit 才代表用户真的设过。
     hydrateMemoryContext({ hasServerVolume: data.volumeExplicit === true });
     if (brain !== 'internal') {
-      serverProgress = Number(data.currentTime) || 0;
+      const apiProgress = Number(data.currentTime) || 0;
+      if (!state.queue.length || apiProgress > serverProgress) serverProgress = apiProgress;
+      if (Number.isFinite(data.duration) && data.duration > 0) state.serverDuration = data.duration;
+      state.serverPaused = data.paused === true;
       const plan = planExternalBoot({ queue: data.queue, paused: data.paused === true });
       if (plan.dialog) setConsoleDialog(plan.dialog);
       if (!keepOverlay) dismissBootOverlay();
@@ -1751,6 +2028,10 @@ async function bootCurrent({ silent = false, keepOverlay = false } = {}) {
       if (data.lastSay) {
         appliedSay = data.lastSay;
         setConsoleDialog(data.lastSay);
+      }
+      if (state.isFollower) {
+        syncFollowerStage();
+        return;
       }
       renderQueuePanel();
       await playIndex(state.index, { autoplay: plan.play, startAt: serverProgress });

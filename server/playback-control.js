@@ -72,13 +72,36 @@ export function clampVolume(value) {
   return Math.max(0, Math.min(100, Math.round(n)));
 }
 
-export function playbackStatus(runtime = {}, { listeners = 0, brain = 'external', provider = 'multi', providers = ['kugou'] } = {}) {
+export function playbackStatus(
+  runtime = {},
+  {
+    listeners,
+    playback = null,
+    brain = 'external',
+    provider = 'multi',
+    providers = ['kugou'],
+  } = {},
+) {
   const queue = Array.isArray(runtime.queue) ? runtime.queue : [];
   const index = Number.isFinite(runtime.index) ? runtime.index : 0;
   const safeIndex = queue.length ? Math.max(0, Math.min(index, queue.length - 1)) : 0;
   const nowPlaying = queue[safeIndex] || null;
   const musicProvider = String(provider || 'multi');
   const activeProviders = Array.isArray(providers) && providers.length ? providers : ['kugou'];
+  const playbackListeners = Array.isArray(playback?.listeners)
+    ? playback.listeners.map(item => ({
+        clientId: String(item?.clientId || ''),
+        kind: item?.kind === 'electron' ? 'electron' : 'pwa',
+        leader: Boolean(item?.leader),
+      }))
+    : [];
+  const playbackLeader = playback?.leader && playback.leader.clientId
+    ? {
+        clientId: String(playback.leader.clientId),
+        kind: playback.leader.kind === 'electron' ? 'electron' : 'pwa',
+      }
+    : null;
+  const listenerCount = Number.isFinite(listeners) ? listeners : playbackListeners.length;
   return {
     ok: true,
     brain,
@@ -96,7 +119,11 @@ export function playbackStatus(runtime = {}, { listeners = 0, brain = 'external'
     currentTime: Number.isFinite(runtime.currentTime) ? runtime.currentTime : 0,
     duration: Number.isFinite(runtime.duration) ? runtime.duration : 0,
     active: Boolean(runtime.active),
-    listeners,
+    listeners: listenerCount,
+    playback: {
+      leader: playbackLeader,
+      listeners: playbackListeners,
+    },
     continuousListenMinutes: continuousListenMinutes(runtime),
     scene: activeScene(runtime),
     lastSay: runtime.lastSay || '',
@@ -277,12 +304,12 @@ export function applyControl(runtime, { command, arg, value } = {}) {
 }
 
 export function applyProgress(runtime, body = {}) {
-  if (!runtime) return;
+  if (!runtime) return false;
   const index = reportedQueueIndex(runtime, body);
-  if (index < 0) return;
+  if (index < 0) return false;
   // 旧曲的 WS 进度可能晚于队尾的 HTTP 请求抵达；不能把续播指针拉回去。
   if (runtime.queue?.[runtime.index]?.source === 'continue-pool'
-    && typeof index === 'number' && index < runtime.index) return;
+    && typeof index === 'number' && index < runtime.index) return false;
   if (typeof body.currentTime === 'number' && Number.isFinite(body.currentTime)) {
     runtime.currentTime = Math.max(0, body.currentTime);
   }
@@ -303,4 +330,5 @@ export function applyProgress(runtime, body = {}) {
     runtime.paused = body.paused === false && queueFinished(runtime) ? true : body.paused;
   }
   notePlaybackActivity(runtime);
+  return true;
 }

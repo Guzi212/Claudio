@@ -1,5 +1,14 @@
 // 顶层视图协调器：tab 切换 + 主题同步 + 全局 WS + 桌面壳桥接。
-import { initPlayer, applyRuntime, appendToQueue, applyExternalQueue, syncFromServer } from './views/player.js';
+import {
+  initPlayer,
+  applyRuntime,
+  applyLeader,
+  applyRemoteProgress,
+  appendToQueue,
+  applyExternalQueue,
+  syncFromServer,
+} from './views/player.js';
+import { getClientId } from './client-id.js';
 import { installMediaSession } from './media-session.js';
 import { initPlaylists } from './views/playlists.js';
 import { initProfile } from './views/profile.js';
@@ -15,6 +24,10 @@ const DEFAULT_VIEW = 'player';
 let mediaSession = { noteRuntime() {} };
 
 export { applyTheme };
+
+export function detectClientKind(win = globalThis.window) {
+  return win?.claudioDesktop?.isDesktop ? 'electron' : 'pwa';
+}
 
 function currentViewFromUrl() {
   const v = new URLSearchParams(location.search).get('view');
@@ -204,8 +217,25 @@ function connectWs() {
       let evt;
       try { evt = JSON.parse(ev.data); } catch { return; }
       if ((evt.type === 'hello' || evt.type === 'state') && evt.runtime) {
+        if (evt.type === 'hello' && ws?.readyState === 1) {
+          try {
+            ws.send(JSON.stringify({
+              type: 'identify',
+              clientId: getClientId(),
+              kind: detectClientKind(),
+            }));
+          } catch { /* ignore */ }
+        }
         mediaSession.noteRuntime(evt.runtime, { origin: evt.origin });
         applyRuntime(evt.runtime, { origin: evt.origin });
+        return;
+      }
+      if (evt.type === 'leader') {
+        applyLeader(evt.leader);
+        return;
+      }
+      if (evt.type === 'progress') {
+        applyRemoteProgress(evt);
         return;
       }
       if (evt.type === 'queue-append' && evt.tracks) appendToQueue(evt.tracks);

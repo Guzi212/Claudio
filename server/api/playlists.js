@@ -30,6 +30,7 @@ function toQueueItem(track) {
     artist: track.artist,
     album: track.album || '',
     duration: track.duration || 0,
+    provider: 'kugou',
     kugouId: track.hash || '',
     audioUrl: null, // 播到这首时前端再取直链，避免大歌单一次性解析 + 直链过期
     source: 'playlist',
