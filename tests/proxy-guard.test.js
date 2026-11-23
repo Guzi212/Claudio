@@ -6,6 +6,7 @@ import axios from 'axios';
 import { describe, expect, it } from 'vitest';
 import {
   BLOCKED_CODE,
+  DEFAULT_ALLOWED_HOSTS,
   allowedHosts,
   checkProxyUrl,
   createRedirectGuard,
@@ -13,6 +14,7 @@ import {
   isAllowedProxyUrl,
   isIpLiteralHost,
   redirectTargetOf,
+  refererForProxyUrl,
 } from '../server/proxy-guard.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -25,6 +27,13 @@ describe('proxy-guard · 放行', () => {
     'https://imge.kgimg.com/cover.jpg',
     'http://kgimg.com/x.png',
     'https://WWW.KuGou.com./song/abc.mp3',
+    'http://m701.music.126.net/a.mp3',
+    'http://m801.music.126.net/a.mp3',
+    'http://p3.music.126.net/cover.jpg',
+    'https://music.163.com/song?id=1',
+    'https://isure.stream.qqmusic.qq.com/M500002.mp3',
+    'https://aqqmusic.tc.qq.com/M500002.mp3',
+    'https://y.gtimg.cn/music/photo_new/T002R300x300M000000.jpg',
   ])('白名单域名放行：%s', url => {
     expect(isAllowedProxyUrl(url)).toBe(true);
   });
@@ -35,13 +44,22 @@ describe('proxy-guard · 放行', () => {
     expect(isAllowedProxyUrl('https://a.b.cdn.example.net/a.mp3', env)).toBe(true);
     expect(isAllowedProxyUrl('https://x.kglive.cn/a.mp3', env)).toBe(true);
     expect(allowedHosts(env)).toEqual(
-      expect.arrayContaining(['kugou.com', 'kgimg.com', 'cdn.example.net', 'kglive.cn']),
+      expect.arrayContaining(['kugou.com', 'kgimg.com', 'music.126.net', 'qqmusic.qq.com', 'cdn.example.net', 'kglive.cn']),
     );
   });
 
   it('没有环境变量时只用默认白名单', () => {
-    expect(allowedHosts({})).toEqual(['kugou.com', 'kgimg.com']);
+    expect(allowedHosts({})).toEqual(DEFAULT_ALLOWED_HOSTS);
     expect(isAllowedProxyUrl('https://cdn.example.net/a.mp3', {})).toBe(false);
+  });
+
+  it('refererForProxyUrl 按平台分配正确的防盗链 Referer', () => {
+    expect(refererForProxyUrl('https://fs.kugou.com/a.mp3')).toBe('https://www.kugou.com');
+    expect(refererForProxyUrl('http://m801.music.126.net/a.mp3')).toBe('https://music.163.com/');
+    expect(refererForProxyUrl('https://isure.stream.qqmusic.qq.com/M500.mp3')).toBe('https://y.qq.com/');
+    expect(refererForProxyUrl('https://aqqmusic.tc.qq.com/M500.mp3')).toBe('https://y.qq.com/');
+    expect(refererForProxyUrl('https://y.gtimg.cn/cover.jpg')).toBe('https://y.qq.com/');
+    expect(refererForProxyUrl('invalid-url')).toBe('https://www.kugou.com');
   });
 });
 

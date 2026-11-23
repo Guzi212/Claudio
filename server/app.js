@@ -25,6 +25,7 @@ import { mountWeatherRoute } from './api/weather.js';
 import { mountTasteRoutes } from './api/taste.js';
 import { mountHealthRoute } from './api/health.js';
 import { mountKugouReloginRoutes } from './api/kugou-relogin.js';
+import { mountQQReloginRoutes } from './api/qq-relogin.js';
 import { mountStudioRoutes } from './api/studio.js';
 import { mountTestRoutes } from './api/test.js';
 import { mountPlaylistRoutes } from './api/playlists.js';
@@ -47,7 +48,8 @@ import { hostGuard } from './host-guard.js';
 import { mountSessionRoute } from './session.js';
 import { resolveListenHost } from './listen.js';
 import { axiosProxyOptions } from './outbound-proxy.js';
-import { checkProxyUrl, createRedirectGuard, findProxyBlock } from './proxy-guard.js';
+import { checkProxyUrl, createRedirectGuard, findProxyBlock, refererForProxyUrl } from './proxy-guard.js';
+import { musicService, getMusicProvider, getEnabledProviders } from './services/music.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -113,7 +115,12 @@ app.get('/api/health', (req, res) => {
 // stateBroadcast 的回声规则和续播结束处理集中在 runtime 路由。
 mountRuntimeRoutes(app, {
   runtime, broadcast, db: dbApi,
-  statusOptions: () => ({ listeners: wsClients.size, brain: brainMode() }),
+  statusOptions: () => ({
+    listeners: wsClients.size,
+    brain: brainMode(),
+    provider: getMusicProvider(),
+    providers: getEnabledProviders(),
+  }),
 });
 
 app.get('/api/taste', (req, res) => {
@@ -165,7 +172,7 @@ app.get('/api/proxy', async (req, res) => {
     const upstream = await axios.get(target, {
       responseType: 'stream',
       headers: {
-        Referer: 'https://www.kugou.com',
+        Referer: refererForProxyUrl(target),
         'User-Agent': req.headers['user-agent'] || 'Mozilla/5.0',
         ...(range ? { Range: range } : {}),
       },
@@ -275,6 +282,7 @@ mountWeatherRoute(app);
 mountTasteRoutes(app, { rootDir: ROOT });
 mountHealthRoute(app, { getDj: () => djHandle });
 mountKugouReloginRoutes(app);
+mountQQReloginRoutes(app);
 mountStudioRoutes(app, { getRuntime: () => runtime });
 mountTestRoutes(app);
 mountPlaylistRoutes(app, { runtime, broadcast });
@@ -331,6 +339,16 @@ async function start() {
   const login = await ensureLogin();
   if (!login.ok) {
     console.warn('[claudio] 警告：KuGou 登录未通过，搜索 / 播放可能受限。可继续启动以便先测试 Chat。');
+  }
+
+  if (musicService.providers.netease?.isEnabled?.()) {
+    musicService.providers.netease.ensureCookie()
+      .then(cookie => {
+        console.log(cookie
+          ? '[netease] 匿名会话已就绪'
+          : '[netease] 已启用（使用上游内置匿名会话）');
+      })
+      .catch(err => console.warn('[netease] 预热跳过:', err.message));
   }
 
   // 后台低频续期：只有在距上次成功续期超过 KUGOU_REFRESH_INTERVAL_HOURS（默认 24h）

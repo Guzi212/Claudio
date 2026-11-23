@@ -72,14 +72,20 @@ export function clampVolume(value) {
   return Math.max(0, Math.min(100, Math.round(n)));
 }
 
-export function playbackStatus(runtime = {}, { listeners = 0, brain = 'external' } = {}) {
+export function playbackStatus(runtime = {}, { listeners = 0, brain = 'external', provider = 'multi', providers = ['kugou'] } = {}) {
   const queue = Array.isArray(runtime.queue) ? runtime.queue : [];
   const index = Number.isFinite(runtime.index) ? runtime.index : 0;
   const safeIndex = queue.length ? Math.max(0, Math.min(index, queue.length - 1)) : 0;
+  const nowPlaying = queue[safeIndex] || null;
+  const musicProvider = String(provider || 'multi');
+  const activeProviders = Array.isArray(providers) && providers.length ? providers : ['kugou'];
   return {
     ok: true,
     brain,
-    nowPlaying: queue[safeIndex] || null,
+    provider: nowPlaying?.provider || musicProvider,
+    musicProvider,
+    providers: activeProviders,
+    nowPlaying,
     queue,
     index: queue.length ? safeIndex : 0,
     queueOffset: runtime.queueOffset || 0,

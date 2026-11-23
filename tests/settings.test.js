@@ -48,6 +48,7 @@ describe('services/settings', () => {
       'hotkey_media_key',
       'close_to_tray',
       'always_on_top_mini',
+      'music_provider',
     ]));
     expect(typeof mod.getAll).toBe('function');
     expect(typeof mod.get).toBe('function');

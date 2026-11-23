@@ -1,4 +1,5 @@
 import { KEYS, get, set, isSensitive } from '../services/settings.js';
+import { normalizeProviderName } from '../services/providers/base.js';
 import { invalidateCache as invalidateWeatherCache } from '../services/weather.js';
 import { favoriteStore as defaultFavoriteStore } from '../services/kugou-favorite.js';
 
@@ -22,6 +23,12 @@ export function mountSettingsRoutes(app, deps = {}) {
 
   app.put('/api/settings', async (req, res) => {
     const body = req.body || {};
+    if (Object.prototype.hasOwnProperty.call(body, 'music_provider')
+      && body.music_provider !== '' && body.music_provider != null
+      && !normalizeProviderName(body.music_provider, { allowMulti: true })) {
+      res.status(400).json({ ok: false, error: `未知音乐源: ${body.music_provider}` });
+      return;
+    }
     const applied = [];
     let weatherTouched = false;
 

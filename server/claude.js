@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import 'dotenv/config';
 import { dbApi } from './db.js';
-import { resolveTrack } from './services/kugou.js';
+import { resolveTrack } from './services/music.js';
 import { getPoolTracks, ensureMinimumFromPool } from './services/candidate-pool.js';
 import { get as getSetting } from './services/settings.js';
 
@@ -198,6 +198,8 @@ export async function ask(systemPrompt, userMessage) {
       artist:   track.artist,
       album:    track.album,
       duration: track.duration,
+      provider: track.provider || 'kugou',
+      id:       track.providerTrackId || track.kugouId,
       kugouId:  track.kugouId,
       audioUrl: `/api/proxy?u=${encodeURIComponent(track.upstreamUrl)}`,
       audioQuality: track.audioQuality || null,

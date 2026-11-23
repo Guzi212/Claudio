@@ -30,6 +30,7 @@ describe('settings view API contract', () => {
       'hotkey_media_key',
       'close_to_tray',
       'always_on_top_mini',
+      'music_provider',
     ];
     for (const key of expectedKeys) {
       expect(settingsViewJs).toContain(key);

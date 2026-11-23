@@ -658,11 +658,20 @@ function paintFavorite(liked) {
   consoleFavoriteBtn.classList.toggle('active', Boolean(liked));
 }
 
+function isKugouTrack(track) {
+  if (!track || track.isTts) return false;
+  const provider = String(track.provider || '').trim().toLowerCase();
+  if (provider && provider !== 'kugou') return false;
+  const hash = String(track.kugouId || '').trim();
+  if (!hash || hash.startsWith('netease:') || hash.startsWith('qq:')) return false;
+  return true;
+}
+
 async function refreshFavoriteState(track = currentTrack()) {
   if (!consoleFavoriteBtn) return;
   const token = ++favoriteCheckToken;
   const hash = String(track?.kugouId || '').trim();
-  if (!hash || track?.isTts) {
+  if (!isKugouTrack(track)) {
     consoleFavoriteBtn.disabled = true;
     paintFavorite(false);
     return;
@@ -1004,8 +1013,8 @@ function togglePlayback() {
 async function toggleFavorite() {
   const track = currentTrack();
   const hash = String(track?.kugouId || '').trim();
-  if (!hash || track?.isTts) {
-    showAlert('这首没有可收藏的酷狗曲目');
+  if (!isKugouTrack(track)) {
+    showAlert('当前曲目来自非酷狗音源，暂不支持酷狗红心收藏');
     return;
   }
   const current = consoleFavoriteBtn?.getAttribute('aria-pressed') === 'true';

@@ -36,6 +36,47 @@ npm install
 
 > 不同 fork 接口路径会有差异。如果搜歌返回 404，去 `server/services/kugou.js` 顶部的 `ENDPOINTS` / `LOGIN_PATH` 改路径。
 
+### 2.1 多音乐源（网易云 + QQ 音乐，可选）
+
+Claudio 默认 `MUSIC_PROVIDER=multi`：搜索并行聚合已启用的平台，点歌按 **酷狗 → 网易云 → QQ 音乐** 顺序自动回落。没配置 `NETEASE_API_BASE` 或 `QQ_API_BASE` 时自动跳过，只走酷狗。
+
+#### 网易云音乐（NeteaseCloudMusicApiEnhanced，端口 33401）
+
+克隆到 Claudio 同级目录并安装运行时依赖：
+```powershell
+git clone --depth 1 https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced.git ../NeteaseCloudMusicApiEnhanced
+cd ../NeteaseCloudMusicApiEnhanced
+npm install --omit=dev --ignore-scripts
+```
+启动时需关闭灰色歌曲解锁（`npm run dev` 会自动传入 `PORT=33401` 与 `ENABLE_GENERAL_UNBLOCK=false`）；若手动启动：
+```powershell
+$env:PORT='33401'; $env:ENABLE_GENERAL_UNBLOCK='false'; npm start
+```
+默认优先尝试匿名登录（`NETEASE_COOKIE` 留空即可使用上游内置匿名会话）。VIP 试听片段（`freeTrialInfo`）会自动跳过，不误播 30 秒残片。
+
+#### QQ 音乐（L-1124/QQMusicApi + Python HTTP wrapper，端口 33402）
+
+克隆到 Claudio 同级目录并用 `uv` 准备虚拟环境：
+```powershell
+git clone https://github.com/L-1124/QQMusicApi.git ../QQMusicApi
+cd ../QQMusicApi
+uv venv .venv
+uv pip install -e . aiohttp
+```
+Claudio 内置了异步 HTTP wrapper `scripts/qq-music-server.py`（`npm run dev` 在配置了 `QQ_API_BASE` 时自动拉起）；若手动启动：
+```powershell
+$env:PORT='33402'; ..\QQMusicApi\.venv\Scripts\python.exe scripts\qq-music-server.py
+```
+QQ 扫码登录为**可选**：未登录时自动降级（可正常搜索、歌词、播放免费曲目，遇到需要登录的 VIP 曲直接返回未取到直链而不阻塞）。如需登录，可调用 `POST /api/qq/relogin/start?type=qq` 获取二维码后轮询 `GET /api/qq/relogin/status?key=...`，凭据会保存在 `../QQMusicApi/.qq-credential.json`（不进 Claudio 仓库）。
+
+`.env` 多音乐源配置示例：
+```env
+MUSIC_PROVIDER=multi
+NETEASE_API_BASE=http://localhost:33401
+QQ_API_BASE=http://localhost:33402
+```
+也可在 PWA「设置 → 音乐源」下拉框随时切换并立即生效记住。
+
 ### 3. 装 Claudio 依赖
 
 ```powershell
@@ -203,9 +244,9 @@ CLAUDIO_API_TOKEN=一段足够长的随机串
 
 手机或局域网里的浏览器不是回环。开关关闭时，页面能打开，但接口会 401，除非请求自己带上 token，或者先用 `?token=` 换过 cookie。局域网或穿透域名还要写进下面的 Host 白名单，否则直接 403。
 
-### 音频代理只转发酷狗域名
+### 音频代理域名白名单
 
-`/api/proxy` 会替调用方去拉远程音频，所以目标按域名白名单放行：只转发 `kugou.com`、`kgimg.com` 及其子域（`www.kugou.com`、`fs.kugou.com`、`imge.kgimg.com` 等）。协议不是 http / https、地址里带用户名密码、或者主机名本身就是 IP（含 IPv6 和 `2130706433`、`0x7f000001` 这类写法）的，一律拒绝。重定向的每一跳都重新判定，酷狗地址跳到内网也拦得住。
+`/api/proxy` 会替调用方去拉远程音频和封面，目标按域名白名单放行：默认覆盖酷狗（`kugou.com`、`kgimg.com`）、网易云（`music.126.net`、`music.163.com`）与 QQ 音乐（`qqmusic.qq.com`、`tc.qq.com`、`y.qq.com`、`y.gtimg.cn`）及其子域，并自动按目标域附带对应平台的防盗链 `Referer`。协议不是 http / https、地址里带用户名密码、或者主机名本身就是 IP（含 IPv6 和 `2130706433`、`0x7f000001` 这类写法）的，一律拒绝。重定向的每一跳都重新判定，白名单外域名或回环地址拦得住。
 
 不通过返回 403 `forbidden target`，服务端只记主机名：
 
@@ -284,18 +325,19 @@ Content-Type: application/json
 
 | 用途 | 方法 + 路径 | 参数 | 返回 |
 | --- | --- | --- | --- |
-| 点歌 / 写歌单 | `POST /api/queue/external` | JSON：`tracks[]`（`title` 必填，`artist` / `hint` / `reason` 可选），`say`（最多 500 字），`reason`（最多 200 字），`source`（默认 `bot`，最多 40 字），`mode`=`replace`\|`append`，`target`=`queue`\|`kugou_playlist`\|`both`，`playlistName`（默认 `Claudio推荐`），`playlistMode`=`append`\|`rewrite`。超长截断，不报错。不带 `volume`（缺省或 `null`）不会改已保存的音量 | `ok`，`matched[]`，`failed[]`，`queue`（`mode` / `added` / `length`），`playlist`。成功写入播放队列时记下 `queuedAt`。返回的 `say` / `reason` 已是截断后的文本 |
+| 点歌 / 写歌单 | `POST /api/queue/external` | JSON：`tracks[]`（`title` 必填，`artist` / `hint` / `reason` / `provider` / `id` 可选），可选整批 `provider`（`kugou`\|`netease`\|`qq`\|`multi`），`say`（最多 500 字），`reason`（最多 200 字），`source`（默认 `bot`，最多 40 字），`mode`=`replace`\|`append`，`target`=`queue`\|`kugou_playlist`\|`both`，`playlistName`（默认 `Claudio推荐`），`playlistMode`=`append`\|`rewrite`。超长截断，不报错。不带 `volume`（缺省或 `null`）不会改已保存的音量 | `ok`，`matched[]`（含 `provider` / `id`），`failed[]`，`queue`（`mode` / `added` / `length`），`playlist`（仅写酷狗曲目）。成功写入播放队列时记下 `queuedAt`。返回的 `say` / `reason` 已是截断后的文本 |
 | 播放控制 | `POST /api/control` | JSON：`command`=`next`\|`prev`\|`pause`\|`play`\|`toggle`\|`volume`\|`jump`，`value`（音量 0–100，或 jump 的从 0 开始的序号） | `ok`，`command`，`say`，`nowPlaying`，`queue`，`index`，`paused`，`volume`。`volume` 会立刻记住。`next` 真正切到下一首时，把刚离开的那首记成 `feedback.kind=skip`。`toggle` 播放中就暂停，暂停中就继续。最后一首已经结束时，状态算作已停，`toggle` 和 `play` 都从队列第一首重新开始。队列是空的就停在暂停。这些命令不改音量 |
-| 状态 | `GET /api/status`（`GET /api/now` 相同） | 无 | `brain`，`nowPlaying`，`queue`，`index`，`paused`，`volume`（0–100，会记住；没存过默认 30），`currentTime`（秒），`duration`（秒），`active`（有没有页面连着 WebSocket），`listeners`，`lastSay`，`reason`，`queuedAt`（最近一次外部点歌的 ISO 时间，没有则 `null`），`source`（那一次请求的 `source`，没有则空字符串）。队列里的歌若带了自己的 `reason` / `cover` / `queuedAt`，会原样出现在 `queue[]` |
+| 状态 | `GET /api/status`（`GET /api/now` 相同） | 无 | `brain`，`provider`（当前曲目平台或配置音源），`musicProvider`（配置音源模式），`providers`（已启用平台数组），`nowPlaying`，`queue`，`index`，`paused`，`volume`（0–100，会记住；没存过默认 30），`currentTime`（秒），`duration`（秒），`active`（有没有页面连着 WebSocket），`listeners`，`lastSay`，`reason`，`queuedAt`（最近一次外部点歌的 ISO 时间，没有则 `null`），`source`（那一次请求的 `source`，没有则空字符串）。队列里的歌若带了自己的 `reason` / `cover` / `queuedAt`，会原样出现在 `queue[]` |
 | 进度上报 | WebSocket `/stream`，客户端发 | `{ "type":"progress", "currentTime", "duration", "volume", "paused", "index", "queueOffset" }`，页面大约每 2 秒一次 | 服务端更新内存里的进度，不广播。音量有变化才写入，短时间连续拖动合并成一次。bot 用 `GET /api/status` 读 |
-| 搜歌 | `GET /api/kugou/search` | Query：`title` 或 `q`（自由文本）必填一个，`artist`，`hint` | `ok`，`tracks[]`：`hash`，`title`，`artist`，`album`，`duration`，`cover`，`score` |
+| 多源搜歌 | `GET /api/music/search` | Query：`title` 或 `q` 必填一个，`artist`，`hint`，`provider`（可选：`multi`\|`kugou`\|`netease`\|`qq`） | `ok`，`provider`，`providersUsed`，`tracks[]`：`provider`，`id`，`hash`，`title`，`artist`，`album`，`duration`，`cover`，`score` |
+| 酷狗搜歌 | `GET /api/kugou/search` | Query：`title` 或 `q`（自由文本）必填一个，`artist`，`hint` | `ok`，`tracks[]`：`hash`，`title`，`artist`，`album`，`duration`，`cover`，`score` |
 | 酷狗歌单列表 | `GET /api/kugou/playlists` | Query：`page`，`pagesize` | `ok`，`playlists[]`：`id`，`listid`，`globalCollectionId`，`name`，`songCount`，`isPrivate`，`type`，`writable`（`type=0` 自建可写，`type=1` 收藏别人的只读） |
 | 歌单曲目 | `GET /api/kugou/playlists/tracks` | Query：`listid` 或 `gcid`，可选 `pagesize` | `ok`，以及曲目结果（含 `tracks`） |
 | 播放历史 | `GET /api/plays` | Query：`limit`（默认 20，最大 100） | `ok`，`plays[]`：`id`，`kugouId`，`title`，`artist`，`reason`，`source`，`ts`；`feedback[]`：`kind`（`skip` / `like` / `unlike`），`title`，`artist`，`kugouId`，`ts` |
 | 喜欢 / 不喜欢 | `POST /api/feedback` | JSON：`kind`=`like`\|`unlike`\|`skip`，`title` 或 `kugouId`，`artist` | `ok`，`id`，`kind`。页面上的 ♡ 也会写这里 |
 | 整单播放 | `POST /api/kugou/playlists/play` | JSON：`playlist`（要有 `listid` 或 `globalCollectionId`） | `ok`，`count`，`queue`。这是明确换队列 |
-| 单曲播放 | `POST /api/kugou/play` | JSON：`track`（`hash` 和 `title` 必填，`artist` / `album` / `duration` / `cover` 可选），`mode`=`replace`\|`append`（默认 `replace`） | `ok`，`mode`，`queue`，`index`。按选中的 hash 精确进队列，不再重新搜索打分；`append` 不打断当前曲目 |
-| 直链 | `GET /api/kugou/track-url` | Query：`hash` | `ok`，`url`（已经是 `/api/proxy?u=...`） |
+| 单曲播放 | `POST /api/kugou/play` / `POST /api/music/play` | JSON：`track`（`hash` 或 `id` 与 `title` 必填，`provider` / `artist` / `album` / `duration` / `cover` 可选），`mode`=`replace`\|`append`（默认 `replace`） | `ok`，`mode`，`queue`，`index`。按选中的曲目精确进队列，不再重新搜索打分；`append` 不打断当前曲目 |
+| 直链 | `GET /api/kugou/track-url` / `GET /api/music/track-url` | Query：`hash`（或 `id`）与可选 `provider` | `ok`，`url`（已经是 `/api/proxy?u=...`） |
 | 红心状态 | `GET /api/kugou/favorite` | Query：`hash` | `ok`，`liked` |
 | 红心收藏 | `POST /api/kugou/favorite` | JSON：`action`=`add`\|`remove`，`track`（`hash` 和 `title` 必填，`artist` / `album` / `albumId` / `mixsongid` 可选） | `ok`，`liked`，`duplicate`，`playlist`，`pendingId`（仅 add 且是新歌） |
 | 待分类列表 | `GET /api/likes/pending` | Query：`limit`（默认 100，最大 200） | `ok`，`items[]`：`id`，`kugouId`，`title`，`artist`，`album`，`albumId`，`mixsongid`，`status`，`createdAt` |
@@ -605,8 +647,13 @@ rules:
 │   ├── claude.js              # 仅 CLAUDIO_BRAIN=internal 时调用
 │   ├── db.js                  # node:sqlite 包装
 │   └── services/
+│       ├── music.js           # 多源编排（搜索并行 / 点歌回落）
+│       ├── providers/         # Kugou / Netease / QQ Music provider
 │       ├── kugou.js           # search / song_url / lyric
 │       └── kugou-login.js     # cookie 自动续约
+├── scripts/
+│   ├── dev.js                 # 一键拉起多上游 + Claudio
+│   └── qq-music-server.py     # QQMusicApi 异步 HTTP wrapper
 ├── pwa/                       # Progressive Web App
 │   ├── index.html
 │   ├── app.js

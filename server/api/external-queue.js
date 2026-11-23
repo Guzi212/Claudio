@@ -1,7 +1,7 @@
 // Bot 点歌入口。不调用 Claude，也不读账号歌单候选池。
-// 每首歌走 kugou.resolveTrack：搜索、打分、DJ/现场版降权、阈值、失败记 unmatched。
+// 每首歌走 music.resolveTrack：按配置模式选源或依次回落（酷狗 → 网易云 → QQ），失败记 unmatched。
 import { dbApi as defaultDb } from '../db.js';
-import { resolveTrack as defaultResolveTrack } from '../services/kugou.js';
+import { resolveTrack as defaultResolveTrack, normalizeProviderName } from '../services/music.js';
 import { writeTracksToPlaylist as defaultWriteTracks } from '../services/kugou-playlist-write.js';
 import { markQueueSource } from '../queue-source.js';
 import { synthesize as defaultSynthesize } from '../tts.js';
@@ -23,11 +23,14 @@ const QUEUE_MODES = new Set(['replace', 'append']);
 const PLAYLIST_MODES = new Set(['append', 'rewrite']);
 
 function toQueueItem(track, { reason = '', queuedAt = '', source = 'bot' } = {}) {
+  const provider = track.provider || 'kugou';
   const item = {
     title: track.title,
     artist: track.artist,
     album: track.album || '',
     duration: track.duration || 0,
+    provider,
+    id: track.providerTrackId || track.kugouId || '',
     kugouId: track.kugouId,
     audioUrl: track.upstreamUrl
       ? `/api/proxy?u=${encodeURIComponent(track.upstreamUrl)}`
@@ -45,6 +48,8 @@ function toQueueItem(track, { reason = '', queuedAt = '', source = 'bot' } = {})
 
 function matchedView(want, track) {
   return {
+    provider: track.provider || 'kugou',
+    id: track.providerTrackId || track.kugouId || '',
     title: track.title,
     artist: track.artist,
     kugouId: track.kugouId,
@@ -100,6 +105,12 @@ export function mountExternalQueueRoutes(app, deps = {}) {
       res.status(400).json({ ok: false, error: 'tracks 必须是非空数组' });
       return;
     }
+    const rawBatchProvider = body.provider == null ? '' : String(body.provider).trim();
+    const batchProvider = rawBatchProvider ? normalizeProviderName(rawBatchProvider, { allowMulti: true }) : '';
+    if (rawBatchProvider && !batchProvider) {
+      res.status(400).json({ ok: false, error: `未知音乐源: ${rawBatchProvider}` });
+      return;
+    }
     if (body.tracks.length > MAX_TRACKS) {
       res.status(400).json({ ok: false, error: `tracks 最多 ${MAX_TRACKS} 首` });
       return;
@@ -111,8 +122,17 @@ export function mountExternalQueueRoutes(app, deps = {}) {
       const title = String(raw?.title || '').trim();
       const artist = String(raw?.artist || '').trim();
       const hint = String(raw?.hint || '').trim();
+      const id = String(raw?.id || '').trim();
       const hash = String(raw?.hash || raw?.kugouId || '').trim();
-      if (!title && !hash) {
+      const rawTrackProvider = raw?.provider == null ? '' : String(raw.provider).trim();
+      const trackProvider = rawTrackProvider
+        ? normalizeProviderName(rawTrackProvider, { allowMulti: true })
+        : '';
+      if (rawTrackProvider && !trackProvider) {
+        failed.push({ title, artist, reason: `unknown provider: ${rawTrackProvider}` });
+        continue;
+      }
+      if (!title && !hash && !id) {
         failed.push({ title: '', artist, reason: 'title required' });
         continue;
       }
@@ -123,6 +143,9 @@ export function mountExternalQueueRoutes(app, deps = {}) {
         reason: clipText(raw?.reason, MAX_REASON),
       };
       if (hash) want.hash = hash;
+      if (id) want.id = id;
+      const effectiveProvider = trackProvider || batchProvider;
+      if (effectiveProvider) want.provider = effectiveProvider;
       wants.push(want);
     }
     if (!wants.length) {
@@ -242,7 +265,7 @@ export function mountExternalQueueRoutes(app, deps = {}) {
 
     if (touchPlaylist) {
       const playlistTracks = resolved
-        .filter(item => item.track)
+        .filter(item => item.track && (!item.track.provider || item.track.provider === 'kugou'))
         .map(item => item.track);
       playlistResult = await writeTracks({
         name: playlistName,
