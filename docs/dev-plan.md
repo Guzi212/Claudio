@@ -1,0 +1,44 @@
+# Claudio 开发规划
+
+> 最近更新：2026-11-24（小晚整理，loic 拍板）
+
+## 当前阶段：多音源落地
+
+### 阶段一：跑通网易云 + QQ 音乐 ✅ 代码已完成，待上线
+
+代码在 `feat/multisource` 分支（worktree：`../claudio-multisource`），三平台
+真实点歌播放已验收通过（详见 `docs/handoffs/latest.md` in multisource worktree）。
+剩最后一步上线：
+
+- [ ] `feat/multisource` push 并合并进 main（分支已重写基线，注意 rebase 到新 main）
+- [ ] 生产 `.env` 补 `NETEASE_API_BASE`（:33401）、`QQ_API_BASE`（:33402）
+- [ ] 生产侧把 `../NeteaseCloudMusicApiEnhanced`、QQ wrapper（`scripts/qq-music-server.py` + `.venv`）常驻拉起
+- [ ] 生产重启后用真机点歌验收（网易、QQ 各一首）
+- [ ] （可选）网易云配 `NETEASE_COOKIE` 解锁会员曲库；QQ 配扫码登录播 VIP
+
+### 阶段二：补源 + 适配层抽象（待评估）
+
+前提：阶段一在生产环境稳定跑一段时间后再动。
+
+可接的源（服务端能拿直链，bot 可调）：
+
+| 源 | 接入方式 | 备注 |
+|---|---|---|
+| 酷我 / 咪咕 | `lx-music-api-server`（洛雪音源服务端）或直接写 provider | 咪咕是版权洼地，优先级高 |
+| B站 | yt-dlp / bilibili-api | 官方 MV、现场、音源投稿 |
+| YouTube Music | `ytmusicapi`（Python wrapper，类似现有 QQ 方案）| 海外/英文曲库 |
+
+明确不接：
+
+- **Apple Music / Spotify / Tidal / Deezer**：官方 API 只有元数据（Spotify 连
+  30s 试听已于 2024-11 砍掉），播放强制走各自 SDK + 用户登录态，服务端拿不到
+  直链，bot 无人值守播放架构上不可行。
+- **汽水音乐 / SoundCloud**：无可用公开接口或社区方案极脆。
+
+适配层方向：现有 `server/services/providers/base.js` 已是雏形；阶段二重点是把
+外部音源服务（lx-music-api-server、ytmusicapi wrapper）统一成同一 provider 接口，
+并让点歌回落顺序可配置，而不是每接一个源就堆一个特判。
+
+## 历史阶段（已完成）
+
+- 2026-10 ~ 11：纯播放器重构（选歌交给外部 bot）、水墨 UI、外部点歌 API、多音源 provider 架构
