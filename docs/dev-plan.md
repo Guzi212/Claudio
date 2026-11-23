@@ -4,17 +4,16 @@
 
 ## 当前阶段：多音源落地
 
-### 阶段一：跑通网易云 + QQ 音乐 ✅ 代码已完成，待上线
+### 阶段一：跑通网易云 + QQ 音乐 ✅ 已合并 main，待生产配置
 
-代码在 `feat/multisource` 分支（worktree：`../claudio-multisource`），三平台
-真实点歌播放已验收通过（详见 `docs/handoffs/latest.md` in multisource worktree）。
-剩最后一步上线：
-
-- [ ] `feat/multisource` push 并合并进 main（分支已重写基线，注意 rebase 到新 main）
+`feat/multisource` 已合并进 main（PR #46，CI 通过；交接单 `docs/handoffs/latest.md`）。
+代码侧本地 dev 也实测过：三源聚合搜索 35 条、网易云 320k / QQ 128k 直链与防盗链
+代理流均正常、外部点歌 API 推网易云曲目真实推进播放。剩生产上线：
 - [ ] 生产 `.env` 补 `NETEASE_API_BASE`（:33401）、`QQ_API_BASE`（:33402）
 - [ ] 生产侧把 `../NeteaseCloudMusicApiEnhanced`、QQ wrapper（`scripts/qq-music-server.py` + `.venv`）常驻拉起
 - [ ] 生产重启后用真机点歌验收（网易、QQ 各一首）
 - [ ] （可选）网易云配 `NETEASE_COOKIE` 解锁会员曲库；QQ 配扫码登录播 VIP
+- [ ] 酷狗 cookie 过期需重新扫码登录（dev 环境健康检查报 cookie missing）
 
 ### 阶段二：补源 + 适配层抽象（待评估）
 
