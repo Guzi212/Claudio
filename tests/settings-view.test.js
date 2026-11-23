@@ -53,4 +53,21 @@ describe('settings view API contract', () => {
   it('手动改红心歌单名会清掉旧的隐藏 listid', () => {
     expect(settingsViewJs).not.toContain('!nodes.likeTargetName.value.trim()');
   });
+
+  it('酷狗、网易云、QQ 三家扫码登录按钮与状态栏全部就位，无多余辅助文案', () => {
+    for (const id of [
+      'kugou-status',
+      'netease-status',
+      'qq-status',
+      'btn-kugou-relogin',
+      'btn-netease-relogin',
+      'btn-qq-relogin',
+    ]) {
+      expect(indexHtml).toContain(`id="${id}"`);
+      expect(settingsViewJs).toContain(id);
+    }
+    expect(settingsViewJs).toContain('/api/kugou/relogin/start');
+    expect(settingsViewJs).toContain('/api/netease/relogin/start');
+    expect(settingsViewJs).toContain('/api/qq/relogin/start');
+  });
 });

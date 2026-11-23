@@ -41,4 +41,30 @@ describe('safe dynamic UI', () => {
     expect(flat.some(node => node.tagName === 'A')).toBe(false);
     restore();
   });
+
+  it('支持网易云与 QQ（含手机 QQ / 微信切换）扫码弹窗与登录态渲染', async () => {
+    const restore = dom();
+    const { createReloginModal, renderProviderLoginState } = await import('../pwa/views/settings.js');
+    const qqModal = createReloginModal({
+      provider: 'qq',
+      qqType: 'wx',
+      qrImg: 'data:image/png;base64,AAAA',
+    });
+    const flat = [];
+    const visit = node => { if (node.tagName) flat.push(node); for (const child of node.children || []) visit(child); };
+    visit(qqModal);
+    expect(flat.some(node => node.tagName === 'IMG')).toBe(true);
+    expect(flat.filter(node => node.dataset?.qqType)).toHaveLength(2);
+
+    const statusEl = element('div');
+    const btnEl = element('button');
+    renderProviderLoginState(statusEl, btnEl, { ok: true, loggedIn: false, detail: 'anonymous cookie ready' });
+    expect(statusEl.textContent).toContain('未登录');
+    expect(btnEl.textContent).toBe('扫码登录');
+
+    renderProviderLoginState(statusEl, btnEl, { ok: true, loggedIn: true, detail: 'logged in (Loic)' });
+    expect(statusEl.textContent).toContain('已登录');
+    expect(btnEl.textContent).toBe('重扫码');
+    restore();
+  });
 });
