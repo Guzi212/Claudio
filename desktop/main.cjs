@@ -1,6 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
-const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, nativeImage, screen } = require('electron');
+const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, nativeImage, screen, shell } = require('electron');
 const {
   MIN_STANDARD,
   MINI_SIZE,
@@ -16,6 +16,7 @@ const {
   iconSetForTheme,
   backgroundColorForTheme,
 } = require('./theme-icons.cjs');
+const { attachExternalLinkHandlers } = require('./external-links.cjs');
 
 function readCliArg(name) {
   const prefix = `--${name}=`;
@@ -270,6 +271,15 @@ function createWindow(icons, initialTheme) {
       e.preventDefault();
       mainWindow.hide();
     }
+  });
+
+  let appOrigin = '';
+  try {
+    appOrigin = new URL(baseUrl).origin;
+  } catch { /* ignore invalid baseUrl */ }
+  attachExternalLinkHandlers(mainWindow.webContents, {
+    openExternal: url => shell.openExternal(url),
+    appOrigin,
   });
 
   mainWindow.loadURL(baseUrl);

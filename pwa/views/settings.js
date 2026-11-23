@@ -3,6 +3,7 @@ import { showAlert, toast } from './ui.js';
 import { applyPixelHostSetting, readPixelHostEnabled } from '../host-mood.js';
 
 const MASK = '****已配置';
+export const FEEDBACK_URL = 'https://github.com/Guzi212/Claudio/issues/new/choose';
 
 const fields = {
   brainMode:        '#set-brain-mode',
@@ -564,6 +565,13 @@ export function initSettings() {
 
   btnSave.addEventListener('click', save);
   btnRefresh.addEventListener('click', () => load(true));
+
+  const feedbackLink = document.getElementById('settings-feedback');
+  if (feedbackLink) {
+    feedbackLink.href = FEEDBACK_URL;
+    feedbackLink.target = '_blank';
+    feedbackLink.rel = 'noopener noreferrer';
+  }
 
   const btnTtsTest = document.querySelector('button[data-test="tts"]');
   if (btnTtsTest) {

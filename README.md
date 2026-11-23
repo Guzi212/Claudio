@@ -1,5 +1,11 @@
 # Claudio · 播放器壳
 
+## 免责声明
+
+- 音源服务来自第三方社区项目（KuGouMusicApi、NeteaseCloudMusicApiEnhanced、QQMusicApi），Claudio 不包含、不托管这些服务。
+- 账号由用户自行扫码登录，凭证只保存在本机。
+- 仅供个人学习与使用，请遵守各音乐平台的用户协议。
+
 ## AI 一键安装
 
 把这条指令粘给 Claude Code / Codex / Gemini CLI 就能自动装好整套环境：
