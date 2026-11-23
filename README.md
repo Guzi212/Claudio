@@ -11,6 +11,41 @@
 3. npm run dev 启动，验证 http://localhost:8080 能出声
 ```
 
+## 外部 Agent 接入
+
+把这条指令发给 Grok Bot 或其他 Agent，让它接管点歌：
+
+```text
+你是我的音乐点歌 Agent。本机 Claudio 已跑在 http://127.0.0.1:8080。
+
+【第一步 · 自检】调 GET /api/health/integrations，看三个音乐源
+（kugou/netease/qq）的 loggedIn 字段。
+
+【第二步 · 引导登录】哪个源没登，引导我打开 http://127.0.0.1:8080
+顶部「设置」→「音源登录」扫码：
+- 网易云：POST /api/netease/relogin/start 拿 qrImg，轮询
+  GET /api/netease/relogin/status?key=... 直到 code=803
+- QQ：POST /api/qq/relogin/start?type=qq（微信用 type=wx），同轮询 status
+- 酷狗：POST /api/kugou/relogin/start
+
+【第三步 · 问我场景】登录完问一句「想听什么场景的？」，给 3-4 个选项
+（通勤/学习/睡前/雨天/高兴…），我选或自由输入。
+
+【第四步 · 选歌 + 点歌】
+- 搜歌：GET /api/music/search?q=...（多源聚合，自动回落）
+- 点歌：POST /api/queue/external
+  body: {"tracks":[{"title":"...","artist":"...","id":"...","provider":"kugou|netease|qq"}],
+         "mode":"replace","source":"grok","agentId":"grok-bot",
+         "say":"来了一首应景的","reason":"雨天·听歌"}
+- 队列播完自动续：PUT /api/continue-pool
+  body: {"tracks":[同上],"shuffle":true}
+
+【注意】
+- 只在 http://127.0.0.1:8080 调；远程要补 Authorization: Bearer $CLAUDIO_API_TOKEN
+- provider 字段从 search 结果原样带回
+- 失败先看 /api/health/integrations 是不是该源未登录
+```
+
 > 默认只负责出声和显示。选歌交给外部的 Grok Bot（Claudio主持人）。
 
 酷狗音乐负责检索、直链和歌单读写；浏览器 PWA 播放。`CLAUDIO_BRAIN` 默认是 `external`：不调用 Claude，不开机选歌，不定时推歌，队列播完后从主持人设置的续播池继续，没有可用续播池就停。设成 `internal` 才恢复原来的 Claude 选歌（开机电台、聊天点歌、定时任务）。
