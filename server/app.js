@@ -24,6 +24,7 @@ import {
 import { start as startScheduler } from './scheduler.js';
 import { brainMode, startBrainServices } from './brain.js';
 import { applyProgress, readSavedScene } from './playback-control.js';
+import { createStreamRegistry, leaderBroadcast, progressBroadcast } from './runtime-events.js';
 import { readContinuePool } from './continue-pool.js';
 import { mountContinuePoolRoutes } from './api/continue-pool.js';
 import { mountRuntimeRoutes } from './api/runtime.js';
@@ -94,11 +95,11 @@ const runtime = {
 };
 
 const wss = new WebSocketServer({ noServer: true });
-const wsClients = new Set();
+const wsClients = createStreamRegistry();
 
 function broadcast(event) {
   const payload = JSON.stringify(event);
-  for (const ws of wsClients) {
+  for (const ws of wsClients.clients()) {
     if (ws.readyState === 1) {
       try { ws.send(payload); } catch { /* ignore */ }
     }
@@ -126,8 +127,10 @@ app.get('/api/health', (req, res) => {
 // stateBroadcast 的回声规则和续播结束处理集中在 runtime 路由。
 mountRuntimeRoutes(app, {
   runtime, broadcast, db: dbApi,
+  canReportState: clientId => wsClients.canReportState(clientId),
   statusOptions: () => ({
-    listeners: wsClients.size,
+    listeners: wsClients.size(),
+    playback: wsClients.snapshot(),
     brain: brainMode(),
     provider: getMusicProvider(),
     providers: getEnabledProviders(),
@@ -323,21 +326,32 @@ server.on('upgrade', (req, socket, head) => {
     return;
   }
   wss.handleUpgrade(req, socket, head, ws => {
-    wsClients.add(ws);
+    const { leader } = wsClients.connect(ws);
     runtime.active = true;
     ws.send(JSON.stringify({ type: 'hello', runtime }));
+    broadcast(leaderBroadcast(leader));
     ws.on('message', raw => {
       let msg;
       try { msg = JSON.parse(raw.toString()); } catch { return; }
+      if (msg?.type === 'identify') {
+        const nextLeader = wsClients.identify(ws, msg);
+        broadcast(leaderBroadcast(nextLeader));
+        return;
+      }
       if (msg?.type === 'progress') {
+        if (!wsClients.isLeader(ws)) return;
         const before = runtime.volume;
-        applyProgress(runtime, msg);
+        if (!applyProgress(runtime, msg)) return;
         if (runtime.volume !== before) volumeSaver.remember(runtime.volume);
+        const entry = wsClients.getClient(ws);
+        const origin = (typeof msg.clientId === 'string' && msg.clientId.trim()) || entry?.clientId || '';
+        broadcast(progressBroadcast(runtime, origin));
       }
     });
     ws.on('close', () => {
-      wsClients.delete(ws);
-      runtime.active = wsClients.size > 0;
+      const nextLeader = wsClients.disconnect(ws);
+      runtime.active = wsClients.size() > 0;
+      broadcast(leaderBroadcast(nextLeader));
     });
   });
 });
