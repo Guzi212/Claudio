@@ -94,9 +94,8 @@ describe('PWA 裁剪同步', () => {
   it('HTTP 状态和 WS 进度都携带当前 offset', async () => {
     const state = { index: 2, offset: 13 };
     const fetch = vi.fn(async () => ({ ok: true, json: async () => ({}) }));
-    const start = player.indexOf('function syncToServer(');
-    const end = player.indexOf('\nfunction addBubble', start);
-    const sync = new Function('state', 'fetch', 'getClientId', `${player.slice(start, end)}; return syncToServer;`)(state, fetch, () => 'page-a');
+    const syncSrc = extractFunctionSource(player, 'syncToServer');
+    const sync = new Function('state', 'fetch', 'getClientId', `${syncSrc}; return syncToServer;`)(state, fetch, () => 'page-a');
     await sync(2, { paused: true, ended: true });
     expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ index: 2, queueOffset: 13, paused: true, ended: true, clientId: 'page-a' });
     const dispatchEvent = vi.fn();
@@ -114,3 +113,35 @@ describe('PWA 裁剪同步', () => {
     expect(dispatchEvent.mock.calls[0][0].detail).toMatchObject({ index: 2, queueOffset: 13, currentTime: 9, clientId: 'page-a' });
   });
 });
+
+function extractFunctionSource(source, name) {
+  const start = source.indexOf(`function ${name}(`);
+  if (start === -1) throw new Error(`function ${name} not found`);
+  let i = source.indexOf('(', start);
+  let parens = 0;
+  for (; i < source.length; i += 1) {
+    if (source[i] === '(') parens += 1;
+    else if (source[i] === ')') {
+      parens -= 1;
+      if (parens === 0) break;
+    }
+  }
+  i = source.indexOf('{', i);
+  let braces = 0;
+  let quote = null;
+  for (; i < source.length; i += 1) {
+    const ch = source[i];
+    if (quote) {
+      if (ch === '\\') i += 1;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '\'' || ch === '"' || ch === '`') { quote = ch; continue; }
+    if (ch === '{') braces += 1;
+    else if (ch === '}') {
+      braces -= 1;
+      if (braces === 0) return source.slice(start, i + 1);
+    }
+  }
+  throw new Error(`function ${name} body not closed`);
+}

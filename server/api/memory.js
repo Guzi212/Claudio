@@ -5,7 +5,7 @@ import { inferTrackFeatures } from '../memory/track-features.js';
 import { getContextSuggestion, syncLearnedTraits } from '../memory/learner.js';
 import { resolveReadUserFile } from '../services/user-files.js';
 import * as defaultSettings from '../services/settings.js';
-import { readSessionNote, writeSessionNote, clearSessionNote } from '../context.js';
+import { readSessionNote, writeSessionNote, clearSessionNote } from '../services/session-note.js';
 import { activeScene, applyScene, continuousListenMinutes } from '../playback-control.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
