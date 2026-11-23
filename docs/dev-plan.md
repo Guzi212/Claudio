@@ -31,6 +31,12 @@
 - [ ] 交接时进度无缝：切端不重头，currentTime 连续
 - [ ] `/api/status` 暴露当前播放端（哪个 client 在出声），健康检查可核对
 
+#### 输入校验加固（2026-11-23 踩坑补）
+
+- [ ] `/api/kugou/play` / `/api/music/play` / `/api/queue/external` 对 `track.title`/`artist`/`album` 做 UTF-8 健壮性检查：
+  Windows curl 发 GBK 会产出 `EF BF BD`（�）烂数据入队列，服务端应检测 `\uFFFD` 占比 >0 直接 400 拒收
+  （或 Content-Type 无 `charset=utf-8` 时警告）；同时把 `cover` 列为必填或明确文档化，避免封面字段静默丢失。
+
 ### 阶段二：补源 + 适配层抽象（待评估）
 
 前提：阶段一在生产环境稳定跑一段时间后再动。
