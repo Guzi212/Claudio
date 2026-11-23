@@ -5,6 +5,7 @@ import { resolveTrack as defaultResolveTrack, normalizeProviderName } from '../s
 import { writeTracksToPlaylist as defaultWriteTracks } from '../services/kugou-playlist-write.js';
 import { markQueueSource } from '../queue-source.js';
 import { synthesize as defaultSynthesize } from '../tts.js';
+import { mojibakeField, mojibakeError, COVER_MISSING_WARNING } from '../utf8-guard.js';
 
 export const DEFAULT_PLAYLIST_NAME = 'Claudio推荐';
 const MAX_TRACKS = 100;
@@ -135,6 +136,11 @@ export function mountExternalQueueRoutes(app, deps = {}) {
       if (!title && !hash && !id) {
         failed.push({ title: '', artist, reason: 'title required' });
         continue;
+      }
+      const badField = mojibakeField(raw);
+      if (badField) {
+        res.status(400).json(mojibakeError(badField));
+        return;
       }
       const want = {
         title,
@@ -279,6 +285,7 @@ export function mountExternalQueueRoutes(app, deps = {}) {
     );
     // 歌单写入失败也返回 200，让 bot 看 body 里的 playlist.ok / failed，
     // 避免 HTTP 客户端自动重试把已经写进酷狗的歌再写一遍。
+    const noCoverCount = queueItems.filter(item => !item.isTts && !item.cover).length;
     res.status(200).json({
       ok: !playlistFailed,
       target,
@@ -288,6 +295,7 @@ export function mountExternalQueueRoutes(app, deps = {}) {
       failed,
       queue: queueResult,
       playlist: playlistResult,
+      ...(noCoverCount > 0 ? { warning: COVER_MISSING_WARNING } : {}),
     });
   });
 }

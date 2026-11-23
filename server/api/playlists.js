@@ -18,6 +18,7 @@ import {
   clearPool as defaultClearPool,
 } from '../services/candidate-pool.js';
 import { markQueueSource } from '../queue-source.js';
+import { mojibakeField, mojibakeError, COVER_MISSING_WARNING } from '../utf8-guard.js';
 import { dbApi as defaultDb } from '../db.js';
 
 function proxyUrl(upstream) {
@@ -208,6 +209,11 @@ export function mountPlaylistRoutes(app, deps = {}) {
       res.status(400).json({ ok: false, error: 'track.hash 和 track.title 必填' });
       return;
     }
+    const badField = mojibakeField(track);
+    if (badField) {
+      res.status(400).json(mojibakeError(badField));
+      return;
+    }
     const runtime = getRuntime();
     if (!runtime) {
       res.status(500).json({ ok: false, error: 'runtime 不可用' });
@@ -241,7 +247,9 @@ export function mountPlaylistRoutes(app, deps = {}) {
       });
     } catch { /* 播放历史记录失败不影响点歌 */ }
     broadcast({ type: 'state', runtime });
-    res.json({ ok: true, mode, queue: runtime.queue, index: runtime.index });
+    const payload = { ok: true, mode, queue: runtime.queue, index: runtime.index };
+    if (!item.cover) payload.warning = COVER_MISSING_WARNING;
+    res.json(payload);
   };
   app.post('/api/kugou/play', handlePlaySingle);
   app.post('/api/music/play', handlePlaySingle);

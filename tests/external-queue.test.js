@@ -300,6 +300,35 @@ describe('POST /api/queue/external', () => {
     expect(badTarget.statusCode).toBe(400);
   });
 
+  it('track.title/artist/album 含 U+FFFD 乱码 → 400 拒收（GBK 模拟体）', async () => {
+    const { app, runtime } = setup();
+    // 模拟 Windows GBK body 经 UTF-8 解析后的烂值。
+    const res = mockRes();
+    await app.routes['POST /api/queue/external']({
+      body: { tracks: [{ title: '\uFFFD\uFFFD', artist: 'X' }] },
+    }, res);
+    expect(res.statusCode).toBe(400);
+    expect(res.body.ok).toBe(false);
+    expect(res.body.error).toMatch('UTF-8');
+    expect(runtime.queue).toHaveLength(0);
+  });
+
+  it('queue 里的歌曲没有 cover 时响应返回 warning', async () => {
+    const { app } = setup({
+      resolveTrack: async want => {
+        const t = song(want.title, want.artist || 'X');
+        delete t.cover; // 上游解析回来没带封面
+        return t;
+      },
+    });
+    const res = mockRes();
+    await app.routes['POST /api/queue/external']({
+      body: { tracks: [{ title: '晴天' }] },
+    }, res);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.warning).toMatch('cover');
+  });
+
   it('记下每首歌的 reason、点歌时间和来源；没写 reason 就不带这个字段', async () => {
     const { app, runtime, broadcast } = setup({
       resolveTrack: async want => {

@@ -218,6 +218,44 @@ describe('POST /api/kugou/play', () => {
     expect(deps.runtime.queue.map(item => item.title)).toEqual(['旧歌', '晴天']);
     expect(deps.runtime.index).toBe(0);
   });
+
+  it('title/artist/album 含 U+FFFD 乱码 → 400（GBK 模拟体）', async () => {
+    const deps = makeDeps({ runtime: { queue: [], index: 0, paused: true, lastSay: '' } });
+    const app = mockApp();
+    mountPlaylistRoutes(app, deps);
+    // Windows curl --data 以 GBK 发送中文时，服务端按 UTF-8 解析会产出
+    // U+FFFD（�）。模拟这种已烂掉的 body（相当于旧 bug 下服务端实际收到的）。
+    const mojibake = '晴天'.split('').map(c => '\uFFFD').join(''); // 全烂
+    for (const field of ['title', 'artist', 'album']) {
+      const res = mockRes();
+      await app.routes['POST /api/kugou/play']({
+        body: { track: { hash: 'HASH', title: '晴天', [field]: mojibake } },
+      }, res);
+      expect(res.statusCode).toBe(400);
+      expect(res.body.ok).toBe(false);
+      expect(res.body.error).toMatch('UTF-8');
+      expect(deps.runtime.queue).toHaveLength(0);
+    }
+  });
+
+  it('track.cover 缺失不拦但响应返回 warning', async () => {
+    const deps = makeDeps({ runtime: { queue: [], index: 0, paused: true, lastSay: '' } });
+    const app = mockApp();
+    mountPlaylistRoutes(app, deps);
+    const res = mockRes();
+    await app.routes['POST /api/kugou/play']({
+      body: { track: { hash: 'HASH', title: '晴天', artist: 'X' } },
+    }, res);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.warning).toBeDefined();
+    expect(res.body.warning).toMatch('cover');
+    const res2 = mockRes();
+    await app.routes['POST /api/kugou/play']({
+      body: { track: { hash: 'HASH', title: '晴天', cover: 'http://img/c.jpg' } },
+    }, res2);
+    expect(res2.body.ok).toBe(true);
+    expect(res2.body.warning).toBeUndefined();
+  });
 });
 
 describe('GET /api/kugou/track-url', () => {
