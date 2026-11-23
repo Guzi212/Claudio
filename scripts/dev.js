@@ -258,12 +258,17 @@ export async function startDev({
     if (await isApiReachable(`${config.qqApiBase.replace(/\/+$/, '')}/health`)) {
       log(`[dev] QQMusicApi wrapper already reachable at ${config.qqApiBase}`);
     } else if (pathExists(config.qqApiDir)) {
+      // QQMusicApi 底层 niquests 会拾取宿主代理 env（Clash socks5）走 SOCKS，
+      // 缺依赖报错、走代理还易触发腾讯风控。双保险：spawn env 里显式剥掉。
       const qqEnv = {
         ...childEnv,
         PORT: config.qqApiPort,
         QQ_API_DIR: config.qqApiDir,
         PYTHONDONTWRITEBYTECODE: '1',
       };
+      for (const k of ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy']) {
+        delete qqEnv[k];
+      }
       const qqChild = spawnChild({
         ...config.qq,
         env: qqEnv,

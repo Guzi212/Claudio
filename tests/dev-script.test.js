@@ -191,6 +191,41 @@ describe('scripts/dev', () => {
     expect(claudioEnv.KUGOU_API_BASE).toBe('http://127.0.0.1:34567');
   });
 
+  it('拉起 QQ wrapper 时显式剥掉宿主代理 env（双保险）', async () => {
+    const { startDev } = await import('../scripts/dev.js');
+    const spawnProcess = vi.fn(() => fakeChild());
+
+    await startDev({
+      env: {
+        QQ_API_BASE: 'http://127.0.0.1:33402',
+        QQ_API_DIR: '/fake/QQMusicApi',
+        HTTP_PROXY: 'http://127.0.0.1:7897',
+        HTTPS_PROXY: 'http://127.0.0.1:7897',
+        ALL_PROXY: 'socks5://127.0.0.1:7897',
+        http_proxy: 'http://127.0.0.1:7897',
+      },
+      projectRoot: '/Users/me/workspace/Claudio',
+      platform: 'darwin',
+      isApiReachable: async url => !url.includes('33402'),
+      pathExists: () => true,
+      waitForApi: async () => true,
+      spawnProcess,
+      log: () => {},
+      error: () => {},
+    });
+
+    // spawn 顺序：kugou → qq → claudio（qq 在 kugou 之后、claudio 之前）
+    const qqCall = spawnProcess.mock.calls.find(call => call[2].env.PORT === '33402');
+    expect(qqCall).toBeDefined();
+    const qqEnv = qqCall[2].env;
+    expect(qqEnv.HTTP_PROXY).toBeUndefined();
+    expect(qqEnv.HTTPS_PROXY).toBeUndefined();
+    expect(qqEnv.ALL_PROXY).toBeUndefined();
+    expect(qqEnv.http_proxy).toBeUndefined();
+    expect(qqEnv.https_proxy).toBeUndefined();
+    expect(qqEnv.all_proxy).toBeUndefined();
+  });
+
   it('默认端口避开 Windows 常见的排除端口段', async () => {
     const { DEFAULT_KUGOU_API_PORT, DEFAULT_KUGOU_API_BASE, localKugouApiPort } = await import('../server/kugou-api-base.js');
     expect(DEFAULT_KUGOU_API_BASE).toBe(`http://localhost:${DEFAULT_KUGOU_API_PORT}`);
