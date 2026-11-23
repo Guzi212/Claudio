@@ -1,5 +1,16 @@
 # Claudio · 播放器壳
 
+## AI 一键安装
+
+把这条指令粘给 Claude Code / Codex / Gemini CLI 就能自动装好整套环境：
+
+```text
+把 https://github.com/Guzi212/Claudio 这个项目安装到本机并跑起来：
+1. 克隆仓库到合适目录，同级目录再克隆 KuGouMusicApi（npm install）
+2. npm install，然后 copy .env.example .env 并按需配置
+3. npm run dev 启动，验证 http://localhost:8080 能出声
+```
+
 > 默认只负责出声和显示。选歌交给外部的 Grok Bot（Claudio主持人）。
 
 酷狗音乐负责检索、直链和歌单读写；浏览器 PWA 播放。`CLAUDIO_BRAIN` 默认是 `external`：不调用 Claude，不开机选歌，不定时推歌，队列播完后从主持人设置的续播池继续，没有可用续播池就停。设成 `internal` 才恢复原来的 Claude 选歌（开机电台、聊天点歌、定时任务）。
