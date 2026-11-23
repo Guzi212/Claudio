@@ -18,6 +18,13 @@ from urllib.parse import urlparse
 
 from aiohttp import web
 
+# 宿主常带 Clash 全局代理 env（ALL_PROXY=socks5://…）。QQMusicApi 底层 niquests
+# 会拾取它走 SOCKS，缺依赖时报错、走代理还易触发腾讯风控；QQ 接口直连即可。
+# 设 QQ_WRAPPER_ALLOW_PROXY=1 可显式放行代理 env。
+if os.environ.get("QQ_WRAPPER_ALLOW_PROXY", "") != "1":
+    for _k in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
+        os.environ.pop(_k, None)
+
 DEFAULT_PORT = 33402
 DEFAULT_CDN = "https://isure.stream.qqmusic.qq.com/"
 CDN_TTL_SECONDS = 600
