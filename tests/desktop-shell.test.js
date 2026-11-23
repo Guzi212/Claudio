@@ -8,6 +8,7 @@ const require = createRequire(import.meta.url);
 const windowState = require('../desktop/window-state.cjs');
 const supervisor = require('../desktop/supervisor.cjs');
 const themeIcons = require('../desktop/theme-icons.cjs');
+const externalLinks = require('../desktop/external-links.cjs');
 
 describe('desktop window-state', () => {
   it('规范化全局快捷键字符串为 Electron Accelerator', () => {
@@ -193,5 +194,122 @@ describe('open-player.ps1 混合启动契约', () => {
     expect(ps1).toContain('--autoplay-policy=no-user-gesture-required');
     expect(ps1).toContain('--user-data-dir=');
     expect(ps1).not.toContain('msedge');
+  });
+});
+
+describe('desktop external link handling', () => {
+  it('仅放行 https://github.com/ 开头链接，拦截其它协议、域名和伪装地址', () => {
+    expect(externalLinks.isAllowedExternalUrl('https://github.com/Guzi212/Claudio/issues/new/choose')).toBe(true);
+    expect(externalLinks.isAllowedExternalUrl('https://github.com/')).toBe(true);
+    expect(externalLinks.isAllowedExternalUrl('http://github.com/Guzi212/Claudio')).toBe(false);
+    expect(externalLinks.isAllowedExternalUrl('https://github.com.evil.com/Guzi212/Claudio')).toBe(false);
+    expect(externalLinks.isAllowedExternalUrl('https://github.com@evil.com/path')).toBe(false);
+    expect(externalLinks.isAllowedExternalUrl('https://github.com:8443/Guzi212/Claudio')).toBe(false);
+    expect(externalLinks.isAllowedExternalUrl('https://example.com/')).toBe(false);
+    expect(externalLinks.isAllowedExternalUrl('javascript:alert(1)')).toBe(false);
+    expect(externalLinks.isAllowedExternalUrl('file:///C:/Windows/win.ini')).toBe(false);
+    expect(externalLinks.isAllowedExternalUrl('')).toBe(false);
+  });
+
+  it('setWindowOpenHandler 与 will-navigate 阻止应用内跳转，并仅将 GitHub 链接交给系统浏览器', () => {
+    const openExternal = vi.fn(async () => {});
+    let windowOpenHandler = null;
+    const listeners = {};
+    const fakeWebContents = {
+      setWindowOpenHandler: fn => { windowOpenHandler = fn; },
+      on: (event, fn) => { listeners[event] = fn; },
+    };
+
+    externalLinks.attachExternalLinkHandlers(fakeWebContents, {
+      openExternal,
+      appOrigin: 'http://127.0.0.1:8080',
+    });
+
+    const ghUrl = 'https://github.com/Guzi212/Claudio/issues/new/choose';
+    expect(windowOpenHandler({ url: ghUrl })).toEqual({ action: 'deny' });
+    expect(openExternal).toHaveBeenCalledTimes(1);
+    expect(openExternal).toHaveBeenCalledWith(ghUrl);
+
+    expect(windowOpenHandler({ url: 'https://evil.example/phish' })).toEqual({ action: 'deny' });
+    expect(openExternal).toHaveBeenCalledTimes(1);
+
+    const sameOriginEvent = { preventDefault: vi.fn() };
+    listeners['will-navigate'](sameOriginEvent, 'http://127.0.0.1:8080/?view=settings');
+    expect(sameOriginEvent.preventDefault).not.toHaveBeenCalled();
+
+    const ghNavEvent = { preventDefault: vi.fn() };
+    listeners['will-navigate'](ghNavEvent, ghUrl);
+    expect(ghNavEvent.preventDefault).toHaveBeenCalledTimes(1);
+    expect(openExternal).toHaveBeenCalledTimes(2);
+    expect(openExternal).toHaveBeenLastCalledWith(ghUrl);
+
+    const otherNavEvent = { preventDefault: vi.fn() };
+    listeners['will-navigate'](otherNavEvent, 'https://example.com/other');
+    expect(otherNavEvent.preventDefault).toHaveBeenCalledTimes(1);
+    expect(openExternal).toHaveBeenCalledTimes(2);
+
+    const main = fs.readFileSync(path.resolve('desktop/main.cjs'), 'utf8');
+    expect(main).toContain('shell');
+    expect(main).toContain('attachExternalLinkHandlers');
+    expect(main).toContain('shell.openExternal(url)');
+  });
+
+  it('will-redirect 仅对主框架复用同源放行、GitHub 外开、其他来源拦截策略，且不误伤子框架', () => {
+    const openExternal = vi.fn(async () => {});
+    const listeners = {};
+    const fakeWebContents = {
+      setWindowOpenHandler: vi.fn(),
+      on: (event, fn) => { listeners[event] = fn; },
+    };
+
+    externalLinks.attachExternalLinkHandlers(fakeWebContents, {
+      openExternal,
+      appOrigin: 'http://127.0.0.1:8080',
+    });
+
+    const onWillRedirect = listeners['will-redirect'];
+    expect(typeof onWillRedirect).toBe('function');
+
+    // 主框架：同源重定向放行
+    const sameOriginEvent = {
+      url: 'http://127.0.0.1:8080/?view=settings',
+      isMainFrame: true,
+      preventDefault: vi.fn(),
+    };
+    onWillRedirect(sameOriginEvent, sameOriginEvent.url, false, true);
+    expect(sameOriginEvent.preventDefault).not.toHaveBeenCalled();
+    expect(openExternal).not.toHaveBeenCalled();
+
+    // 主框架：GitHub 重定向拦截并交由系统浏览器打开（Electron details 对象形态）
+    const ghUrl = 'https://github.com/Guzi212/Claudio/issues';
+    const ghEvent = {
+      url: ghUrl,
+      isMainFrame: true,
+      preventDefault: vi.fn(),
+    };
+    onWillRedirect(ghEvent);
+    expect(ghEvent.preventDefault).toHaveBeenCalledTimes(1);
+    expect(openExternal).toHaveBeenCalledTimes(1);
+    expect(openExternal).toHaveBeenLastCalledWith(ghUrl);
+
+    // 主框架：其他跨源重定向拦截且不外开（旧版位置参数形态）
+    const otherEvent = { preventDefault: vi.fn() };
+    onWillRedirect(otherEvent, 'https://example.com/phish', false, true);
+    expect(otherEvent.preventDefault).toHaveBeenCalledTimes(1);
+    expect(openExternal).toHaveBeenCalledTimes(1);
+
+    // 非主框架（子框架）：不拦截、不外开
+    const subFrameOtherEvent = {
+      url: 'https://example.com/embed',
+      isMainFrame: false,
+      preventDefault: vi.fn(),
+    };
+    onWillRedirect(subFrameOtherEvent, subFrameOtherEvent.url, false, false);
+    expect(subFrameOtherEvent.preventDefault).not.toHaveBeenCalled();
+
+    const subFrameGhEvent = { preventDefault: vi.fn() };
+    onWillRedirect(subFrameGhEvent, ghUrl, false, false);
+    expect(subFrameGhEvent.preventDefault).not.toHaveBeenCalled();
+    expect(openExternal).toHaveBeenCalledTimes(1);
   });
 });

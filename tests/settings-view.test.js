@@ -70,4 +70,26 @@ describe('settings view API contract', () => {
     expect(settingsViewJs).toContain('/api/netease/relogin/start');
     expect(settingsViewJs).toContain('/api/qq/relogin/start');
   });
+
+  it('设置页提供反馈入口，点击新标签打开 GitHub Issue 选择页，无多余辅助文案', async () => {
+    const previousDoc = globalThis.document;
+    globalThis.document = { getElementById: () => null };
+    let FEEDBACK_URL;
+    try {
+      ({ FEEDBACK_URL } = await import('../pwa/views/settings.js'));
+    } finally {
+      globalThis.document = previousDoc;
+    }
+    expect(FEEDBACK_URL).toBe('https://github.com/Guzi212/Claudio/issues/new/choose');
+    const feedbackCard = indexHtml.match(/<section class="card settings-feedback">([\s\S]*?)<\/section>/);
+    expect(feedbackCard).not.toBeNull();
+    const linkMatch = feedbackCard[1].match(/<a\b[^>]*id="settings-feedback"[^>]*>([\s\S]*?)<\/a>/);
+    expect(linkMatch).not.toBeNull();
+    expect(linkMatch[0]).toContain(`href="${FEEDBACK_URL}"`);
+    expect(linkMatch[0]).toContain('target="_blank"');
+    expect(linkMatch[0]).toContain('rel="noopener noreferrer"');
+    expect(linkMatch[1].trim()).toBe('反馈');
+    expect(feedbackCard[1]).not.toMatch(/<(p|small)\b/i);
+    expect(settingsViewJs).toContain("getElementById('settings-feedback')");
+  });
 });
