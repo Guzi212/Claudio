@@ -1,0 +1,45 @@
+name: 出问题了
+description: 装不上、没声音、登录掉了、点歌失败……
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: "请勿粘贴 cookie、token、`.env` 内容或扫码二维码。"
+  - type: textarea
+    id: what
+    attributes:
+      label: 发生了什么
+      placeholder: 例如：网易云扫码后显示已登录，点歌还是提示未登录
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 怎么复现
+      placeholder: |
+        1. 打开 …
+        2. 点击 …
+        3. 看到 …
+  - type: dropdown
+    id: source
+    attributes:
+      label: 音源
+      multiple: true
+      options: [酷狗, 网易云, QQ 音乐, 不确定]
+  - type: dropdown
+    id: client
+    attributes:
+      label: 在哪个端
+      multiple: true
+      options: [桌面窗口, 浏览器网页, 手机浏览器]
+  - type: input
+    id: agent
+    attributes:
+      label: 用的哪个 Agent 点歌
+      placeholder: 例如 Grok Bot / Claude Code / 没用 Agent
+  - type: textarea
+    id: health
+    attributes:
+      label: 自检结果（可选）
+      description: 浏览器打开 http://127.0.0.1:8080/api/health/integrations ，把内容贴在这里
+      render: json

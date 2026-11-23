@@ -1,8 +1,19 @@
-# Claudio · 个人 Claude AI 电台
+# Claudio · 给 AI Agent 用的音乐播放器
 
-个人 AI 电台项目。默认 `CLAUDIO_BRAIN=external`：选歌交给外部 Grok Bot（Claudio主持人），Claudio 只负责酷狗检索、直链和浏览器 PWA 播放。设成 `internal` 才由 Claude 根据品味语料 + 当前时间 + 历史播放选歌。
+定位（[ADR-0001](docs/adr/0001-product-positioning.md)）：Agent 负责选歌和主持，Claudio 负责多音源检索（酷狗/网易云/QQ）、直链、出声和显示。目标用户是普通用户。方向与优先级见 `docs/roadmap.md`，具体任务见 `docs/dev-plan.md`。
 
-架构（internal 选歌路径）：`router → context → claude → state.db → services/kugou`
+默认 `CLAUDIO_BRAIN=external`。`internal`（Claude 自己选歌，`router → context → claude → state.db`）已冻结，路线图阶段 1 存档移除。
+
+## 产品规则
+
+- **需求有来源**：新功能先对应一条 issue 或一个具体用户场景，PR 描述写明来自哪条；没有就先开 issue。
+- **稳定优先**：「装得上、不掉线、出得了声」相关的 bug 优先于任何新功能。
+- **普通用户视角**：需要用户开终端或改 `.env` 才能用的新功能，必须同时给界面入口，或在 `docs/roadmap.md` 阶段 2 记一条待办。
+- **公开契约**：`/api/queue/external`、`/api/music/*`、`/api/continue-pool`、`/api/health/integrations` 和 README「外部 Agent 接入」指令视为公开接口。破坏性改动先升版本、旧版至少保留一个发版周期；契约测试建好前，改这些接口必须同步 README 并在 PR 里标明。
+- **internal 冻结**：不给 internal 选歌链路加功能，只修影响 external 的 bug。
+- **不加主题**：主题收敛完成前，不新增主题或大视觉改版，除非有用户反馈支撑。
+- **无个人痕迹**：仓库和默认值里不放任何人的数据、账号、城市等配置；个人语料走 git 忽略的 `.local` 文件。
+- **发版**：用户能感知的改动合并后，在 `CHANGELOG.md` 记一条用户能看懂的条目；发版打 `vX.Y.Z` tag。
 
 ## Agent skills
 
