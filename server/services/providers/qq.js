@@ -1,6 +1,8 @@
 import axios from 'axios';
+import { dbApi } from '../../db.js';
 import { axiosProxyOptions } from '../../outbound-proxy.js';
 import { getWithDefault as getSettingWithDefault } from '../settings.js';
+import { REFRESHED_AT_PREF as QQ_REFRESHED_AT_PREF } from '../qq-login.js';
 import {
   MusicProvider,
   decodeTrackId,
@@ -33,25 +35,79 @@ export class QQMusicProvider extends MusicProvider {
     });
   }
 
-  async healthCheck() {
+  async healthCheck({ now = Date.now() } = {}) {
+    const empty = {
+      loggedIn: false,
+      musicid: 0,
+      account: null,
+      canRefresh: false,
+      credentialUpdatedAt: null,
+      credentialAgeMs: null,
+      credentialAgeHours: null,
+      keyExpiresIn: null,
+      expiresAt: null,
+      expiresInHours: null,
+    };
     if (!this.isEnabled()) {
-      return { ok: false, configured: false, loggedIn: false, detail: 'not configured' };
+      return { ok: false, configured: false, ...empty, detail: 'not configured' };
     }
     try {
       const res = await this._client(3_000).get('/health');
       const d = res.data || {};
+      const loggedIn = Boolean(d.loggedIn);
+      const musicid = Number(d.musicid || 0);
+      if (!loggedIn) {
+        return {
+          ok: Boolean(d.ok),
+          configured: true,
+          ...empty,
+          detail: d.detail || 'online · unauthenticated (search only)',
+        };
+      }
+
+      const dbUpdatedAt = Number(dbApi.getPref?.(QQ_REFRESHED_AT_PREF)) || 0;
+      const updatedAt = Number(d.credentialCreatedAt || dbUpdatedAt) || null;
+      const ageMs = updatedAt
+        ? Math.max(0, now - updatedAt)
+        : (Number.isFinite(d.credentialAgeMs) ? Math.max(0, Number(d.credentialAgeMs)) : null);
+      const ageHours = ageMs != null ? Math.round((ageMs / 3_600_000) * 10) / 10 : null;
+      const keyExpiresIn = Number(d.keyExpiresIn) > 0 ? Number(d.keyExpiresIn) : null;
+      const expiresAt = Number(d.expiresAt) > 0 ? Number(d.expiresAt) : null;
+      const expiresInMs = expiresAt != null
+        ? expiresAt - now
+        : (Number.isFinite(d.expiresInMs) ? Number(d.expiresInMs) : null);
+      const expiresInHours = expiresInMs != null ? Math.round((expiresInMs / 3_600_000) * 10) / 10 : null;
+      const canRefresh = d.canRefresh != null ? Boolean(d.canRefresh) : true;
+      const expired = Boolean(d.expired || (expiresInMs != null && expiresInMs <= 0));
+
+      const detailParts = [`logged in (${musicid || 'qq'})`];
+      if (ageHours != null) detailParts.push(`账龄 ${ageHours}h`);
+      if (expiresInHours != null) {
+        detailParts.push(expired ? '已过有效期' : `剩余 ${expiresInHours}h`);
+      }
+      if (d.canRefresh === false) detailParts.push('无 refresh_key');
+
       return {
         ok: Boolean(d.ok),
         configured: true,
-        loggedIn: Boolean(d.loggedIn),
-        musicid: d.musicid || 0,
-        detail: d.detail || (d.loggedIn ? 'logged in' : 'online · unauthenticated (search only)'),
+        loggedIn: true,
+        musicid,
+        account: musicid ? String(musicid) : null,
+        canRefresh,
+        credentialUpdatedAt: updatedAt,
+        credentialAgeMs: ageMs,
+        credentialAgeHours: ageHours,
+        keyExpiresIn,
+        expiresAt,
+        expiresInHours,
+        ...(expired ? { expired: true } : {}),
+        detail: detailParts.join(' · '),
       };
     } catch (err) {
       return {
         ok: false,
         configured: true,
-        loggedIn: false,
+        ...empty,
         detail: err.code === 'ECONNREFUSED' ? 'qq api not running' : err.message,
       };
     }
