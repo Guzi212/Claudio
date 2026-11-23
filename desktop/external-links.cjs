@@ -23,11 +23,25 @@ function isSameOriginUrl(rawUrl, appOrigin) {
   }
 }
 
+function resolveLinkAction(url, { appOrigin = '', allowSameOrigin = false } = {}) {
+  if (allowSameOrigin && isSameOriginUrl(url, appOrigin)) return 'allow';
+  if (isAllowedExternalUrl(url)) return 'open-external';
+  return 'deny';
+}
+
+function handleExternalLink(url, { openExternal, appOrigin = '', allowSameOrigin = false, event = null } = {}) {
+  const action = resolveLinkAction(url, { appOrigin, allowSameOrigin });
+  if (action === 'allow') return action;
+  event?.preventDefault?.();
+  if (action === 'open-external' && typeof openExternal === 'function') {
+    Promise.resolve(openExternal(url)).catch(() => {});
+  }
+  return action;
+}
+
 function createWindowOpenHandler(openExternal) {
   return ({ url } = {}) => {
-    if (isAllowedExternalUrl(url) && typeof openExternal === 'function') {
-      Promise.resolve(openExternal(url)).catch(() => {});
-    }
+    handleExternalLink(url, { openExternal, allowSameOrigin: false });
     return { action: 'deny' };
   };
 }
@@ -36,17 +50,23 @@ function attachExternalLinkHandlers(webContents, { openExternal, appOrigin = '' 
   if (!webContents) return;
   webContents.setWindowOpenHandler(createWindowOpenHandler(openExternal));
   webContents.on('will-navigate', (event, url) => {
-    if (isSameOriginUrl(url, appOrigin)) return;
-    event.preventDefault();
-    if (isAllowedExternalUrl(url) && typeof openExternal === 'function') {
-      Promise.resolve(openExternal(url)).catch(() => {});
-    }
+    const targetUrl = typeof event?.url === 'string' ? event.url : url;
+    handleExternalLink(targetUrl, { openExternal, appOrigin, allowSameOrigin: true, event });
+  });
+  webContents.on('will-redirect', (event, url, _isInPlace, isMainFrame) => {
+    const mainFrame = typeof event?.isMainFrame === 'boolean'
+      ? event.isMainFrame
+      : Boolean(isMainFrame);
+    if (!mainFrame) return;
+    const targetUrl = typeof event?.url === 'string' ? event.url : url;
+    handleExternalLink(targetUrl, { openExternal, appOrigin, allowSameOrigin: true, event });
   });
 }
 
 module.exports = {
   ALLOWED_EXTERNAL_PREFIX,
   isAllowedExternalUrl,
+  resolveLinkAction,
   createWindowOpenHandler,
   attachExternalLinkHandlers,
 };

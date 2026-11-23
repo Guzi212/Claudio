@@ -3,7 +3,7 @@
 ## 免责声明
 
 - 音源服务来自第三方社区项目（KuGouMusicApi、NeteaseCloudMusicApiEnhanced、QQMusicApi），Claudio 不包含、不托管这些服务。
-- 账号由用户自行扫码登录，凭证只保存在本机。
+- 账号由用户自行扫码登录，凭证保存在你自己运行 Claudio 的机器上。
 - 仅供个人学习与使用，请遵守各音乐平台的用户协议。
 
 ## AI 一键安装

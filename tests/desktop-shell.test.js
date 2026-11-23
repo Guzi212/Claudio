@@ -253,4 +253,63 @@ describe('desktop external link handling', () => {
     expect(main).toContain('attachExternalLinkHandlers');
     expect(main).toContain('shell.openExternal(url)');
   });
+
+  it('will-redirect 仅对主框架复用同源放行、GitHub 外开、其他来源拦截策略，且不误伤子框架', () => {
+    const openExternal = vi.fn(async () => {});
+    const listeners = {};
+    const fakeWebContents = {
+      setWindowOpenHandler: vi.fn(),
+      on: (event, fn) => { listeners[event] = fn; },
+    };
+
+    externalLinks.attachExternalLinkHandlers(fakeWebContents, {
+      openExternal,
+      appOrigin: 'http://127.0.0.1:8080',
+    });
+
+    const onWillRedirect = listeners['will-redirect'];
+    expect(typeof onWillRedirect).toBe('function');
+
+    // 主框架：同源重定向放行
+    const sameOriginEvent = {
+      url: 'http://127.0.0.1:8080/?view=settings',
+      isMainFrame: true,
+      preventDefault: vi.fn(),
+    };
+    onWillRedirect(sameOriginEvent, sameOriginEvent.url, false, true);
+    expect(sameOriginEvent.preventDefault).not.toHaveBeenCalled();
+    expect(openExternal).not.toHaveBeenCalled();
+
+    // 主框架：GitHub 重定向拦截并交由系统浏览器打开（Electron details 对象形态）
+    const ghUrl = 'https://github.com/Guzi212/Claudio/issues';
+    const ghEvent = {
+      url: ghUrl,
+      isMainFrame: true,
+      preventDefault: vi.fn(),
+    };
+    onWillRedirect(ghEvent);
+    expect(ghEvent.preventDefault).toHaveBeenCalledTimes(1);
+    expect(openExternal).toHaveBeenCalledTimes(1);
+    expect(openExternal).toHaveBeenLastCalledWith(ghUrl);
+
+    // 主框架：其他跨源重定向拦截且不外开（旧版位置参数形态）
+    const otherEvent = { preventDefault: vi.fn() };
+    onWillRedirect(otherEvent, 'https://example.com/phish', false, true);
+    expect(otherEvent.preventDefault).toHaveBeenCalledTimes(1);
+    expect(openExternal).toHaveBeenCalledTimes(1);
+
+    // 非主框架（子框架）：不拦截、不外开
+    const subFrameOtherEvent = {
+      url: 'https://example.com/embed',
+      isMainFrame: false,
+      preventDefault: vi.fn(),
+    };
+    onWillRedirect(subFrameOtherEvent, subFrameOtherEvent.url, false, false);
+    expect(subFrameOtherEvent.preventDefault).not.toHaveBeenCalled();
+
+    const subFrameGhEvent = { preventDefault: vi.fn() };
+    onWillRedirect(subFrameGhEvent, ghUrl, false, false);
+    expect(subFrameGhEvent.preventDefault).not.toHaveBeenCalled();
+    expect(openExternal).toHaveBeenCalledTimes(1);
+  });
 });
