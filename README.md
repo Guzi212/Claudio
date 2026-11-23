@@ -9,6 +9,8 @@
 1. 克隆仓库到合适目录，同级目录再克隆 KuGouMusicApi（npm install）
 2. npm install，然后 copy .env.example .env 并按需配置
 3. npm run dev 启动，验证 http://localhost:8080 能出声
+4. 装完告诉我：Claudio 已跑起来，要不要接一个外部点歌 Agent（如 Grok Bot）
+5. 如果我要，就把 README 里「外部 Agent 接入」那段指令原样打印给我，让我复制去发给它
 ```
 
 ## 外部 Agent 接入
