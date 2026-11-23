@@ -720,3 +720,5 @@ rules:
 ├── .env.example
 └── package.json
 ```
+
+许可证：MIT，见 LICENSE
