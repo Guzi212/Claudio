@@ -12,8 +12,9 @@
 - [ ] 生产 `.env` 补 `NETEASE_API_BASE`（:33401）、`QQ_API_BASE`（:33402）
 - [ ] 生产侧把 `../NeteaseCloudMusicApiEnhanced`、QQ wrapper（`scripts/qq-music-server.py` + `.venv`）常驻拉起
 - [ ] 生产重启后用真机点歌验收（网易、QQ 各一首）
-- [ ] （可选）网易云配 `NETEASE_COOKIE` 解锁会员曲库；QQ 配扫码登录播 VIP
-- [ ] 酷狗 cookie 过期需重新扫码登录（dev 环境健康检查报 cookie missing）
+- [ ] **登录态三统一（loic 2026-11-24 定）**：网易云/QQ 做成跟酷狗一样的扫码登录 UI + 凭证落盘 + 自动续期保活，目标长期不掉线。QQ 需调研 qqmusic-api 的 refreshkey 续期能力；网易云可落 MUSIC_U cookie 到 .env/state.db（MUSIC_U 本来长命）。酷狗现有 cookie 过期需重新扫码
+
+> 现实预期：QQ 风控比酷狗/网易云严，手机端互踢、二次设备验证这类平台行为做不到 100% 不掉，目标是「尽量长效 + 掉了能一键扫码回来」
 
 ### 阶段二：补源 + 适配层抽象（待评估）
 
