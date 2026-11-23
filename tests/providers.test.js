@@ -173,6 +173,32 @@ describe('NeteaseProvider', () => {
     const anonCalls = get.mock.calls.filter(c => c[0] === '/register/anonimous');
     expect(anonCalls).toHaveLength(1);
   });
+
+  it('state.db 存有 netease_cookie 时优先携带清洗后的 MUSIC_U 发请求，不走匿名注册', async () => {
+    process.env.NETEASE_API_BASE = 'http://localhost:33401';
+    prefMem.set('netease_cookie', 'MUSIC_U=SAVED_U; Max-Age=1296000; Path=/; __csrf=SAVED_CSRF');
+    const get = vi.fn(async url => {
+      if (url === '/cloudsearch') {
+        return {
+          data: {
+            result: {
+              songs: [{ id: 101, name: '晴天', ar: [{ name: '周杰伦' }], al: { name: '叶惠美' }, dt: 269000 }],
+            },
+          },
+        };
+      }
+      return { data: {} };
+    });
+    vi.doMock('axios', () => ({ default: { create: () => ({ get }) } }));
+
+    const { NeteaseProvider } = await import('../server/services/providers/netease.js');
+    const p = new NeteaseProvider();
+    await p.search({ title: '晴天', artist: '周杰伦' });
+
+    expect(get.mock.calls.some(c => c[0] === '/register/anonimous')).toBe(false);
+    const searchCall = get.mock.calls.find(c => c[0] === '/cloudsearch');
+    expect(searchCall?.[1]?.params?.cookie).toBe('MUSIC_U=SAVED_U;__csrf=SAVED_CSRF');
+  });
 });
 
 describe('QQMusicProvider', () => {

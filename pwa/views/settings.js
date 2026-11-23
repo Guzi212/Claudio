@@ -1,4 +1,4 @@
-// Settings 视图 · 集成健康 + 配置表单
+// Settings 视图 · 集成健康 + 配置表单 + 多音源统一扫码登录
 import { showAlert, toast } from './ui.js';
 import { applyPixelHostSetting, readPixelHostEnabled } from '../host-mood.js';
 
@@ -32,11 +32,55 @@ const fields = {
   alwaysTopMini:    '#set-always-top-mini',
 };
 
+export const RELOGIN_PROVIDERS = {
+  kugou: {
+    key: 'kugou',
+    label: '酷狗音乐',
+    dialogLabel: '酷狗扫码登录',
+    title: '用手机酷狗 App 扫码',
+    qrAlt: '酷狗登录二维码',
+    startUrl: '/api/kugou/relogin/start',
+    statusUrl: '/api/kugou/relogin/status',
+    probeUrl: '/api/kugou/relogin/probe',
+    statusId: 'kugou-status',
+    buttonId: 'btn-kugou-relogin',
+    successToast: '酷狗登录成功，可以放歌了',
+  },
+  netease: {
+    key: 'netease',
+    label: '网易云音乐',
+    dialogLabel: '网易云扫码登录',
+    title: '用网易云音乐 App 扫码',
+    qrAlt: '网易云登录二维码',
+    startUrl: '/api/netease/relogin/start',
+    statusUrl: '/api/netease/relogin/status',
+    probeUrl: '',
+    statusId: 'netease-status',
+    buttonId: 'btn-netease-relogin',
+    successToast: '网易云登录成功，凭证已落盘',
+  },
+  qq: {
+    key: 'qq',
+    label: 'QQ 音乐',
+    dialogLabel: 'QQ 音乐扫码登录',
+    title: '用手机 QQ 扫码登录',
+    wxTitle: '用微信扫码登录 QQ 音乐',
+    qrAlt: 'QQ 音乐登录二维码',
+    startUrl: '/api/qq/relogin/start',
+    statusUrl: '/api/qq/relogin/status',
+    probeUrl: '',
+    statusId: 'qq-status',
+    buttonId: 'btn-qq-relogin',
+    successToast: 'QQ 音乐登录成功，凭证已落盘',
+  },
+};
+
 let nodes = {};
-let healthList, kugouStatus, btnSave, btnRefresh, btnRelogin;
+let healthList, btnSave, btnRefresh;
+let loginEls = {};
 let loaded = false;
 let loading = false;
-let reloginState = null;  // { key, pollId, modal } 当前活的扫码会话
+let reloginState = null;  // { provider, key, pollId, probeId, modal } 当前活的扫码会话
 let lastSavedProvider = 'multi';
 
 const HEALTH_KEYS = [
@@ -70,6 +114,36 @@ export function renderHealthItems(container, items) {
   }
 }
 
+export function renderProviderLoginState(statusEl, buttonEl, row) {
+  if (!statusEl) return;
+  if (!row || typeof row !== 'object') {
+    statusEl.textContent = 'unknown';
+    statusEl.className = 'readonly off';
+    return;
+  }
+  const msg = row.message || row.detail || '';
+  const loggedIn = row.loggedIn != null
+    ? Boolean(row.loggedIn)
+    : Boolean(row.ok && !row.anonymous && !/anonymous|unauth|search only|未登录|expired/i.test(msg));
+  if (loggedIn) {
+    statusEl.textContent = `已登录 · ${msg || row.account || 'cookie ok'}`;
+    statusEl.className = 'readonly ok';
+  } else if (row.configured === false) {
+    statusEl.textContent = `未配置 · ${msg || 'API 未启用'}`;
+    statusEl.className = 'readonly off';
+  } else if (row.ok) {
+    statusEl.textContent = `未登录 · ${msg || '匿名可用'}`;
+    statusEl.className = 'readonly off';
+  } else {
+    statusEl.textContent = msg || '未连接';
+    statusEl.className = 'readonly off';
+  }
+  if (buttonEl) {
+    buttonEl.textContent = loggedIn ? '重扫码' : '扫码登录';
+    buttonEl.disabled = row.configured === false;
+  }
+}
+
 function httpUrl(value) {
   try {
     const url = new URL(String(value || ''));
@@ -79,27 +153,43 @@ function httpUrl(value) {
   }
 }
 
-export function createReloginModal({ qrImg, qrUrl }) {
+export function createReloginModal({ qrImg, qrUrl, provider = 'kugou', qqType = 'qq' } = {}) {
+  const cfg = RELOGIN_PROVIDERS[provider] || RELOGIN_PROVIDERS.kugou;
   const backdrop = document.createElement('div');
   backdrop.className = 'modal-backdrop';
   const modal = document.createElement('div');
   modal.className = 'modal';
   modal.setAttribute('role', 'dialog');
-  modal.setAttribute('aria-label', '酷狗扫码登录');
+  modal.setAttribute('aria-label', cfg.dialogLabel);
   const close = document.createElement('button');
   close.className = 'modal-close';
   close.type = 'button';
   close.setAttribute('aria-label', '关闭');
   close.textContent = '×';
   const title = document.createElement('h3');
-  title.textContent = '用手机酷狗 App 扫码';
+  title.textContent = provider === 'qq' && qqType === 'wx' ? cfg.wxTitle : cfg.title;
   modal.append(close, title);
+
+  if (provider === 'qq') {
+    const tabs = document.createElement('div');
+    tabs.className = 'modal-tabs';
+    for (const [kind, text] of [['qq', '手机 QQ'], ['wx', '微信扫码']]) {
+      const tab = document.createElement('button');
+      tab.type = 'button';
+      tab.className = 'btn ghost' + (qqType === kind ? ' active' : '');
+      tab.dataset.qqType = kind;
+      tab.textContent = text;
+      tabs.appendChild(tab);
+    }
+    modal.appendChild(tabs);
+  }
+
   const imageUrl = httpUrl(qrImg) || (String(qrImg || '').startsWith('data:image/') ? String(qrImg) : '');
   if (imageUrl) {
     const image = document.createElement('img');
     image.className = 'qr';
     image.src = imageUrl;
-    image.alt = '酷狗登录二维码';
+    image.alt = cfg.qrAlt;
     modal.appendChild(image);
   }
   const linkUrl = httpUrl(qrUrl);
@@ -144,12 +234,11 @@ function renderHealth(health) {
     const ok = !!row.ok;
     return { label, ok, message: row.message || row.detail || (ok ? 'ok' : 'unconfigured') };
   }));
-  // Kugou 状态镜像到下方
-  const k = health?.kugou;
-  if (k) {
-    const msg = k.message || k.detail;
-    kugouStatus.textContent = k.ok ? `alive · ${msg || 'cookie ok'}` : (msg || 'unknown');
-    kugouStatus.className = 'readonly ' + (k.ok ? 'ok' : 'off');
+  for (const provider of Object.keys(RELOGIN_PROVIDERS)) {
+    const els = loginEls[provider];
+    if (els) {
+      renderProviderLoginState(els.status, els.button, health?.[provider]);
+    }
   }
 }
 
@@ -259,6 +348,10 @@ async function load(force = false) {
       item.className = 'off';
       item.textContent = `健康检查失败：${hRes.reason.message}`;
       healthList.appendChild(item);
+      for (const provider of Object.keys(RELOGIN_PROVIDERS)) {
+        const els = loginEls[provider];
+        if (els) renderProviderLoginState(els.status, els.button, { ok: false, detail: hRes.reason.message });
+      }
     }
 
     if (sRes.status === 'fulfilled') applySettings(sRes.value);
@@ -300,48 +393,57 @@ async function save() {
   }
 }
 
-// ──────────── 酷狗扫码续登录 ────────────
+// ──────────── 三源统一扫码登录弹窗 ────────────
 function closeReloginModal() {
   if (!reloginState) return;
   clearInterval(reloginState.pollId);
-  clearInterval(reloginState.probeId);
+  if (reloginState.probeId) clearInterval(reloginState.probeId);
   if (reloginState.modal?.parentNode) reloginState.modal.parentNode.removeChild(reloginState.modal);
   reloginState = null;
 }
 
-function onLoginSuccess(statusEl) {
-  statusEl.textContent = '✓ 登录成功 · cookie 已保存';
+function onLoginSuccess(statusEl, cfg) {
+  statusEl.textContent = '✓ 登录成功 · 凭证已保存';
   statusEl.className = 'modal-status ok';
   setTimeout(() => {
     closeReloginModal();
-    toast('酷狗登录成功，可以放歌了');
+    toast(cfg.successToast);
     loaded = false;
     load(true);
   }, 800);
 }
 
-function openReloginModal({ qrImg, qrUrl, key }) {
+function openReloginModal(provider, { qrImg, qrUrl, key, type = 'qq' }) {
   closeReloginModal();
-  const backdrop = createReloginModal({ qrImg, qrUrl });
+  const cfg = RELOGIN_PROVIDERS[provider] || RELOGIN_PROVIDERS.kugou;
+  const qqType = type === 'wx' ? 'wx' : 'qq';
+  const backdrop = createReloginModal({ qrImg, qrUrl, provider, qqType });
   backdrop.addEventListener('click', e => { if (e.target === backdrop) closeReloginModal(); });
   backdrop.querySelector('.modal-close').addEventListener('click', closeReloginModal);
+  for (const tabBtn of backdrop.querySelectorAll('[data-qq-type]')) {
+    tabBtn.addEventListener('click', () => {
+      const nextType = tabBtn.dataset.qqType;
+      if (nextType && nextType !== qqType) {
+        startProviderRelogin('qq', { qqType: nextType });
+      }
+    });
+  }
   document.body.appendChild(backdrop);
 
-  const statusEl  = backdrop.querySelector('[data-status]');
-  const checkedEl = backdrop.querySelector('[data-checked]');
-  const probeEl   = backdrop.querySelector('[data-probe]');
+  const statusEl   = backdrop.querySelector('[data-status]');
+  const checkedEl  = backdrop.querySelector('[data-checked]');
+  const probeEl    = backdrop.querySelector('[data-probe]');
   const refreshBtn = backdrop.querySelector('[data-refresh]');
 
   let checking = false;
   let done = false;
 
-  // ── 路径 1：QR 状态码（标准流，部分 API 可靠）──
   async function checkQrStatus() {
     if (checking || done) return;
     checking = true;
     refreshBtn.disabled = true;
     try {
-      const r = await fetch(`/api/kugou/relogin/status?key=${encodeURIComponent(key)}`);
+      const r = await fetch(`${cfg.statusUrl}?key=${encodeURIComponent(key)}`);
       const data = await r.json();
       checkedEl.textContent = `QR 检查 ${new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
 
@@ -350,16 +452,24 @@ function openReloginModal({ qrImg, qrUrl, key }) {
         statusEl.className = 'modal-status off';
         return;
       }
-      const { status, savedCookie } = data;
+      const { status, savedCookie, loggedIn, statusText } = data;
       if (status === 4) {
-        if (savedCookie) { done = true; onLoginSuccess(statusEl); return; }
-        statusEl.textContent = 'QR status=4 但 token 提取失败，等待 probe…';
+        if (savedCookie || loggedIn) {
+          done = true;
+          onLoginSuccess(statusEl, cfg);
+          return;
+        }
+        statusEl.textContent = cfg.probeUrl
+          ? 'QR status=4 但 token 提取失败，等待 probe…'
+          : '扫码已完成但未拿到有效登录凭证，请关闭后重试';
         statusEl.className = 'modal-status off';
         return;
       }
       if (status === 0) {
         clearInterval(reloginState?.pollId);
-        statusEl.textContent = '二维码已过期 · 关闭后重新生成';
+        statusEl.textContent = statusText === '已拒绝'
+          ? '已取消授权 · 关闭后重新扫码'
+          : '二维码已过期 · 关闭后重新生成';
         statusEl.className = 'modal-status off';
         return;
       }
@@ -375,16 +485,15 @@ function openReloginModal({ qrImg, qrUrl, key }) {
     }
   }
 
-  // ── 路径 2：probe 上游 session（QR 状态码卡住时的兜底）──
   async function probeUpstream() {
-    if (done) return;
+    if (done || !cfg.probeUrl) return;
     try {
-      const r = await fetch('/api/kugou/relogin/probe', { method: 'POST' });
+      const r = await fetch(cfg.probeUrl, { method: 'POST' });
       const data = await r.json();
       if (data.ok && data.found) {
         done = true;
         probeEl.textContent = '';
-        onLoginSuccess(statusEl);
+        onLoginSuccess(statusEl, cfg);
       } else {
         probeEl.textContent = `后台探测中… ${new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
       }
@@ -393,30 +502,43 @@ function openReloginModal({ qrImg, qrUrl, key }) {
     }
   }
 
-  refreshBtn.addEventListener('click', () => { checkQrStatus(); probeUpstream(); });
+  refreshBtn.addEventListener('click', () => {
+    checkQrStatus();
+    if (cfg.probeUrl) probeUpstream();
+  });
 
   checkQrStatus();
-  probeUpstream();
-  const pollId  = setInterval(checkQrStatus,  2_000);
-  const probeId = setInterval(probeUpstream,  3_000);  // probe 频率稍低，避免压上游
+  if (cfg.probeUrl) probeUpstream();
+  const pollId  = setInterval(checkQrStatus, 2_000);
+  const probeId = cfg.probeUrl ? setInterval(probeUpstream, 3_000) : null;
 
-  reloginState = { key, pollId, probeId, modal: backdrop };
+  reloginState = { provider, key, pollId, probeId, modal: backdrop };
 }
 
-async function startRelogin() {
-  btnRelogin.disabled = true;
-  const originalText = btnRelogin.textContent;
-  btnRelogin.textContent = '生成二维码…';
+async function startProviderRelogin(provider, { qqType = 'qq' } = {}) {
+  const cfg = RELOGIN_PROVIDERS[provider];
+  if (!cfg) return;
+  const btn = loginEls[provider]?.button;
+  const originalText = btn ? btn.textContent : '扫码登录';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '生成中…';
+  }
   try {
-    const r = await fetch('/api/kugou/relogin/start', { method: 'POST' });
+    const startEndpoint = provider === 'qq'
+      ? `${cfg.startUrl}?type=${encodeURIComponent(qqType)}`
+      : cfg.startUrl;
+    const r = await fetch(startEndpoint, { method: 'POST' });
     const data = await r.json();
     if (!data.ok) throw new Error(data.error || `HTTP ${r.status}`);
-    openReloginModal(data);
+    openReloginModal(provider, { ...data, type: data.type || qqType });
   } catch (err) {
-    showAlert(`扫码登录启动失败：${err.message}`);
+    showAlert(`${cfg.label}扫码启动失败：${err.message}`);
   } finally {
-    btnRelogin.textContent = originalText;
-    btnRelogin.disabled = false;
+    if (btn) {
+      btn.textContent = originalText;
+      btn.disabled = false;
+    }
   }
 }
 
@@ -424,20 +546,24 @@ export function initSettings() {
   for (const [k, sel] of Object.entries(fields)) {
     nodes[k] = document.querySelector(sel);
   }
-  healthList  = document.getElementById('health-list');
-  kugouStatus = document.getElementById('kugou-status');
-  btnSave     = document.getElementById('settings-save');
-  btnRefresh  = document.getElementById('settings-refresh');
-  btnRelogin  = document.getElementById('btn-kugou-relogin');
+  healthList = document.getElementById('health-list');
+  btnSave    = document.getElementById('settings-save');
+  btnRefresh = document.getElementById('settings-refresh');
+
+  loginEls = {};
+  for (const [provider, cfg] of Object.entries(RELOGIN_PROVIDERS)) {
+    const status = document.getElementById(cfg.statusId);
+    const button = document.getElementById(cfg.buttonId);
+    loginEls[provider] = { status, button };
+    if (button) {
+      button.disabled = false;
+      button.removeAttribute('title');
+      button.addEventListener('click', () => startProviderRelogin(provider));
+    }
+  }
 
   btnSave.addEventListener('click', save);
   btnRefresh.addEventListener('click', () => load(true));
-
-  if (btnRelogin) {
-    btnRelogin.disabled = false;
-    btnRelogin.removeAttribute('title');
-    btnRelogin.addEventListener('click', startRelogin);
-  }
 
   const btnTtsTest = document.querySelector('button[data-test="tts"]');
   if (btnTtsTest) {

@@ -9,8 +9,32 @@ import {
   msToSeconds,
 } from './base.js';
 import { scoreCandidate } from './scoring.js';
+import {
+  COOKIE_PREF as NETEASE_COOKIE_PREF,
+  REFRESHED_AT_PREF as NETEASE_REFRESHED_AT_PREF,
+  hasMusicU,
+  sanitizeNeteaseCookie,
+} from '../netease-login.js';
+import { serializeCookie } from '../kugou-cookie.js';
 
 const SCORE_THRESHOLD = 60;
+
+function credentialAgeFields(updatedAt, now = Date.now()) {
+  const ts = Number(updatedAt) || 0;
+  if (ts <= 0) {
+    return {
+      credentialUpdatedAt: null,
+      credentialAgeMs: null,
+      credentialAgeHours: null,
+    };
+  }
+  const ageMs = Math.max(0, now - ts);
+  return {
+    credentialUpdatedAt: ts,
+    credentialAgeMs: ageMs,
+    credentialAgeHours: Math.round((ageMs / 3_600_000) * 10) / 10,
+  };
+}
 
 function neteaseLevelForQuality(quality) {
   const q = String(quality || '').trim().toLowerCase();
@@ -109,11 +133,15 @@ export class NeteaseProvider extends MusicProvider {
 
   async ensureCookie({ forceRefresh = false } = {}) {
     if (!this.isEnabled()) return '';
-    const envCookie = String(process.env.NETEASE_COOKIE || '').trim();
-    if (envCookie) return envCookie;
+    const dbCookie = String(dbApi.getPref?.(NETEASE_COOKIE_PREF) || '').trim();
+    if (dbCookie) {
+      return serializeCookie(sanitizeNeteaseCookie(dbCookie)) || dbCookie;
+    }
 
-    const dbCookie = String(dbApi.getPref?.('netease_cookie') || '').trim();
-    if (dbCookie) return dbCookie;
+    const envCookie = String(process.env.NETEASE_COOKIE || '').trim();
+    if (envCookie) {
+      return serializeCookie(sanitizeNeteaseCookie(envCookie)) || envCookie;
+    }
 
     if (!forceRefresh && this._anonCookie) return this._anonCookie;
     if (!forceRefresh && this._anonAttemptedAt && (Date.now() - this._anonAttemptedAt < 300_000)) {
@@ -141,30 +169,83 @@ export class NeteaseProvider extends MusicProvider {
     return this._anonPromise;
   }
 
-  async healthCheck() {
+  async healthCheck({ now = Date.now() } = {}) {
+    const emptyAge = credentialAgeFields(0, now);
     if (!this.isEnabled()) {
-      return { ok: false, configured: false, detail: 'not configured' };
+      return {
+        ok: false,
+        configured: false,
+        loggedIn: false,
+        userId: null,
+        account: null,
+        ...emptyAge,
+        detail: 'not configured',
+      };
     }
+    const storedUserCookie = String(dbApi.getPref?.(NETEASE_COOKIE_PREF) || process.env.NETEASE_COOKIE || '').trim();
+    const hadUserCookie = hasMusicU(storedUserCookie);
+    const refreshedAt = Number(dbApi.getPref?.(NETEASE_REFRESHED_AT_PREF)) || 0;
     try {
       const cookie = await this.ensureCookie();
       const res = await this._client(3_500).get('/login/status', {
-        params: cookie ? { cookie, _t: Date.now() } : { _t: Date.now() },
+        params: cookie ? { cookie, _t: now } : { _t: now },
       });
-      const profile = res.data?.data?.profile || res.data?.profile || null;
-      const nickname = profile?.nickname || '';
-      if (nickname) {
-        return { ok: true, configured: true, anonymous: false, detail: `logged in (${nickname})` };
+      const inner = res.data?.data || res.data || {};
+      const profile = inner.profile || null;
+      const acct = inner.account || null;
+      const isRealUser = Boolean(profile && (profile.userId || profile.nickname) && !acct?.anonimousUser);
+      if (isRealUser) {
+        const userId = profile.userId ?? acct?.id ?? null;
+        const nickname = String(profile.nickname || '').trim();
+        const account = nickname && userId != null
+          ? `${nickname} (${userId})`
+          : (nickname || (userId != null ? String(userId) : null));
+        const age = credentialAgeFields(refreshedAt, now);
+        const ageSuffix = age.credentialAgeHours != null ? ` · 账龄 ${age.credentialAgeHours}h` : '';
+        return {
+          ok: true,
+          configured: true,
+          loggedIn: true,
+          anonymous: false,
+          userId,
+          account,
+          ...(nickname ? { nickname } : {}),
+          ...age,
+          detail: `logged in (${nickname || userId}${ageSuffix})`,
+        };
+      }
+      if (hadUserCookie) {
+        const age = credentialAgeFields(refreshedAt, now);
+        return {
+          ok: true,
+          configured: true,
+          loggedIn: false,
+          anonymous: true,
+          cookieExpired: true,
+          userId: null,
+          account: null,
+          ...age,
+          detail: 'cookie expired · 已降级匿名会话（请重扫码）',
+        };
       }
       return {
         ok: true,
         configured: true,
+        loggedIn: false,
         anonymous: true,
+        userId: null,
+        account: null,
+        ...emptyAge,
         detail: cookie ? 'anonymous cookie ready' : 'online (upstream anonymous)',
       };
     } catch (err) {
       return {
         ok: false,
         configured: true,
+        loggedIn: false,
+        userId: null,
+        account: null,
+        ...emptyAge,
         detail: err.code === 'ECONNREFUSED' ? 'netease api not running' : err.message,
       };
     }

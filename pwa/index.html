@@ -287,9 +287,17 @@
       </section>
 
       <section class="card">
-        <div class="section-row"><h3>酷狗与桌面窗口</h3><button type="button" class="btn ghost" id="btn-kugou-relogin" disabled>重扫码登录</button></div>
+        <h3>音源登录</h3>
         <div class="setting-rows">
-          <div class="setting-row"><span>酷狗连接态</span><div id="kugou-status" class="readonly">读取中…</div></div>
+          <div class="setting-row"><span>酷狗音乐</span><div class="field-row"><div id="kugou-status" class="readonly">读取中…</div><button type="button" class="btn ghost" id="btn-kugou-relogin" disabled>扫码登录</button></div></div>
+          <div class="setting-row"><span>网易云音乐</span><div class="field-row"><div id="netease-status" class="readonly">读取中…</div><button type="button" class="btn ghost" id="btn-netease-relogin" disabled>扫码登录</button></div></div>
+          <div class="setting-row"><span>QQ 音乐</span><div class="field-row"><div id="qq-status" class="readonly">读取中…</div><button type="button" class="btn ghost" id="btn-qq-relogin" disabled>扫码登录</button></div></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h3>外观与桌面窗口</h3>
+        <div class="setting-rows">
           <label class="setting-row"><span>界面主题</span><select id="set-ui-theme"><option value="auto">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option><option value="pixel">像素数码</option></select></label>
           <label class="setting-row pixel-only-setting"><span>显示数码小人</span><input id="set-pixel-host" type="checkbox" checked></label>
           <label class="setting-row"><span>全局快捷键</span><input id="set-global-hotkey" type="text" autocomplete="off" placeholder="CTRL+ALT+K"></label>

@@ -99,7 +99,7 @@ function createPreview() {
   app.get('/api/now', (_req, res) => res.json({ ok: true, ...state, nowPlaying: state.queue[state.index] }));
   app.get('/api/status', (_req, res) => res.json({ ok: true, ...state, nowPlaying: state.queue[state.index] }));
   app.get('/api/health', (_req, res) => res.json({ ok: true }));
-  app.get('/api/health/integrations', (_req, res) => res.json({ kugou: { ok: true, detail: '试听就绪' }, netease: { ok: true, detail: 'anonymous' }, qq: { ok: true, detail: 'search only' }, weather: { ok: true, detail: 'Open-Meteo (keyless)' }, tts: { ok: false, detail: '未配置' }, ai: { ok: false, detail: '未配置' }, lark: { ok: false, detail: '未配置' }, calendar: { ok: false, detail: '未配置' }, dj: { ok: false, detail: 'standby' } }));
+  app.get('/api/health/integrations', (_req, res) => res.json({ kugou: { ok: true, loggedIn: true, detail: '试听就绪' }, netease: { ok: true, loggedIn: false, anonymous: true, detail: 'anonymous' }, qq: { ok: true, loggedIn: false, detail: 'search only' }, weather: { ok: true, detail: 'Open-Meteo (keyless)' }, tts: { ok: false, detail: '未配置' }, ai: { ok: false, detail: '未配置' }, lark: { ok: false, detail: '未配置' }, calendar: { ok: false, detail: '未配置' }, dj: { ok: false, detail: 'standby' } }));
   app.get('/api/settings', (_req, res) => res.json({ openweather_city: 'Changsha', ui_theme: 'auto', music_provider: 'multi' }));
   app.get('/api/memory/brief', (_req, res) => res.json({ ok: true, scene: state.scene, context: { coldStart: true, confidence: 0.1, vocalPreference: 'neutral', energyTarget: 'neutral' }, traits: [], tasteSummary: { sessionCount: 0 } }));
   app.get('/api/memory/traits', (_req, res) => res.json({ ok: true, traits: [] }));

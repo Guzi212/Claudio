@@ -48,29 +48,38 @@ def credential_file_path() -> Path:
     return QQ_API_DIR / ".qq-credential.json"
 
 
-def load_initial_credential() -> Credential:
+def device_file_path() -> Path:
+    raw = os.environ.get("QQ_DEVICE_FILE", "").strip()
+    if raw:
+        return Path(raw).resolve()
+    return QQ_API_DIR / ".qq-device.json"
+
+
+def load_initial_credential() -> tuple[Credential, int]:
     musicid = os.environ.get("QQ_MUSICID", "").strip()
     musickey = os.environ.get("QQ_MUSICKEY", "").strip()
     if musicid.isdigit() and musickey:
-        return Credential(musicid=int(musicid), musickey=musickey)
+        return Credential(musicid=int(musicid), musickey=musickey), int(time.time())
 
     cred_path = credential_file_path()
     if cred_path.exists():
         try:
+            stat_mtime = int(cred_path.stat().st_mtime)
             data = json.loads(cred_path.read_text(encoding="utf-8"))
             cred = Credential.model_validate(data)
             if cred.is_valid():
-                return cred
+                return cred, stat_mtime
         except Exception as exc:  # pragma: no cover - defensive fallback
             print(f"[qq-wrapper] failed to read credential file: {exc}", file=sys.stderr)
 
-    return Credential()
+    return Credential(), 0
 
 
-def save_credential(cred: Credential) -> None:
+def save_credential(cred: Credential) -> int:
     cred_path = credential_file_path()
     cred_path.parent.mkdir(parents=True, exist_ok=True)
     cred_path.write_text(cred.model_dump_json(by_alias=True, indent=2), encoding="utf-8")
+    return int(time.time())
 
 
 def quality_candidates(quality: str) -> list[tuple[SongFileType, str]]:
@@ -151,7 +160,15 @@ def is_allowed_cdn_url(url: str) -> bool:
 
 class QQMusicService:
     def __init__(self) -> None:
-        self.client = Client(credential=load_initial_credential())
+        initial_cred, saved_at_sec = load_initial_credential()
+        dev_path = device_file_path()
+        try:
+            dev_path.parent.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        self.client = Client(credential=initial_cred, device_path=str(dev_path))
+        self._cred_saved_at_sec: int = saved_at_sec
+        self._refresh_lock = asyncio.Lock()
         self._cdn_hosts: list[str] = [DEFAULT_CDN]
         self._cdn_expires_at: float = 0.0
         self._qr_sessions: dict[str, Any] = {}
@@ -159,6 +176,49 @@ class QQMusicService:
     @property
     def logged_in(self) -> bool:
         return bool(self.client.credential.is_valid())
+
+    def credential_meta(self) -> dict[str, Any]:
+        cred = self.client.credential
+        logged_in = bool(cred.is_valid())
+        if not logged_in:
+            return {
+                "loggedIn": False,
+                "musicid": 0,
+                "loginType": 0,
+                "canRefresh": False,
+                "credentialCreatedAt": None,
+                "credentialAgeMs": None,
+                "keyExpiresIn": 0,
+                "expiresAt": None,
+                "expiresInMs": None,
+                "expired": False,
+            }
+
+        now_ms = int(time.time() * 1000)
+        created_sec = int(cred.musickey_create_time or 0) or int(self._cred_saved_at_sec or 0)
+        created_ms = created_sec * 1000 if created_sec > 0 else None
+        age_ms = max(0, now_ms - created_ms) if created_ms is not None else None
+        key_expires_in = int(cred.key_expires_in or 0)
+        expires_at_ms: int | None = None
+        if int(cred.musickey_create_time or 0) > 0 and key_expires_in > 0:
+            expires_at_ms = (int(cred.musickey_create_time) + key_expires_in) * 1000
+        elif created_sec > 0 and key_expires_in > 0:
+            expires_at_ms = (created_sec + key_expires_in) * 1000
+        expires_in_ms = (expires_at_ms - now_ms) if expires_at_ms is not None else None
+        expired = bool(cred.is_expired()) if (cred.musickey_create_time > 0 and cred.key_expires_in > 0) else False
+
+        return {
+            "loggedIn": True,
+            "musicid": int(cred.musicid or 0),
+            "loginType": int(cred.login_type or 0),
+            "canRefresh": bool(cred.refresh_key or cred.refresh_token),
+            "credentialCreatedAt": created_ms,
+            "credentialAgeMs": age_ms,
+            "keyExpiresIn": key_expires_in,
+            "expiresAt": expires_at_ms,
+            "expiresInMs": expires_in_ms,
+            "expired": expired,
+        }
 
     async def get_cdn_base(self) -> str:
         now = time.monotonic()
@@ -178,11 +238,15 @@ class QQMusicService:
         return DEFAULT_CDN
 
     async def health(self) -> dict[str, Any]:
+        meta = self.credential_meta()
         return {
             "ok": True,
-            "loggedIn": self.logged_in,
-            "musicid": int(self.client.credential.musicid or 0),
-            "detail": f"logged in ({self.client.credential.musicid})" if self.logged_in else "unauthenticated (search only / free tracks)",
+            **meta,
+            "detail": (
+                f"logged in ({meta['musicid']})"
+                if meta["loggedIn"]
+                else "unauthenticated (search only / free tracks)"
+            ),
         }
 
     async def search(self, keywords: str, num: int = 15) -> list[dict[str, Any]]:
@@ -379,14 +443,14 @@ class QQMusicService:
         event = result.event
         if event == QRCodeLoginEvents.DONE and result.credential is not None:
             self.client.credential = result.credential
-            save_credential(result.credential)
+            self._cred_saved_at_sec = save_credential(result.credential)
             self._qr_sessions.pop(key, None)
+            meta = self.credential_meta()
             return {
                 "ok": True,
                 "status": 4,
                 "statusText": "成功",
-                "loggedIn": True,
-                "musicid": int(result.credential.musicid or 0),
+                **meta,
             }
         if event == QRCodeLoginEvents.CONF:
             return {"ok": True, "status": 2, "statusText": "等确认", "loggedIn": self.logged_in}
@@ -394,6 +458,36 @@ class QQMusicService:
             self._qr_sessions.pop(key, None)
             return {"ok": True, "status": 0, "statusText": "已过期" if event == QRCodeLoginEvents.TIMEOUT else "已拒绝", "loggedIn": self.logged_in}
         return {"ok": True, "status": 1, "statusText": "等扫码", "loggedIn": self.logged_in}
+
+    async def refresh_login(self) -> dict[str, Any]:
+        async with self._refresh_lock:
+            cred = self.client.credential
+            if not cred.is_valid():
+                return {"ok": False, "loggedIn": False, "reason": "not logged in"}
+            if not (cred.refresh_key or cred.refresh_token):
+                return {
+                    "ok": False,
+                    "loggedIn": True,
+                    "canRefresh": False,
+                    "reason": "credential has no refresh_key or refresh_token",
+                }
+            try:
+                refreshed = await asyncio.wait_for(
+                    self.client.login.refresh_credential(cred),
+                    timeout=REQUEST_TIMEOUT_SECONDS,
+                )
+            except Exception as exc:
+                return {
+                    "ok": False,
+                    "loggedIn": self.logged_in,
+                    "reason": str(exc),
+                }
+            self.client.credential = refreshed
+            self._cred_saved_at_sec = save_credential(refreshed)
+            return {
+                "ok": True,
+                **self.credential_meta(),
+            }
 
 
 def create_app() -> web.Application:
@@ -482,9 +576,11 @@ def create_app() -> web.Application:
     async def handle_login_status(_request: web.Request) -> web.Response:
         return web.json_response({
             "ok": True,
-            "loggedIn": service.logged_in,
-            "musicid": int(service.client.credential.musicid or 0),
+            **service.credential_meta(),
         })
+
+    async def handle_login_refresh(_request: web.Request) -> web.Response:
+        return web.json_response(await service.refresh_login())
 
     app.router.add_get("/health", handle_health)
     app.router.add_get("/search", handle_search)
@@ -494,6 +590,7 @@ def create_app() -> web.Application:
     app.router.add_post("/login/qr/start", handle_qr_start)
     app.router.add_get("/login/qr/check", handle_qr_check)
     app.router.add_get("/login/status", handle_login_status)
+    app.router.add_post("/login/refresh", handle_login_refresh)
     return app
 
 

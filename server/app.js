@@ -11,6 +11,16 @@ import { buildSystemPrompt } from './context.js';
 import { ask as claudeAsk } from './claude.js';
 import { dbApi } from './db.js';
 import { ensureLogin, startAutoRefresh, stopAutoRefresh } from './services/kugou-login.js';
+import {
+  ensureLogin as ensureNeteaseLogin,
+  startAutoRefresh as startNeteaseAutoRefresh,
+  stopAutoRefresh as stopNeteaseAutoRefresh,
+} from './services/netease-login.js';
+import {
+  ensureLogin as ensureQQLogin,
+  startAutoRefresh as startQQAutoRefresh,
+  stopAutoRefresh as stopQQAutoRefresh,
+} from './services/qq-login.js';
 import { start as startScheduler } from './scheduler.js';
 import { brainMode, startBrainServices } from './brain.js';
 import { applyProgress, readSavedScene } from './playback-control.js';
@@ -25,6 +35,7 @@ import { mountWeatherRoute } from './api/weather.js';
 import { mountTasteRoutes } from './api/taste.js';
 import { mountHealthRoute } from './api/health.js';
 import { mountKugouReloginRoutes } from './api/kugou-relogin.js';
+import { mountNeteaseReloginRoutes } from './api/netease-relogin.js';
 import { mountQQReloginRoutes } from './api/qq-relogin.js';
 import { mountStudioRoutes } from './api/studio.js';
 import { mountTestRoutes } from './api/test.js';
@@ -282,6 +293,7 @@ mountWeatherRoute(app);
 mountTasteRoutes(app, { rootDir: ROOT });
 mountHealthRoute(app, { getDj: () => djHandle });
 mountKugouReloginRoutes(app);
+mountNeteaseReloginRoutes(app);
 mountQQReloginRoutes(app);
 mountStudioRoutes(app, { getRuntime: () => runtime });
 mountTestRoutes(app);
@@ -342,13 +354,21 @@ async function start() {
   }
 
   if (musicService.providers.netease?.isEnabled?.()) {
-    musicService.providers.netease.ensureCookie()
-      .then(cookie => {
+    ensureNeteaseLogin()
+      .then(async res => {
+        if (res.ok) return;
+        const cookie = await musicService.providers.netease.ensureCookie();
         console.log(cookie
           ? '[netease] 匿名会话已就绪'
           : '[netease] 已启用（使用上游内置匿名会话）');
       })
       .catch(err => console.warn('[netease] 预热跳过:', err.message));
+    startNeteaseAutoRefresh();
+  }
+
+  if (musicService.providers.qq?.isEnabled?.()) {
+    ensureQQLogin().catch(err => console.warn('[qq] 登录态自检跳过:', err.message));
+    startQQAutoRefresh();
   }
 
   // 后台低频续期：只有在距上次成功续期超过 KUGOU_REFRESH_INTERVAL_HOURS（默认 24h）
@@ -384,8 +404,15 @@ async function start() {
     console.log('[claudio] CLAUDIO_DJ 未开启，常驻主持人待命');
   }
 
-  process.on('SIGINT', () => { stopAutoRefresh(); schedulerHandle?.stop(); djHandle?.stop(); process.exit(0); });
-  process.on('SIGTERM', () => { stopAutoRefresh(); schedulerHandle?.stop(); djHandle?.stop(); process.exit(0); });
+  const stopAllBackground = () => {
+    stopAutoRefresh();
+    stopNeteaseAutoRefresh();
+    stopQQAutoRefresh();
+    schedulerHandle?.stop();
+    djHandle?.stop();
+  };
+  process.on('SIGINT', () => { stopAllBackground(); process.exit(0); });
+  process.on('SIGTERM', () => { stopAllBackground(); process.exit(0); });
 
   server.listen(PORT, HOST, () => {
     const shownHost = HOST === '0.0.0.0' || HOST === '::' ? '127.0.0.1' : HOST;
