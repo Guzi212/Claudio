@@ -1,13 +1,6 @@
 # Claudio · 给 AI Agent 用的音乐播放器
 
 定位（[ADR-0001](docs/adr/0001-product-positioning.md)）：Agent 负责选歌和主持，Claudio 负责多音源检索（酷狗/网易云/QQ）、直链、出声和显示。现阶段面向自己玩过 AI、手里有 Agent 的用户，以桌面安装包分发；普通用户放到远期。方向与优先级见 `docs/roadmap.md`，具体任务见 `docs/dev-plan.md`。
-
-## 协作分工（loic 2026-11-23 定）
-
-- Claude：策划、核验结果、向 loic 汇报，不亲自写代码或做清理这类机械活。
-- agy neon：开发与清理执行。
-- codex sol：代码审查。
-
 默认 `CLAUDIO_BRAIN=external`。`internal`（Claude 自己选歌，`router → context → claude → state.db`）已冻结，路线图阶段 1 存档移除。
 
 ## 产品规则
