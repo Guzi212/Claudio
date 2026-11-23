@@ -1,0 +1,22 @@
+name: 想要一个功能
+description: 希望 Claudio 能做到什么
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: textarea
+    id: scene
+    attributes:
+      label: 你当时在做什么
+      placeholder: 例如：睡前躺床上，想让它 30 分钟后自己停
+    validations:
+      required: true
+  - type: textarea
+    id: want
+    attributes:
+      label: 希望它怎么做
+    validations:
+      required: true
+  - type: textarea
+    id: now
+    attributes:
+      label: 现在你是怎么凑合的
+      placeholder: 例如：手动关浏览器 / 换用别的 App

@@ -1,0 +1,18 @@
+name: 我是这样用它的
+description: 不是 bug 也不是需求，就是说说你怎么用、哪里顺手哪里别扭
+labels: ["user-feedback"]
+body:
+  - type: textarea
+    id: when
+    attributes:
+      label: 一般在什么场景打开它
+    validations:
+      required: true
+  - type: textarea
+    id: pain
+    attributes:
+      label: 哪一步最麻烦
+  - type: textarea
+    id: alt
+    attributes:
+      label: 如果没有 Claudio，你会用什么
