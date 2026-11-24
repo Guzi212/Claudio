@@ -20,18 +20,12 @@ function mockRes() {
 }
 
 function makeDeps(overrides = {}) {
-  let pool = null;
-  let poolTracks = [];
   const runtime = overrides.runtime || { queue: [], index: 0, paused: false, lastSay: '' };
   const broadcast = vi.fn();
-  const setPool = vi.fn((meta, tracks) => { pool = meta; poolTracks = tracks || []; });
-  const clearPool = vi.fn(() => { pool = null; poolTracks = []; });
 
   return {
     runtime,
     broadcast,
-    setPool,
-    clearPool,
     fetchUserPlaylists: vi.fn(async () => [
       { id: 'g1', listid: 'l1', globalCollectionId: 'g1', name: '通勤', songCount: 2, isPrivate: false },
     ]),
@@ -45,20 +39,18 @@ function makeDeps(overrides = {}) {
       truncated: false,
     })),
     resolveSongUrl: vi.fn(async () => ({ url: 'http://upstream/a.mp3', quality: 'flac' })),
-    getPool: () => pool,
-    getPoolTracks: () => poolTracks,
     ...overrides,
   };
 }
 
 describe('mountPlaylistRoutes · 注册', () => {
-  it('注册全部歌单路由', () => {
+  it('注册全部歌单路由且不再注册候选池路由', () => {
     const app = mockApp();
     mountPlaylistRoutes(app, makeDeps());
     expect(app.routes['GET /api/kugou/playlists']).toBeTypeOf('function');
     expect(app.routes['GET /api/kugou/playlists/tracks']).toBeTypeOf('function');
-    expect(app.routes['GET /api/kugou/playlists/pool']).toBeTypeOf('function');
-    expect(app.routes['POST /api/kugou/playlists/pool']).toBeTypeOf('function');
+    expect(app.routes['GET /api/kugou/playlists/pool']).toBeUndefined();
+    expect(app.routes['POST /api/kugou/playlists/pool']).toBeUndefined();
     expect(app.routes['POST /api/kugou/playlists/play']).toBeTypeOf('function');
     expect(app.routes['POST /api/kugou/play']).toBeTypeOf('function');
     expect(app.routes['GET /api/kugou/track-url']).toBeTypeOf('function');
@@ -94,50 +86,6 @@ describe('GET /api/kugou/playlists/tracks', () => {
     await app.routes['GET /api/kugou/playlists/tracks']({ query: { gcid: 'g1' } }, res);
     expect(res.body.ok).toBe(true);
     expect(res.body.tracks).toHaveLength(2);
-  });
-});
-
-describe('POST /api/kugou/playlists/pool', () => {
-  it('无 playlist → 清除候选池', async () => {
-    const deps = makeDeps();
-    const app = mockApp();
-    mountPlaylistRoutes(app, deps);
-    const res = mockRes();
-    await app.routes['POST /api/kugou/playlists/pool']({ body: {} }, res);
-    expect(deps.clearPool).toHaveBeenCalled();
-    expect(res.body).toEqual({ ok: true, pool: null });
-  });
-
-  it('带 playlist → 拉曲目并写入候选池', async () => {
-    const deps = makeDeps();
-    const app = mockApp();
-    mountPlaylistRoutes(app, deps);
-    const res = mockRes();
-    await app.routes['POST /api/kugou/playlists/pool'](
-      { body: { playlist: { id: 'g1', listid: 'l1', globalCollectionId: 'g1', name: '通勤' } } },
-      res,
-    );
-    expect(deps.setPool).toHaveBeenCalled();
-    const [meta, tracks] = deps.setPool.mock.calls[0];
-    expect(meta.name).toBe('通勤');
-    expect(tracks).toHaveLength(2);
-    expect(res.body.ok).toBe(true);
-    expect(res.body.pool.trackCount).toBe(2);
-  });
-
-  it('歌单无曲目 → 404，不写池', async () => {
-    const deps = makeDeps({
-      fetchUserPlaylistTracks: vi.fn(async () => ({ tracks: [], totalCount: 0, fetchedCount: 0, truncated: false })),
-    });
-    const app = mockApp();
-    mountPlaylistRoutes(app, deps);
-    const res = mockRes();
-    await app.routes['POST /api/kugou/playlists/pool'](
-      { body: { playlist: { listid: 'l1', name: '空单' } } },
-      res,
-    );
-    expect(res.statusCode).toBe(404);
-    expect(deps.setPool).not.toHaveBeenCalled();
   });
 });
 

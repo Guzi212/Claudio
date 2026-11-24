@@ -38,8 +38,6 @@ import { mountStudioRoutes } from './api/studio.js';
 import { mountTestRoutes } from './api/test.js';
 import { mountPlaylistRoutes } from './api/playlists.js';
 import { mountExternalQueueRoutes } from './api/external-queue.js';
-import { startResidentDj, djEnabled } from './dj/resident.js';
-import { mountDjRoutes } from './dj/api.js';
 import { mountBootRoute } from './api/boot.js';
 import { mountChatRoute } from './api/chat.js';
 import { mountControlRoute } from './api/control.js';
@@ -73,6 +71,20 @@ export function warnRemovedInternalBrain({ env = process.env, db = dbApi, warn =
     warn('[claudio] internal 模式已移除，按 external 运行');
   }
   return hadInternal;
+}
+
+export function warnRemovedResidentDj({ env = process.env, db = dbApi, warn = console.warn } = {}) {
+  const candidates = [
+    env?.CLAUDIO_DJ,
+    env?.DJ_ENABLED,
+    db?.getPref?.('dj_enabled'),
+  ];
+  const truthy = new Set(['1', 'true', 'on', 'yes']);
+  const hadDj = candidates.some(v => truthy.has(String(v || '').trim().toLowerCase()));
+  if (hadDj) {
+    warn('[claudio] 常驻 DJ 已移除，自动续歌请用续播池或让 Agent 追加');
+  }
+  return hadDj;
 }
 
 export function createApp(options = {}) {
@@ -283,21 +295,7 @@ export function createApp(options = {}) {
   mountTtsRoutes(app);
 
   // W2/W3 视图依赖的扩展 API
-  let djHandle = null;
-
   function applyLiveSettings(applied = []) {
-    if (applied.some(k => k.startsWith('dj_'))) {
-      djHandle?.stop?.();
-      djHandle = djEnabled()
-        ? startResidentDj({
-            runtime,
-            broadcast,
-            db,
-            rootDir,
-            log: (...args) => console.log('[dj]', ...args),
-          })
-        : null;
-    }
     broadcast({ type: 'settings-updated', applied });
   }
 
@@ -305,7 +303,7 @@ export function createApp(options = {}) {
   mountLyricRoute(app);
   mountWeatherRoute(app);
   mountTasteRoutes(app, { rootDir });
-  mountHealthRoute(app, { getDj: () => djHandle });
+  mountHealthRoute(app);
   mountKugouReloginRoutes(app);
   mountNeteaseReloginRoutes(app);
   mountQQReloginRoutes(app);
@@ -317,9 +315,6 @@ export function createApp(options = {}) {
   mountKugouImportApiRoute(app, { rootDir });
   mountUnmatchedRoute(app, { db });
   mountMemoryRoutes(app, { runtime, broadcast, db, rootDir });
-
-  // 常驻主持人：可通过 settings 或 CLAUDIO_DJ=1 开启，句柄在 start() 或设置热重载里赋值。
-  mountDjRoutes(app, { getDj: () => djHandle });
 
   // ────────────────────────────────────────────────────────
   // HTTP server + WS upgrade
@@ -367,9 +362,7 @@ export function createApp(options = {}) {
     });
   });
 
-  function stopBackground() {
-    djHandle?.stop?.();
-  }
+  function stopBackground() {}
 
   return {
     app,
@@ -378,9 +371,6 @@ export function createApp(options = {}) {
     runtime,
     broadcast,
     db,
-    setHandles({ dj } = {}) {
-      if (dj !== undefined) djHandle = dj;
-    },
     stopBackground,
   };
 }
@@ -392,10 +382,11 @@ export async function start() {
   const PORT = Number(process.env.PORT) || 8080;
   const HOST = resolveListenHost();
   const instance = createApp();
-  const { server, runtime, broadcast, setHandles, stopBackground } = instance;
+  const { server, stopBackground } = instance;
 
   console.log('[claudio] 启动中...');
   warnRemovedInternalBrain({ db: dbApi });
+  warnRemovedResidentDj({ db: dbApi });
 
   const login = await ensureLogin();
   if (!login.ok) {
@@ -423,22 +414,6 @@ export async function start() {
   // 后台低频续期：只有在距上次成功续期超过 KUGOU_REFRESH_INTERVAL_HOURS（默认 24h）
   // 时才真正调 /login/token，避免「每次启动都登录」被上游风控。
   startAutoRefresh();
-
-  // 常驻主持人：按队列余量自动补歌。
-  let djHandle = null;
-  if (djEnabled()) {
-    djHandle = startResidentDj({
-      runtime,
-      broadcast,
-      db: dbApi,
-      rootDir: ROOT,
-      log: (...args) => console.log('[dj]', ...args),
-    });
-  } else {
-    console.log('[claudio] CLAUDIO_DJ 未开启，常驻主持人待命');
-  }
-
-  setHandles({ dj: djHandle });
 
   const stopAllBackground = () => {
     stopAutoRefresh();

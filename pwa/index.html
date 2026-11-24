@@ -187,7 +187,6 @@
     <header class="view-head"><h2>歌单</h2><div class="view-actions"><button id="playlists-refresh" type="button" class="btn">刷新</button></div></header>
     <div class="view-content">
       <section class="card search-card"><h3>搜索歌曲</h3><form id="search-form" class="search-row"><input id="search-input" type="search" placeholder="歌名 / 歌手" aria-label="搜索歌曲"><button type="submit" class="btn primary">搜索</button></form><ul id="search-results" class="search-results"></ul><p id="search-status" class="status-note"></p></section>
-      <section class="card pool-card"><div class="section-row"><h3>当前候选池</h3><button id="pool-clear" type="button" class="btn ghost hidden">清除候选池</button></div><p id="pool-status" class="status-note">加载中…</p></section>
       <section class="card"><h3>我的酷狗歌单</h3><ul id="playlist-list" class="playlist-list"><li class="muted">加载中…</li></ul></section>
     </div>
   </section>
@@ -230,24 +229,6 @@
     <header class="view-head"><h2>设置</h2><div class="view-actions"><button id="settings-refresh" type="button" class="btn">刷新状态</button><button id="settings-save" type="button" class="btn primary">保存</button></div></header>
     <div class="view-content settings-grid">
       <section class="card settings-health"><h3>集成健康</h3><ul id="health-list" class="health-list"><li class="muted">加载中…</li></ul></section>
-
-      <section class="card">
-        <h3>电台引擎</h3>
-        <div class="setting-rows">
-          <label class="setting-row"><span>常驻主持人自动补歌</span><input id="set-dj-enabled" type="checkbox"></label>
-          <label class="setting-row"><span>轮询间隔（秒）</span><input id="set-dj-poll" type="number" min="5" max="300" placeholder="20"></label>
-          <label class="setting-row"><span>剩余触发阈值（分钟）</span><input id="set-dj-min-rem" type="number" min="1" max="60" placeholder="10"></label>
-          <label class="setting-row"><span>每次补歌数</span><input id="set-dj-batch" type="number" min="1" max="20" placeholder="5"></label>
-        </div>
-      </section>
-
-      <section class="card" id="settings-ai">
-        <div class="section-row"><h3>AI 模型 · DeepSeek</h3><button type="button" class="btn ghost" data-test="ai">测试连通</button></div>
-        <div class="setting-rows">
-          <label class="setting-row"><span>API Key</span><input id="set-deepseek-key" type="text" autocomplete="off" placeholder="留空则使用 Claude CLI"></label>
-          <label class="setting-row"><span>模型</span><select id="set-deepseek-model"><option value="deepseek-chat">deepseek-chat</option><option value="deepseek-reasoner">deepseek-reasoner</option></select></label>
-        </div>
-      </section>
 
       <section class="card">
         <h3>自适应播放与红心</h3>

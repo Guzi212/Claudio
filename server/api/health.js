@@ -1,5 +1,3 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import axios from 'axios';
 import { dbApi } from '../db.js';
 import { axiosProxyOptions } from '../outbound-proxy.js';
@@ -115,59 +113,25 @@ function checkWeather() {
     : { ok: true, detail: 'Open-Meteo (keyless)' };
 }
 
-function hasClaudeCliOnPath(env = process.env) {
-  if (env.CLAUDE_BIN) {
-    try { return fs.existsSync(env.CLAUDE_BIN); } catch { return false; }
-  }
-  const dirs = String(env.PATH || env.Path || '').split(path.delimiter).filter(Boolean);
-  const candidates = process.platform === 'win32'
-    ? ['claude.cmd', 'claude.exe', 'claude']
-    : ['claude'];
-  for (const dir of dirs) {
-    for (const name of candidates) {
-      try {
-        if (fs.existsSync(path.join(dir, name))) return true;
-      } catch { /* ignore */ }
-    }
-  }
-  return false;
-}
-
-function checkAi() {
-  if (getSetting('deepseek_api_key')) {
-    return { ok: true, detail: 'DeepSeek key configured' };
-  }
-  if (hasClaudeCliOnPath()) {
-    return { ok: true, detail: 'claude CLI available' };
-  }
-  return { ok: false, detail: 'no API key or claude CLI' };
-}
-
-// 公开契约兼容桩：日历功能已移除，lark / calendar 两个键保留一个版本。
+// 公开契约兼容桩：日历、内置 AI 与常驻 DJ 已移除，lark / calendar / ai / dj 四个键保留一个版本。
 const REMOVED_INTEGRATION = Object.freeze({ ok: false, detail: 'removed' });
 
-export function mountHealthRoute(app, deps = {}) {
-  const getDj = typeof deps.getDj === 'function' ? deps.getDj : () => null;
-
+export function mountHealthRoute(app) {
   app.get('/api/health/integrations', async (req, res) => {
     const [kugou, providersHealth] = await Promise.all([
       checkKugou(),
       checkProvidersHealth(),
     ]);
-    const djHandle = getDj();
-    const djStatus = djHandle?.status?.() || null;
     res.json({
       kugou,
       netease: providersHealth.netease,
       qq: providersHealth.qq,
       weather: checkWeather(),
       tts: checkSettingKey('fish_api_key'),
-      ai: checkAi(),
+      ai: { ...REMOVED_INTEGRATION },
       lark: { ...REMOVED_INTEGRATION },
       calendar: { ...REMOVED_INTEGRATION },
-      dj: djStatus?.enabled
-        ? { ok: true, detail: `running (${djStatus.config?.batchSize || 5} tracks/refill)` }
-        : { ok: false, detail: 'standby' },
+      dj: { ...REMOVED_INTEGRATION },
     });
   });
 }

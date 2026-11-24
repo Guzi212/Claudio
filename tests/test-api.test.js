@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { testWeather, testTts, testAi, mountTestRoutes } from '../server/api/test.js';
+import { testWeather, testTts, mountTestRoutes } from '../server/api/test.js';
 
 function mockApp() {
   const routes = {};
@@ -58,18 +58,13 @@ describe('testTts', () => {
 });
 
 describe('mountTestRoutes', () => {
-  it('注册 /api/test/weather、tts 与 ai，不再注册日历测试接口', () => {
+  it('仅注册 /api/test/weather 与 /api/test/tts，不再注册 ai 或日历测试接口', () => {
     const app = mockApp();
     mountTestRoutes(app);
     expect(app.routes['POST /api/test/weather']).toBeTypeOf('function');
     expect(app.routes['POST /api/test/tts']).toBeTypeOf('function');
-    expect(app.routes['POST /api/test/ai']).toBeTypeOf('function');
+    expect(app.routes['POST /api/test/ai']).toBeUndefined();
     expect(app.routes['POST /api/test/calendar']).toBeUndefined();
-  });
-
-  it('testAi 验证模型可回复', async () => {
-    const res = await testAi({ complete: async () => 'OK' });
-    expect(res).toEqual({ ok: true, reply: 'OK' });
   });
 
   it('路由调用 testWeather 并把结果 json 返回', async () => {

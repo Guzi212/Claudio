@@ -98,8 +98,9 @@ describe('player console controls', () => {
     expect(indexHtml).toContain('aria-label="电台导航"');
   });
 
-  it('设置页移除主持模式切换，DeepSeek 设置项随常驻 DJ 暂保留', () => {
-    expect(indexHtml).toContain('id="settings-ai"');
+  it('设置页移除主持模式切换、常驻 DJ 与 AI 模型卡片', () => {
+    expect(indexHtml).not.toContain('id="settings-ai"');
+    expect(indexHtml).not.toContain('id="set-dj-enabled"');
     expect(indexHtml).not.toContain('id="set-brain-mode"');
     expect(stylesCss).not.toContain('#settings-ai { display: none');
     expect(playerJs).not.toContain('brain-internal');

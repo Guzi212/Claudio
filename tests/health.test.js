@@ -145,13 +145,15 @@ describe('mountHealthRoute', () => {
     expect(r3.body.weather).toEqual({ ok: false, detail: 'disabled' });
   });
 
-  it('lark 与 calendar 保留兼容桩，固定返回 removed 且不调用外部 CLI', async () => {
+  it('ai、dj、lark 与 calendar 保留兼容桩，固定返回 removed 且不调用外部 CLI', async () => {
     const { mountHealthRoute } = await import('../server/api/health.js');
     const app = mockApp();
     mountHealthRoute(app);
 
     const r = mockRes();
     await app.routes['GET /api/health/integrations']({}, r);
+    expect(r.body.ai).toEqual({ ok: false, detail: 'removed' });
+    expect(r.body.dj).toEqual({ ok: false, detail: 'removed' });
     expect(r.body.lark).toEqual({ ok: false, detail: 'removed' });
     expect(r.body.calendar).toEqual({ ok: false, detail: 'removed' });
     expect(mockExec).not.toHaveBeenCalled();
