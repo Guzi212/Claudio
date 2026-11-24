@@ -65,301 +65,354 @@ import { musicService, getMusicProvider, getEnabledProviders } from './services/
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
-const PORT = Number(process.env.PORT) || 8080;
-const HOST = resolveListenHost();
 
-const app = express();
-// Host 白名单放在静态文件和 JSON 解析之前，对不上直接 403。
-app.use(hostGuard);
-app.use(express.json({ limit: '1mb' }));
+export function createApp(options = {}) {
+  const db = options.db || dbApi;
+  const rootDir = options.rootDir || ROOT;
+  const ask = options.ask || claudeAsk;
+  const promptBuilder = options.buildSystemPrompt || buildSystemPrompt;
+  const searchDeps = {
+    ...(options.search ? { search: options.search } : {}),
+    ...(options.multiSearch ? { multiSearch: options.multiSearch } : {}),
+  };
+  const externalQueueDeps = {
+    ...(options.resolveTrack ? { resolveTrack: options.resolveTrack } : {}),
+    ...(options.synthesize ? { synthesize: options.synthesize } : {}),
+    ...(options.writeTracks ? { writeTracks: options.writeTracks } : {}),
+  };
+  const continuePoolDeps = {
+    ...(options.resolveTrack ? { resolveTrack: options.resolveTrack } : {}),
+    ...(options.fetchUserPlaylistTracks ? { fetchUserPlaylistTracks: options.fetchUserPlaylistTracks } : {}),
+  };
 
-// 简单运行时状态（in-memory）：当前 queue + 索引
-const runtime = {
-  queue: [],      // [{title, artist, kugouId, audioUrl, ...}]
-  index: 0,       // 当前播放索引
-  queueOffset: 0, // 当前队列累计裁掉的头部曲目数
-  paused: false,
-  lastSay: '',
-  active: false,  // PWA 是否连着 WS（scheduler 的 hourly-mood 凭这门禁）
-  queueSource: null, // bot | boot | claude | playlist | scheduler
-  trackEnded: false, // 当前这首已自然结束；外部队列要到最后一首结束才算放完
-  volume: readSavedVolume(dbApi), // 0-100，prefs 里的上次音量；没有则默认 30
-  volumeExplicit: hasSavedVolume(dbApi), // false 表示 30 只是默认值，用户没显式设过
-  currentTime: 0,
-  duration: 0,
-  lastReason: '',
-  queuedAt: null,
-  queuedSource: '',
-  scene: readSavedScene(dbApi),
-  continuePool: readContinuePool(dbApi),
-};
+  const app = express();
+  // Host 白名单放在静态文件和 JSON 解析之前，对不上直接 403。
+  app.use(hostGuard);
+  app.use(express.json({ limit: '1mb' }));
 
-const wss = new WebSocketServer({ noServer: true });
-const wsClients = createStreamRegistry();
+  // 简单运行时状态（in-memory）：当前 queue + 索引
+  const runtime = {
+    queue: [],      // [{title, artist, kugouId, audioUrl, ...}]
+    index: 0,       // 当前播放索引
+    queueOffset: 0, // 当前队列累计裁掉的头部曲目数
+    paused: false,
+    lastSay: '',
+    active: false,  // PWA 是否连着 WS（scheduler 的 hourly-mood 凭这门禁）
+    queueSource: null, // bot | boot | claude | playlist | scheduler
+    trackEnded: false, // 当前这首已自然结束；外部队列要到最后一首结束才算放完
+    volume: readSavedVolume(db), // 0-100，prefs 里的上次音量；没有则默认 30
+    volumeExplicit: hasSavedVolume(db), // false 表示 30 只是默认值，用户没显式设过
+    currentTime: 0,
+    duration: 0,
+    lastReason: '',
+    queuedAt: null,
+    queuedSource: '',
+    scene: readSavedScene(db),
+    continuePool: readContinuePool(db),
+  };
 
-function broadcast(event) {
-  const payload = JSON.stringify(event);
-  for (const ws of wsClients.clients()) {
-    if (ws.readyState === 1) {
-      try { ws.send(payload); } catch { /* ignore */ }
+  const wss = new WebSocketServer({ noServer: true });
+  const wsClients = createStreamRegistry();
+
+  function broadcast(event) {
+    const payload = JSON.stringify(event);
+    for (const ws of wsClients.clients()) {
+      if (ws.readyState === 1) {
+        try { ws.send(payload); } catch { /* ignore */ }
+      }
     }
   }
-}
 
-// ────────────────────────────────────────────────────────
-// 静态：PWA
-// ────────────────────────────────────────────────────────
-app.use(express.static(path.join(ROOT, 'pwa'), { extensions: ['html'] }));
+  // ────────────────────────────────────────────────────────
+  // 静态：PWA
+  // ────────────────────────────────────────────────────────
+  app.use(express.static(path.join(rootDir, 'pwa'), { extensions: ['html'] }));
 
-// 静态壳层保持公开。/api/* 与 /tts/* 走鉴权。
-// 默认回环放行；CLAUDIO_REQUIRE_TOKEN 打开后回环也要令牌或会话 cookie。
-app.use(authMiddleware);
-mountSessionRoute(app);
+  // 静态壳层保持公开。/api/* 与 /tts/* 走鉴权。
+  // 默认回环放行；CLAUDIO_REQUIRE_TOKEN 打开后回环也要令牌或会话 cookie。
+  app.use(authMiddleware);
+  mountSessionRoute(app);
 
-// ────────────────────────────────────────────────────────
-// API
-// ────────────────────────────────────────────────────────
+  // ────────────────────────────────────────────────────────
+  // API
+  // ────────────────────────────────────────────────────────
 
-app.get('/api/health', (req, res) => {
-  res.json({ ok: true, ts: Date.now() });
-});
+  app.get('/api/health', (req, res) => {
+    res.json({ ok: true, ts: Date.now() });
+  });
 
-// stateBroadcast 的回声规则和续播结束处理集中在 runtime 路由。
-mountRuntimeRoutes(app, {
-  runtime, broadcast, db: dbApi,
-  canReportState: clientId => wsClients.canReportState(clientId),
-  statusOptions: () => ({
-    listeners: wsClients.size(),
-    playback: wsClients.snapshot(),
-    brain: brainMode(),
-    provider: getMusicProvider(),
-    providers: getEnabledProviders(),
-  }),
-});
+  // stateBroadcast 的回声规则和续播结束处理集中在 runtime 路由。
+  mountRuntimeRoutes(app, {
+    runtime, broadcast, db,
+    canReportState: clientId => wsClients.canReportState(clientId),
+    statusOptions: () => ({
+      listeners: wsClients.size(),
+      playback: wsClients.snapshot(),
+      brain: brainMode(),
+      provider: getMusicProvider(),
+      providers: getEnabledProviders(),
+    }),
+  });
 
-app.get('/api/taste', (req, res) => {
-  try {
-    const taste = resolveReadUserFile(ROOT, 'user/taste.md').content;
-    const routines = resolveReadUserFile(ROOT, 'user/routines.md').content;
-    res.json({ taste, routines });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+  app.get('/api/taste', (req, res) => {
+    try {
+      const taste = resolveReadUserFile(rootDir, 'user/taste.md').content;
+      const routines = resolveReadUserFile(rootDir, 'user/routines.md').content;
+      res.json({ taste, routines });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
-// 快速启动：跳过 TTS 合成，直接返回完整队列。
-// 外部点歌还没放完时，boot 在 Claude 返回之后放弃覆盖，见 server/api/boot.js。
-const volumeSaver = createVolumeSaver({ db: dbApi, initial: runtime.volume });
-const rememberVolume = (value, opts) => volumeSaver.remember(value, opts);
-const brainDeps = { getRuntime: () => runtime, broadcast, brain: () => brainMode() };
-mountBootRoute(app, brainDeps);
-mountChatRoute(app, { ...brainDeps, rememberVolume });
-mountControlRoute(app, { getRuntime: () => runtime, broadcast, db: dbApi, rememberVolume });
-mountPlaysRoutes(app);
-mountSearchRoute(app);
-mountFavoriteRoutes(app, { db: dbApi });
-mountLikeRoutes(app, { db: dbApi });
+  // 快速启动：跳过 TTS 合成，直接返回完整队列。
+  // 外部点歌还没放完时，boot 在 Claude 返回之后放弃覆盖，见 server/api/boot.js。
+  const volumeSaver = createVolumeSaver({ db, initial: runtime.volume });
+  const rememberVolume = (value, opts) => volumeSaver.remember(value, opts);
+  const brainDeps = {
+    getRuntime: () => runtime,
+    broadcast,
+    brain: () => brainMode(),
+    db,
+    ask,
+    buildSystemPrompt: promptBuilder,
+  };
+  mountBootRoute(app, brainDeps);
+  mountChatRoute(app, {
+    ...brainDeps,
+    rememberVolume,
+    ...(options.synthesize ? { synthesize: options.synthesize } : {}),
+  });
+  mountControlRoute(app, { getRuntime: () => runtime, broadcast, db, rememberVolume });
+  mountPlaysRoutes(app);
+  mountSearchRoute(app, searchDeps);
+  mountFavoriteRoutes(app, { db });
+  mountLikeRoutes(app, { db });
 
-// 音频代理：破酷狗防盗链 + 支持 Range
-// timeout 只覆盖 connect 阶段（10s），body 流式读取不限时（长歌可能 5+ min）。
-app.get('/api/proxy', async (req, res) => {
-  const url = req.query.u;
-  if (!url) {
-    res.status(400).send('missing u');
-    return;
-  }
-
-  const range = req.headers.range;
-  const ac = new AbortController();
-  // 客户端中途断开时（用户切歌 / 关页面）立刻终止上游拉流，不浪费带宽
-  req.on('close', () => ac.abort());
-
-  try {
-    const target = decodeURIComponent(url);
-    // 只替白名单域名（默认 kugou.com / kgimg.com 及其子域）转发，见 server/proxy-guard.js
-    const check = checkProxyUrl(target);
-    if (!check.ok) {
-      console.warn(`[proxy] blocked target host=${check.hostname || '(none)'} reason=${check.reason}`);
-      res.status(403).send('forbidden target');
+  // 音频代理：破酷狗防盗链 + 支持 Range
+  // timeout 只覆盖 connect 阶段（10s），body 流式读取不限时（长歌可能 5+ min）。
+  app.get('/api/proxy', async (req, res) => {
+    const url = req.query.u;
+    if (!url) {
+      res.status(400).send('missing u');
       return;
     }
-    const upstream = await axios.get(target, {
-      responseType: 'stream',
-      headers: {
-        Referer: refererForProxyUrl(target),
-        'User-Agent': req.headers['user-agent'] || 'Mozilla/5.0',
-        ...(range ? { Range: range } : {}),
-      },
-      timeout: 10_000,        // connect / 首字节超时
-      timeoutErrorMessage: 'upstream first-byte timeout',
-      signal: ac.signal,
-      validateStatus: s => s >= 200 && s < 400,
-      // 重定向的每一跳都重新判定，跳到白名单外直接中止
-      beforeRedirect: createRedirectGuard(),
-      // CDN 走 KUGOU_PROXY；目标若是 127.0.0.1 / localhost 则强制直连。
-      ...axiosProxyOptions(target),
-    });
 
-    // 兜底：万一某一跳没走 beforeRedirect，最终地址也复查一次
-    const finalUrl = upstream.request?.res?.responseUrl;
-    if (finalUrl) {
-      const finalCheck = checkProxyUrl(finalUrl);
-      if (!finalCheck.ok) {
-        upstream.data?.destroy?.();
-        console.warn(`[proxy] blocked redirect host=${finalCheck.hostname || '(none)'} reason=${finalCheck.reason}`);
+    const range = req.headers.range;
+    const ac = new AbortController();
+    // 客户端中途断开时（用户切歌 / 关页面）立刻终止上游拉流，不浪费带宽
+    req.on('close', () => ac.abort());
+
+    try {
+      const target = decodeURIComponent(url);
+      // 只替白名单域名（默认 kugou.com / kgimg.com 及其子域）转发，见 server/proxy-guard.js
+      const check = checkProxyUrl(target);
+      if (!check.ok) {
+        console.warn(`[proxy] blocked target host=${check.hostname || '(none)'} reason=${check.reason}`);
         res.status(403).send('forbidden target');
         return;
       }
-    }
+      const upstream = await axios.get(target, {
+        responseType: 'stream',
+        headers: {
+          Referer: refererForProxyUrl(target),
+          'User-Agent': req.headers['user-agent'] || 'Mozilla/5.0',
+          ...(range ? { Range: range } : {}),
+        },
+        timeout: 10_000,        // connect / 首字节超时
+        timeoutErrorMessage: 'upstream first-byte timeout',
+        signal: ac.signal,
+        validateStatus: s => s >= 200 && s < 400,
+        // 重定向的每一跳都重新判定，跳到白名单外直接中止
+        beforeRedirect: createRedirectGuard(),
+        // CDN 走 KUGOU_PROXY；目标若是 127.0.0.1 / localhost 则强制直连。
+        ...axiosProxyOptions(target),
+      });
 
-    for (const h of ['content-type', 'content-length', 'accept-ranges', 'content-range']) {
-      const v = upstream.headers[h];
-      if (v) res.setHeader(h, v);
-    }
-    res.status(upstream.status);
-
-    // 拿到 response 后清掉 axios 的 timeout，body 读取不限时
-    if (upstream.request?.socket) {
-      upstream.request.socket.setTimeout(0);
-    }
-
-    upstream.data.pipe(res);
-    upstream.data.on('error', err => {
-      if (err.name === 'CanceledError' || err.code === 'ERR_CANCELED') return; // 客户端正常断开
-      console.error('[proxy] upstream stream error:', err.message);
-      try { res.end(); } catch { /* */ }
-    });
-  } catch (err) {
-    if (err.name === 'CanceledError' || err.code === 'ERR_CANCELED') return;
-    const blocked = findProxyBlock(err);
-    if (blocked) {
-      console.warn(`[proxy] blocked redirect host=${blocked.hostname || '(none)'} reason=${blocked.reason}`);
-      if (!res.headersSent) res.status(403).send('forbidden target');
-      else try { res.end(); } catch { /* */ }
-      return;
-    }
-    console.error('[proxy] failed:', err.message);
-    // 上游明确拒绝的状态（如 416 范围越界）透传给客户端，不吞成 502
-    const upstreamStatus = err.response?.status;
-    if (!res.headersSent) {
-      if (upstreamStatus && upstreamStatus >= 400) {
-        const cr = err.response?.headers?.['content-range'];
-        if (cr) res.setHeader('content-range', cr);
-        res.status(upstreamStatus).send('upstream rejected: ' + upstreamStatus);
-      } else {
-        res.status(502).send('upstream failed: ' + err.message);
+      // 兜底：万一某一跳没走 beforeRedirect，最终地址也复查一次
+      const finalUrl = upstream.request?.res?.responseUrl;
+      if (finalUrl) {
+        const finalCheck = checkProxyUrl(finalUrl);
+        if (!finalCheck.ok) {
+          upstream.data?.destroy?.();
+          console.warn(`[proxy] blocked redirect host=${finalCheck.hostname || '(none)'} reason=${finalCheck.reason}`);
+          res.status(403).send('forbidden target');
+          return;
+        }
       }
-    } else try { res.end(); } catch { /* */ }
-  }
-});
 
-// TTS 路由（/tts/<sha1>.mp3 读 cache/tts/<sha1>.mp3）
-mountTtsRoutes(app);
+      for (const h of ['content-type', 'content-length', 'accept-ranges', 'content-range']) {
+        const v = upstream.headers[h];
+        if (v) res.setHeader(h, v);
+      }
+      res.status(upstream.status);
 
-// W2/W3 视图依赖的扩展 API
-let djHandle = null;
-let schedulerHandle = null;
+      // 拿到 response 后清掉 axios 的 timeout，body 读取不限时
+      if (upstream.request?.socket) {
+        upstream.request.socket.setTimeout(0);
+      }
 
-function applyLiveSettings(applied = []) {
-  if (applied.includes('brain_mode')) {
-    schedulerHandle?.stop?.();
-    schedulerHandle = startBrainServices({
-      brain: brainMode(),
-      startScheduler,
-      schedulerOptions: {
-        runtime,
-        broadcast,
-        log: (...args) => console.log('[scheduler]', ...args),
-        ask: claudeAsk,
-        buildSystemPrompt,
-      },
-    });
-  }
-  if (applied.some(k => k.startsWith('dj_'))) {
-    djHandle?.stop?.();
-    djHandle = djEnabled()
-      ? startResidentDj({
-          runtime,
-          broadcast,
-          db: dbApi,
-          rootDir: ROOT,
-          log: (...args) => console.log('[dj]', ...args),
-        })
-      : null;
-  }
-  broadcast({ type: 'settings-updated', applied });
-}
-
-mountSettingsRoutes(app, { onSettingsSaved: applyLiveSettings });
-mountLyricRoute(app);
-mountWeatherRoute(app);
-mountTasteRoutes(app, { rootDir: ROOT });
-mountHealthRoute(app, { getDj: () => djHandle });
-mountKugouReloginRoutes(app);
-mountNeteaseReloginRoutes(app);
-mountQQReloginRoutes(app);
-mountStudioRoutes(app, { getRuntime: () => runtime });
-mountTestRoutes(app);
-mountPlaylistRoutes(app, { runtime, broadcast });
-mountExternalQueueRoutes(app, { runtime, broadcast });
-mountContinuePoolRoutes(app, { runtime, broadcast });
-mountKugouImportApiRoute(app, { rootDir: ROOT });
-mountUnmatchedRoute(app, { db: dbApi });
-mountMemoryRoutes(app, { runtime, broadcast, db: dbApi, rootDir: ROOT });
-
-// 常驻主持人：可通过 settings 或 CLAUDIO_DJ=1 开启，句柄在 start() 或设置热重载里赋值。
-mountDjRoutes(app, { getDj: () => djHandle });
-
-// ────────────────────────────────────────────────────────
-// HTTP server + WS upgrade
-// ────────────────────────────────────────────────────────
-const server = http.createServer(app);
-
-server.on('upgrade', (req, socket, head) => {
-  const decision = authorizeUpgrade(req);
-  if (!decision.ok) {
-    const statusText = { 401: 'Unauthorized', 403: 'Forbidden' };
-    if (decision.status && statusText[decision.status]) {
-      socket.write(`HTTP/1.1 ${decision.status} ${statusText[decision.status]}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
-    }
-    socket.destroy();
-    return;
-  }
-  wss.handleUpgrade(req, socket, head, ws => {
-    const { leader } = wsClients.connect(ws);
-    runtime.active = true;
-    ws.send(JSON.stringify({ type: 'hello', runtime }));
-    broadcast(leaderBroadcast(leader));
-    ws.on('message', raw => {
-      let msg;
-      try { msg = JSON.parse(raw.toString()); } catch { return; }
-      if (msg?.type === 'identify') {
-        const nextLeader = wsClients.identify(ws, msg);
-        broadcast(leaderBroadcast(nextLeader));
+      upstream.data.pipe(res);
+      upstream.data.on('error', err => {
+        if (err.name === 'CanceledError' || err.code === 'ERR_CANCELED') return; // 客户端正常断开
+        console.error('[proxy] upstream stream error:', err.message);
+        try { res.end(); } catch { /* */ }
+      });
+    } catch (err) {
+      if (err.name === 'CanceledError' || err.code === 'ERR_CANCELED') return;
+      const blocked = findProxyBlock(err);
+      if (blocked) {
+        console.warn(`[proxy] blocked redirect host=${blocked.hostname || '(none)'} reason=${blocked.reason}`);
+        if (!res.headersSent) res.status(403).send('forbidden target');
+        else try { res.end(); } catch { /* */ }
         return;
       }
-      if (msg?.type === 'progress') {
-        if (!wsClients.isLeader(ws)) return;
-        const before = runtime.volume;
-        if (!applyProgress(runtime, msg)) return;
-        if (runtime.volume !== before) volumeSaver.remember(runtime.volume);
-        const entry = wsClients.getClient(ws);
-        const origin = (typeof msg.clientId === 'string' && msg.clientId.trim()) || entry?.clientId || '';
-        broadcast(progressBroadcast(runtime, origin));
+      console.error('[proxy] failed:', err.message);
+      // 上游明确拒绝的状态（如 416 范围越界）透传给客户端，不吞成 502
+      const upstreamStatus = err.response?.status;
+      if (!res.headersSent) {
+        if (upstreamStatus && upstreamStatus >= 400) {
+          const cr = err.response?.headers?.['content-range'];
+          if (cr) res.setHeader('content-range', cr);
+          res.status(upstreamStatus).send('upstream rejected: ' + upstreamStatus);
+        } else {
+          res.status(502).send('upstream failed: ' + err.message);
+        }
+      } else try { res.end(); } catch { /* */ }
+    }
+  });
+
+  // TTS 路由（/tts/<sha1>.mp3 读 cache/tts/<sha1>.mp3）
+  mountTtsRoutes(app);
+
+  // W2/W3 视图依赖的扩展 API
+  let djHandle = null;
+  let schedulerHandle = null;
+
+  function applyLiveSettings(applied = []) {
+    if (applied.includes('brain_mode')) {
+      schedulerHandle?.stop?.();
+      schedulerHandle = startBrainServices({
+        brain: brainMode(),
+        startScheduler,
+        schedulerOptions: {
+          runtime,
+          broadcast,
+          log: (...args) => console.log('[scheduler]', ...args),
+          ask,
+          buildSystemPrompt: promptBuilder,
+        },
+      });
+    }
+    if (applied.some(k => k.startsWith('dj_'))) {
+      djHandle?.stop?.();
+      djHandle = djEnabled()
+        ? startResidentDj({
+            runtime,
+            broadcast,
+            db,
+            rootDir,
+            log: (...args) => console.log('[dj]', ...args),
+          })
+        : null;
+    }
+    broadcast({ type: 'settings-updated', applied });
+  }
+
+  mountSettingsRoutes(app, { onSettingsSaved: applyLiveSettings });
+  mountLyricRoute(app);
+  mountWeatherRoute(app);
+  mountTasteRoutes(app, { rootDir });
+  mountHealthRoute(app, { getDj: () => djHandle });
+  mountKugouReloginRoutes(app);
+  mountNeteaseReloginRoutes(app);
+  mountQQReloginRoutes(app);
+  mountStudioRoutes(app, { getRuntime: () => runtime });
+  mountTestRoutes(app);
+  mountPlaylistRoutes(app, { runtime, broadcast });
+  mountExternalQueueRoutes(app, { runtime, broadcast, db, ...externalQueueDeps });
+  mountContinuePoolRoutes(app, { runtime, broadcast, db, ...continuePoolDeps });
+  mountKugouImportApiRoute(app, { rootDir });
+  mountUnmatchedRoute(app, { db });
+  mountMemoryRoutes(app, { runtime, broadcast, db, rootDir });
+
+  // 常驻主持人：可通过 settings 或 CLAUDIO_DJ=1 开启，句柄在 start() 或设置热重载里赋值。
+  mountDjRoutes(app, { getDj: () => djHandle });
+
+  // ────────────────────────────────────────────────────────
+  // HTTP server + WS upgrade
+  // ────────────────────────────────────────────────────────
+  const server = http.createServer(app);
+
+  server.on('upgrade', (req, socket, head) => {
+    const decision = authorizeUpgrade(req);
+    if (!decision.ok) {
+      const statusText = { 401: 'Unauthorized', 403: 'Forbidden' };
+      if (decision.status && statusText[decision.status]) {
+        socket.write(`HTTP/1.1 ${decision.status} ${statusText[decision.status]}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
       }
-    });
-    ws.on('close', () => {
-      const nextLeader = wsClients.disconnect(ws);
-      runtime.active = wsClients.size() > 0;
-      broadcast(leaderBroadcast(nextLeader));
+      socket.destroy();
+      return;
+    }
+    wss.handleUpgrade(req, socket, head, ws => {
+      const { leader } = wsClients.connect(ws);
+      runtime.active = true;
+      ws.send(JSON.stringify({ type: 'hello', runtime }));
+      broadcast(leaderBroadcast(leader));
+      ws.on('message', raw => {
+        let msg;
+        try { msg = JSON.parse(raw.toString()); } catch { return; }
+        if (msg?.type === 'identify') {
+          const nextLeader = wsClients.identify(ws, msg);
+          broadcast(leaderBroadcast(nextLeader));
+          return;
+        }
+        if (msg?.type === 'progress') {
+          if (!wsClients.isLeader(ws)) return;
+          const before = runtime.volume;
+          if (!applyProgress(runtime, msg)) return;
+          if (runtime.volume !== before) volumeSaver.remember(runtime.volume);
+          const entry = wsClients.getClient(ws);
+          const origin = (typeof msg.clientId === 'string' && msg.clientId.trim()) || entry?.clientId || '';
+          broadcast(progressBroadcast(runtime, origin));
+        }
+      });
+      ws.on('close', () => {
+        const nextLeader = wsClients.disconnect(ws);
+        runtime.active = wsClients.size() > 0;
+        broadcast(leaderBroadcast(nextLeader));
+      });
     });
   });
-});
+
+  function stopBackground() {
+    schedulerHandle?.stop?.();
+    djHandle?.stop?.();
+  }
+
+  return {
+    app,
+    server,
+    wss,
+    runtime,
+    broadcast,
+    db,
+    setHandles({ dj, scheduler } = {}) {
+      if (dj !== undefined) djHandle = dj;
+      if (scheduler !== undefined) schedulerHandle = scheduler;
+    },
+    stopBackground,
+  };
+}
 
 // ────────────────────────────────────────────────────────
 // 启动
 // ────────────────────────────────────────────────────────
-async function start() {
+export async function start() {
+  const PORT = Number(process.env.PORT) || 8080;
+  const HOST = resolveListenHost();
+  const instance = createApp();
+  const { server, runtime, broadcast, setHandles, stopBackground } = instance;
+
   console.log('[claudio] 启动中...');
 
   const login = await ensureLogin();
@@ -390,7 +443,7 @@ async function start() {
   startAutoRefresh();
 
   // 定时推歌只在 brainMode() === internal 时挂上。external 不调用 Claude。
-  schedulerHandle = startBrainServices({
+  const schedulerHandle = startBrainServices({
     brain: brainMode(),
     startScheduler,
     schedulerOptions: {
@@ -406,6 +459,7 @@ async function start() {
     : '[claudio] CLAUDIO_BRAIN=external，跳过定时推歌');
 
   // 常驻主持人：跟 brain 模式无关，external 下也能自己补歌。
+  let djHandle = null;
   if (djEnabled()) {
     djHandle = startResidentDj({
       runtime,
@@ -418,12 +472,13 @@ async function start() {
     console.log('[claudio] CLAUDIO_DJ 未开启，常驻主持人待命');
   }
 
+  setHandles({ dj: djHandle, scheduler: schedulerHandle });
+
   const stopAllBackground = () => {
     stopAutoRefresh();
     stopNeteaseAutoRefresh();
     stopQQAutoRefresh();
-    schedulerHandle?.stop();
-    djHandle?.stop();
+    stopBackground();
   };
   process.on('SIGINT', () => { stopAllBackground(); process.exit(0); });
   process.on('SIGTERM', () => { stopAllBackground(); process.exit(0); });
@@ -434,9 +489,26 @@ async function start() {
     console.log(`[claudio] PWA:    http://${shownHost}:${PORT}/`);
     console.log(`[claudio] health: http://${shownHost}:${PORT}/api/health`);
   });
+
+  return instance;
 }
 
-start().catch(err => {
-  console.error('[claudio] 启动失败:', err);
-  process.exit(1);
-});
+function isDirectRun(metaUrl = import.meta.url, argv1 = process.argv[1]) {
+  if (!argv1) return false;
+  try {
+    const entry = fs.realpathSync(path.resolve(argv1));
+    const current = fs.realpathSync(fileURLToPath(metaUrl));
+    return process.platform === 'win32'
+      ? entry.toLowerCase() === current.toLowerCase()
+      : entry === current;
+  } catch {
+    return path.resolve(argv1) === fileURLToPath(metaUrl);
+  }
+}
+
+if (isDirectRun()) {
+  start().catch(err => {
+    console.error('[claudio] 启动失败:', err);
+    process.exit(1);
+  });
+}

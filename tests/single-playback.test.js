@@ -351,10 +351,9 @@ describe('单点播放服务端选举与广播', () => {
     expect(dispatchEvent).not.toHaveBeenCalled();
 
     // follower 模式下 syncToServer 不发起 POST
-    const syncStart = player.indexOf('function syncToServer(');
-    const syncEnd = player.indexOf('\nfunction addBubble', syncStart);
+    const syncSrc = extractFunctionSource(player, 'syncToServer');
     const fetchMock = vi.fn();
-    const sync = new Function('state', 'fetch', 'getClientId', `${player.slice(syncStart, syncEnd)}; return syncToServer;`)(
+    const sync = new Function('state', 'fetch', 'getClientId', `${syncSrc}; return syncToServer;`)(
       { index: 0, offset: 0, isFollower: true },
       fetchMock,
       () => 'follower-1',
@@ -363,6 +362,38 @@ describe('单点播放服务端选举与广播', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+function extractFunctionSource(source, name) {
+  const start = source.indexOf(`function ${name}(`);
+  if (start === -1) throw new Error(`function ${name} not found`);
+  let i = source.indexOf('(', start);
+  let parens = 0;
+  for (; i < source.length; i += 1) {
+    if (source[i] === '(') parens += 1;
+    else if (source[i] === ')') {
+      parens -= 1;
+      if (parens === 0) break;
+    }
+  }
+  i = source.indexOf('{', i);
+  let braces = 0;
+  let quote = null;
+  for (; i < source.length; i += 1) {
+    const ch = source[i];
+    if (quote) {
+      if (ch === '\\') i += 1;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '\'' || ch === '"' || ch === '`') { quote = ch; continue; }
+    if (ch === '{') braces += 1;
+    else if (ch === '}') {
+      braces -= 1;
+      if (braces === 0) return source.slice(start, i + 1);
+    }
+  }
+  throw new Error(`function ${name} body not closed`);
+}
 
 describe('播放页来源平台小标签', () => {
   it('映射 kugou / netease / qq 到指定短文案，TTS 与空曲目隐藏', () => {

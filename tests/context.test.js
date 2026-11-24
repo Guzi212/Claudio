@@ -136,7 +136,7 @@ describe('buildSystemPrompt', () => {
   it('writeSessionNote / readSessionNote / clearSessionNote 读写与清理生效', async () => {
     const os = await import('node:os');
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'claudio-note-'));
-    const { writeSessionNote, readSessionNote, clearSessionNote } = await import('../server/context.js');
+    const { writeSessionNote, readSessionNote, clearSessionNote } = await import('../server/services/session-note.js');
     const t = Date.parse('2026-11-16T12:00:00Z');
     writeSessionNote({ rootDir: tmp, text: '只要纯音乐', now: t });
     expect(readSessionNote({ rootDir: tmp, now: t + 60_000 })).toEqual({ text: '只要纯音乐', ageMinutes: 1 });
