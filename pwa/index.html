@@ -157,8 +157,6 @@
             </div>
             <div class="player-options" aria-label="播放选项">
               <button id="lyrics-toggle" class="lyrics-toggle" type="button" aria-controls="lyrics-panel" aria-expanded="true" hidden>收起歌词</button>
-              <button class="text-button" type="button" data-console-control="loop" data-internal-only aria-label="自动推歌" aria-pressed="true" hidden>自动推歌</button>
-              <button class="text-button" type="button" data-console-control="queue" data-internal-only aria-label="展开完整队列" aria-controls="queue-list" aria-expanded="true" hidden>完整队列</button>
             </div>
           </div>
           <div class="pixel-host-stage" id="pixel-host-stage" aria-hidden="true">
@@ -171,10 +169,6 @@
         <section class="queue" aria-labelledby="queue-title">
           <div class="queue-heading"><h2 id="queue-title">接下来</h2><span id="queue-count">0 首</span></div>
           <ol id="queue-list"></ol>
-        </section>
-        <section id="console-chat" class="console-chat" aria-label="电台对话">
-          <div class="chat" id="chat"></div>
-          <form id="composer" class="composer"><input id="input" autocomplete="off" placeholder="告诉 Claudio 想听什么" aria-label="点歌"><button type="submit" aria-label="发送">↑</button></form>
         </section>
         <section class="empty-stage" aria-labelledby="empty-title">
           <div class="waiting-art" aria-hidden="true"><div class="waiting-orbit"></div><div class="waiting-core"><svg class="grokbot-avatar"><use href="#grokbot"/></svg><img id="pixel-host-waiting" class="pixel-host-waiting" src="assets/pixel/host-wave.webp" alt=""></div></div>
@@ -240,7 +234,6 @@
       <section class="card">
         <h3>电台引擎</h3>
         <div class="setting-rows">
-          <label class="setting-row"><span>主持模式</span><select id="set-brain-mode"><option value="external">外部 Agent</option><option value="internal">内置电台</option></select></label>
           <label class="setting-row"><span>常驻主持人自动补歌</span><input id="set-dj-enabled" type="checkbox"></label>
           <label class="setting-row"><span>轮询间隔（秒）</span><input id="set-dj-poll" type="number" min="5" max="300" placeholder="20"></label>
           <label class="setting-row"><span>剩余触发阈值（分钟）</span><input id="set-dj-min-rem" type="number" min="1" max="60" placeholder="10"></label>
@@ -273,7 +266,6 @@
           <div class="view-actions">
             <button type="button" class="btn ghost" data-test="tts">试听语音</button>
             <button type="button" class="btn ghost" data-test="weather">测天气</button>
-            <button type="button" class="btn ghost" data-test="calendar">测日历</button>
           </div>
         </div>
         <div class="setting-rows">
@@ -282,7 +274,6 @@
           <label class="setting-row"><span>天气感知</span><input id="set-weather-enabled" type="checkbox"></label>
           <label class="setting-row"><span>OpenWeather API Key</span><input id="set-weather-key" type="text" autocomplete="off" placeholder="未配置"></label>
           <label class="setting-row"><span>城市</span><input id="set-weather-city" type="text" autocomplete="off" placeholder="Changsha"></label>
-          <label class="setting-row"><span>日程来源</span><select id="set-calendar-provider"><option value="none">关闭</option><option value="google">Google Calendar</option><option value="lark">飞书日历 (Lark)</option></select></label>
         </div>
       </section>
 

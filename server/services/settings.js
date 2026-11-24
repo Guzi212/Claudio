@@ -2,7 +2,6 @@ import { dbApi } from '../db.js';
 import { normalizeProviderName } from './providers/base.js';
 
 export const KEYS = [
-  'brain_mode',
   'dj_enabled',
   'dj_poll_seconds',
   'dj_min_remaining_minutes',
@@ -18,7 +17,6 @@ export const KEYS = [
   'weather_enabled',
   'openweather_api_key',
   'openweather_city',
-  'calendar_provider',
   'ui_theme',
   'global_hotkey',
   'hotkey_media_key',
@@ -29,7 +27,6 @@ export const KEYS = [
 ];
 
 export const DEFAULTS = {
-  brain_mode: 'external',
   dj_enabled: 'false',
   dj_poll_seconds: '20',
   dj_min_remaining_minutes: '10',
@@ -38,7 +35,6 @@ export const DEFAULTS = {
   adaptive_volume_enabled: 'true',
   volume_safe_max: '85',
   weather_enabled: 'true',
-  calendar_provider: 'none',
   ui_theme: 'auto',
   global_hotkey: 'CTRL+ALT+K',
   hotkey_media_key: 'false',
@@ -51,7 +47,6 @@ export const DEFAULTS = {
 const SENSITIVE = new Set(['openweather_api_key', 'fish_api_key', 'deepseek_api_key']);
 
 const ENV_ALIASES = {
-  brain_mode: ['BRAIN_MODE', 'CLAUDIO_BRAIN'],
   dj_enabled: ['DJ_ENABLED', 'CLAUDIO_DJ'],
   dj_batch_size: ['DJ_BATCH_SIZE', 'CLAUDIO_DJ_BATCH'],
 };

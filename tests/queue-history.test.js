@@ -64,7 +64,7 @@ describe('PWA 裁剪同步', () => {
     const start = player.indexOf('export function applyRuntime(');
     const end = player.indexOf('\n// 外部 bot', start);
     const apply = new Function('state', 'audio', 'planRuntimeSync', 'playIndex', 'renderQueuePanel', `
-      let brain = 'external', appliedSay = '', serverProgress = 0, adaptiveVolumeApplied = false;
+      let appliedSay = '', serverProgress = 0, adaptiveVolumeApplied = false;
       const getClientId = () => 'page-a', isOwnEcho = () => false;
       const rememberQueueMeta = () => {}, paintHostChrome = () => {}, ensurePlaybackVolume = () => {};
       ${player.slice(start, end).replace('export function', 'function')}

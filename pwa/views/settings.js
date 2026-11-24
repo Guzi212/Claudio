@@ -6,7 +6,6 @@ const MASK = '****已配置';
 export const FEEDBACK_URL = 'https://github.com/Guzi212/Claudio/issues/new/choose';
 
 const fields = {
-  brainMode:        '#set-brain-mode',
   djEnabled:        '#set-dj-enabled',
   djPoll:           '#set-dj-poll',
   djMinRem:         '#set-dj-min-rem',
@@ -24,7 +23,6 @@ const fields = {
   weatherEnabled:   '#set-weather-enabled',
   weatherKey:       '#set-weather-key',
   weatherCity:      '#set-weather-city',
-  calendarProvider: '#set-calendar-provider',
   uiTheme:          '#set-ui-theme',
   pixelHost:        '#set-pixel-host',
   globalHotkey:     '#set-global-hotkey',
@@ -91,8 +89,6 @@ const HEALTH_KEYS = [
   { key: 'weather',  label: 'Weather'  },
   { key: 'tts',      label: 'TTS'      },
   { key: 'ai',       label: 'AI'       },
-  { key: 'lark',     label: 'Lark'     },
-  { key: 'calendar', label: 'Calendar' },
   { key: 'dj',       label: 'DJ'       },
 ];
 
@@ -256,7 +252,6 @@ function boolFrom(raw, fallback) {
 }
 
 function applySettings(s) {
-  if (nodes.brainMode) nodes.brainMode.value = s?.brain_mode || 'external';
   if (nodes.djEnabled) nodes.djEnabled.checked = boolFrom(s?.dj_enabled, false);
   if (nodes.djPoll) nodes.djPoll.value = s?.dj_poll_seconds || '20';
   if (nodes.djMinRem) nodes.djMinRem.value = s?.dj_min_remaining_minutes || '10';
@@ -277,7 +272,6 @@ function applySettings(s) {
   if (nodes.weatherEnabled) nodes.weatherEnabled.checked = boolFrom(s?.weather_enabled, true);
   if (nodes.weatherKey) nodes.weatherKey.value = pickSetting(s, 'openweather_api_key', 'weather', 'apiKey');
   if (nodes.weatherCity) nodes.weatherCity.value = pickSetting(s, 'openweather_city', 'weather', 'city');
-  if (nodes.calendarProvider) nodes.calendarProvider.value = s?.calendar_provider || 'none';
   if (nodes.uiTheme) {
     nodes.uiTheme.value = s?.ui_theme || 'auto';
     window.dispatchEvent(new CustomEvent('claudio:theme', { detail: nodes.uiTheme.value }));
@@ -296,7 +290,6 @@ function applySettings(s) {
 // 构造 PUT body：跳过 mask 占位（避免覆盖原 key）
 function buildPayload() {
   const payload = {};
-  if (nodes.brainMode) payload.brain_mode = nodes.brainMode.value || 'external';
   if (nodes.djEnabled) payload.dj_enabled = String(Boolean(nodes.djEnabled.checked));
   if (nodes.djPoll) payload.dj_poll_seconds = String(nodes.djPoll.value || '20').trim();
   if (nodes.djMinRem) payload.dj_min_remaining_minutes = String(nodes.djMinRem.value || '10').trim();
@@ -324,7 +317,6 @@ function buildPayload() {
     payload.openweather_api_key = nodes.weatherKey.value;
   }
   if (nodes.weatherCity) payload.openweather_city = nodes.weatherCity.value.trim();
-  if (nodes.calendarProvider) payload.calendar_provider = nodes.calendarProvider.value || 'none';
   if (nodes.uiTheme) payload.ui_theme = nodes.uiTheme.value || 'auto';
   if (nodes.globalHotkey) payload.global_hotkey = nodes.globalHotkey.value.trim() || 'CTRL+ALT+K';
   if (nodes.hotkeyMedia) payload.hotkey_media_key = String(Boolean(nodes.hotkeyMedia.checked));
@@ -635,31 +627,6 @@ export function initSettings() {
       } finally {
         btnAiTest.textContent = original;
         btnAiTest.disabled = false;
-      }
-    });
-  }
-
-  const btnCalTest = document.querySelector('button[data-test="calendar"]');
-  if (btnCalTest) {
-    btnCalTest.addEventListener('click', async () => {
-      btnCalTest.disabled = true;
-      const original = btnCalTest.textContent;
-      btnCalTest.textContent = '检测中…';
-      try {
-        const provider = nodes.calendarProvider?.value || 'none';
-        const r = await fetch('/api/test/calendar', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ provider }),
-        });
-        const data = await r.json();
-        if (!data.ok) throw new Error(data.error || '连接失败');
-        toast(`${data.provider} 日历正常（今日 ${data.count} 条日程）`);
-      } catch (err) {
-        showAlert(`日历测试失败：${err.message}`);
-      } finally {
-        btnCalTest.textContent = original;
-        btnCalTest.disabled = false;
       }
     });
   }

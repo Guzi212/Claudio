@@ -2,6 +2,10 @@
 
 ## 未发布
 
+- **移除旧 `internal` 选歌模式**：不再支持旧 `internal` 模式的内置选歌、开机推荐和定时推歌，选歌交给外部 Agent（或可选的常驻 DJ）；此前配置为 `internal` 的用户启动时会收到提示并自动按 `external` 模式运行。
+- **移除日程 / 日历功能**：移除 Google Calendar 与飞书日历集成及相关设置项；`GET /api/health/integrations` 中的 `lark`、`calendar` 字段暂保留一个版本并返回 `removed` 状态。
+- **接口弃用**：`POST /api/chat` 与 `POST /api/boot` 进入弃用过渡期，播放控制请改用 `POST /api/control`，这两个接口将在下个版本移除。
+
 ## v0.1.0 — 2026-11-23
 
 - **多音源搜索与播放**：支持酷狗、网易云、QQ 音乐三源聚合搜索与自动回落播放，播放页显示曲目来源平台。

@@ -4,9 +4,7 @@ import { fileURLToPath } from 'node:url';
 import 'dotenv/config';
 import { dbApi } from './db.js';
 import { getCurrent as getWeather } from './services/weather.js';
-import { getTodayEvents as getGoogleEvents } from './services/google-calendar.js';
-import { getTodayEvents as getLarkEvents } from './services/lark-calendar.js';
-import { get as getSetting, getBoolean as getBoolSetting } from './services/settings.js';
+import { getBoolean as getBoolSetting } from './services/settings.js';
 import { getPool, getPoolTracks, formatPoolForPrompt } from './services/candidate-pool.js';
 import { resolveReadUserFile } from './services/user-files.js';
 import { readSessionNote } from './services/session-note.js';
@@ -44,13 +42,6 @@ function bucketOfDay(hour) {
   if (hour < 18) return '下午';
   if (hour < 22) return '晚间';
   return '夜里';
-}
-
-function hhmmOf(start) {
-  if (!start || typeof start !== 'string') return '';
-  // 兼容 "YYYY-MM-DDTHH:MM:..." 和 "YYYY-MM-DD HH:MM:..."
-  const m = start.match(/(\d{2}:\d{2})/);
-  return m ? m[1] : '';
 }
 
 /**
@@ -107,18 +98,9 @@ export async function buildSystemPrompt({ now = new Date(), runtime = null } = {
     }
   }
 
-  // ③ 环境：时间 + 天气 + 今日日程（受 settings 开关与日历来源控制）
+  // ③ 环境：时间 + 天气（受 weather_enabled 开关控制）
   const weatherEnabled = getBoolSetting('weather_enabled', true);
-  const calendarProvider = String(getSetting('calendar_provider') || 'none').trim().toLowerCase();
-  const fetchCalendar = () => {
-    if (calendarProvider === 'google') return getGoogleEvents();
-    if (calendarProvider === 'lark') return getLarkEvents();
-    return Promise.resolve(null);
-  };
-  const [weather, events] = await Promise.all([
-    weatherEnabled ? getWeather() : Promise.resolve(null),
-    fetchCalendar(),
-  ]);
+  const weather = weatherEnabled ? await getWeather() : null;
 
   const scene = runtime ? activeScene(runtime, nowMs) : null;
   const envLines = [
@@ -127,9 +109,6 @@ export async function buildSystemPrompt({ now = new Date(), runtime = null } = {
     weather
       ? `天气：${weather.city} ${weather.temp}℃ ${weather.condition}`
       : '天气：(未接入或失败)',
-    events && events.length
-      ? `今日日程：\n${events.map(e => `  · ${hhmmOf(e.start)} ${e.title}`.trimEnd()).join('\n')}`
-      : '今日日程：(无安排或未接入)',
   ];
   const env = envLines.join('\n');
 

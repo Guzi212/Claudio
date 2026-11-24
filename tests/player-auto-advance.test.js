@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 const playerJs = fs.readFileSync('./pwa/views/player.js', 'utf8');
 
@@ -12,7 +12,7 @@ describe('audio 自动推进与错误处理', () => {
     [{ active: true }, true], [{ active: false }, false], [null, false],
     [{ loop: true, cursor: 0, tracks: [{}] }, true],
     [{ loop: false, cursor: 1, tracks: [{}] }, false],
-  ])('状态视图和 WS 的续播池均能控制预取：%j', (pool, active) => {
+  ])('状态视图和 WS 的续播池元数据正确同步：%j', (pool, active) => {
     const start = playerJs.indexOf('function rememberQueueMeta(');
     const end = playerJs.indexOf('\nfunction paintHostChrome', start);
     const state = {};
@@ -23,43 +23,6 @@ describe('audio 自动推进与错误处理', () => {
     `)(state);
     remember({ continuePool: pool });
     expect(state.continuePoolActive).toBe(active);
-  });
-
-  it('续播池可用时不向 AI 预取；耗尽/清除后恢复原来的预取', async () => {
-    const start = playerJs.indexOf('async function autoRecommend(');
-    const end = playerJs.indexOf('\nfunction requestNextBatch', start);
-    const state = { continuePoolActive: true };
-    const fetch = vi.fn(async () => ({ ok: true, json: async () => ({ queue: [] }) }));
-    const autoRecommend = new Function('state', 'fetch', `
-      let autoRecommending = false, autoRecommendGen = 0, pendingPlayFrom = -1;
-      ${playerJs.slice(start, end)}
-      return autoRecommend;
-    `)(state, fetch);
-    await autoRecommend('下一批');
-    expect(fetch).not.toHaveBeenCalled();
-    state.continuePoolActive = false;
-    await autoRecommend('下一批');
-    expect(fetch).toHaveBeenCalledOnce();
-  });
-
-  it('循环按钮支持列表循环、单曲循环、自动推歌三种模式', () => {
-    expect(playerJs).toContain("const LOOP_MODES = ['list', 'one', 'auto']");
-    expect(playerJs).toContain("auto: { mark: '自动推歌'");
-  });
-
-  it('audio.ended 根据播放模式分别列表循环、单曲循环或自动推歌', () => {
-    expect(initBody).toMatch(/state\.loopMode === 'one'[\s\S]{0,120}audio\.play/);
-    expect(initBody).toMatch(/state\.loopMode === 'list'[\s\S]{0,160}playIndex\(0\)/);
-    expect(initBody).toMatch(/state\.loopMode === 'auto'[\s\S]{0,180}requestNextBatch\(\{ playWhenReady: true \}\)/);
-  });
-
-  it('进入队列最后一首时只在自动推歌模式预取下一批', () => {
-    expect(playerJs).toMatch(/state\.loopMode === 'auto'[\s\S]{0,120}i === state\.queue\.length - 1[\s\S]{0,160}autoRecommend/);
-  });
-
-  it('自动推歌请求即使被新一代请求废弃也会释放 in-flight 状态', () => {
-    expect(playerJs).toMatch(/finally\s*\{\s*autoRecommending = false;/);
-    expect(playerJs).not.toContain('if (myGen === autoRecommendGen) autoRecommending = false');
   });
 
   it('audio.error 有事件处理器（歌曲加载失败时不静默卡死）', () => {

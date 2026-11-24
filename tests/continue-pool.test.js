@@ -292,8 +292,8 @@ describe('续播池 API', () => {
 });
 
 describe('队尾续播', () => {
-  it.each(['external', 'internal'])('%s：队尾追加一批，播放第一首，保护来源且不改音量', async brain => {
-    const s = setup({ brain });
+  it('external：队尾追加一批，播放第一首，保护来源且不改音量', async () => {
+    const s = setup({ brain: 'external' });
     await s.set({ batchSize: 2 });
     const res = await s.end();
     expect(res.body).toMatchObject({ continued: true, index: 1, paused: false });

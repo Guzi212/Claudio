@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { mountBootRoute } from '../server/api/boot.js';
-import { mountExternalQueueRoutes } from '../server/api/external-queue.js';
+import { warnRemovedInternalBrain } from '../server/app.js';
 
 function mockApp() {
   const routes = {};
@@ -19,12 +19,8 @@ function mockRes() {
   };
 }
 
-function dbMock() {
-  return { addMessage: vi.fn(), addPlay: vi.fn(), recentPlays: vi.fn(() => []) };
-}
-
-describe('POST /api/boot', () => {
-  it('external 模式不调用 Claude，原样返回当前队列', async () => {
+describe('POST /api/boot（弃用过渡期：固定 external）', () => {
+  it('原样返回当前队列、index、brain: external 与 skipped: true', async () => {
     const runtime = {
       queue: [{ title: '外部', artist: 'Bot', kugouId: 'h1' }],
       index: 1,
@@ -35,21 +31,13 @@ describe('POST /api/boot', () => {
       queueSource: 'bot',
       trackEnded: false,
     };
-    const ask = vi.fn();
     const app = mockApp();
-    mountBootRoute(app, {
-      runtime,
-      brain: () => 'external',
-      ask,
-      buildSystemPrompt: vi.fn(),
-      db: dbMock(),
-      broadcast: vi.fn(),
-    });
+    mountBootRoute(app, { runtime });
     const res = mockRes();
     await app.routes['POST /api/boot']({ body: {} }, res);
-    expect(ask).not.toHaveBeenCalled();
     expect(res.body.brain).toBe('external');
     expect(res.body.skipped).toBe(true);
+    expect(res.body.say).toBe('bot 说');
     expect(res.body.queue).toEqual(runtime.queue);
     expect(res.body.index).toBe(1);
     expect(res.body.queueOffset).toBe(12);
@@ -57,104 +45,44 @@ describe('POST /api/boot', () => {
     expect(runtime.queue[0].title).toBe('外部');
   });
 
-  it('internal：boot 进行中外部写入后，回来不覆盖队列', async () => {
-    const runtime = { queue: [], index: 0, paused: false, lastSay: '', queueSource: null, trackEnded: false };
-    let release;
-    const started = new Promise(resolve => { release = resolve; });
-    const ask = vi.fn(() => new Promise(resolve => {
-      release();
-      ask._resolve = resolve;
-    }));
+  it('空队列时提示等待点歌且 brain 为 external', async () => {
+    const runtime = { queue: [], index: 0, queueOffset: 0, lastSay: '', lastReason: '' };
     const app = mockApp();
-    const db = dbMock();
-    mountBootRoute(app, {
-      runtime,
-      brain: () => 'internal',
-      ask,
-      buildSystemPrompt: async () => 'SYS',
-      db,
-      broadcast: vi.fn(),
-    });
-    mountExternalQueueRoutes(app, {
-      runtime,
-      broadcast: vi.fn(),
-      db,
-      synthesize: async () => null,
-      resolveTrack: async want => ({
-        kugouId: 'hash-晴天',
-        title: want.title,
-        artist: want.artist,
-        upstreamUrl: 'https://cdn.example/a.mp3',
-        score: 150,
-      }),
-      writeTracks: async () => ({ ok: true, skipped: true }),
-    });
-
-    const bootRes = mockRes();
-    const pending = app.routes['POST /api/boot']({ body: {} }, bootRes);
-    await started;
-    const extRes = mockRes();
-    await app.routes['POST /api/queue/external']({
-      body: {
-        tracks: [
-          { title: '晴天', artist: '周杰伦' },
-          { title: '夜曲', artist: '周杰伦' },
-        ],
-        mode: 'replace',
-      },
-    }, extRes);
-    runtime.index = 1;
-    ask._resolve({
-      say: '开播推荐',
-      queue: [{ title: 'AI歌', artist: 'AI', kugouId: 'ai' }],
-      reason: 'mood',
-      raw: {},
-    });
-    await pending;
-
-    expect(runtime.queue.map(item => item.title)).toEqual(['晴天', '夜曲']);
-    expect(runtime.index).toBe(1);
-    expect(runtime.queueSource).toBe('bot');
-    expect(bootRes.body.skipped).toBe(true);
-    expect(bootRes.body.preserved).toBe('external');
-    expect(bootRes.body.index).toBe(1);
-    expect(bootRes.body.queue.map(item => item.title)).toEqual(['晴天', '夜曲']);
-    expect(db.addPlay).not.toHaveBeenCalledWith(expect.objectContaining({ source: 'boot' }));
-  });
-
-  it('internal：外部队列放完后 boot 正常换上开播曲目', async () => {
-    const runtime = {
-      queue: [{ title: '外部', artist: 'Bot' }],
-      index: 0,
-      queueOffset: 12,
-      paused: true,
-      lastSay: '',
-      queueSource: 'bot',
-      trackEnded: true,
-    };
-    const ask = vi.fn(async () => ({
-      say: '换一批',
-      queue: [{ title: '开播', artist: 'AI', kugouId: 'b1' }],
-      reason: 'morning',
-      raw: {},
-    }));
-    const app = mockApp();
-    mountBootRoute(app, {
-      runtime,
-      brain: () => 'internal',
-      ask,
-      buildSystemPrompt: async () => '',
-      db: dbMock(),
-      broadcast: vi.fn(),
-    });
+    mountBootRoute(app, { runtime });
     const res = mockRes();
     await app.routes['POST /api/boot']({ body: {} }, res);
-    expect(ask).toHaveBeenCalled();
-    expect(runtime.queue[0].title).toBe('开播');
-    expect(runtime.queueSource).toBe('boot');
-    expect(runtime.queueOffset).toBe(0);
-    expect(res.body.queueOffset).toBe(0);
-    expect(runtime.index).toBe(0);
-    expect(res.body.skipped).toBeUndefined();
+    expect(res.body).toEqual({
+      say: '等待点歌',
+      queue: [],
+      index: 0,
+      queueOffset: 0,
+      reason: '',
+      intent: 'boot',
+      brain: 'external',
+      skipped: true,
+      _resolveError: false,
+    });
+  });
+});
+
+describe('warnRemovedInternalBrain', () => {
+  it('环境或旧设置仍为 internal 时打一行 warn，不抛错', () => {
+    const warn = vi.fn();
+    expect(warnRemovedInternalBrain({ env: { CLAUDIO_BRAIN: 'internal' }, db: { getPref: () => null }, warn })).toBe(true);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('internal 模式已移除，按 external 运行'));
+
+    warn.mockClear();
+    expect(warnRemovedInternalBrain({ env: { BRAIN_MODE: ' Internal ' }, db: { getPref: () => null }, warn })).toBe(true);
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    warn.mockClear();
+    expect(warnRemovedInternalBrain({ env: {}, db: { getPref: k => (k === 'brain_mode' ? 'internal' : null) }, warn })).toBe(true);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('未设置 internal 时静默', () => {
+    const warn = vi.fn();
+    expect(warnRemovedInternalBrain({ env: { CLAUDIO_BRAIN: 'external' }, db: { getPref: () => null }, warn })).toBe(false);
+    expect(warn).not.toHaveBeenCalled();
   });
 });

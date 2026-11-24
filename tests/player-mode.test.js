@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  allowsAutoRefill,
   externalUnlockPlan,
   planExternalBoot,
   planPlayCommand,
@@ -73,14 +72,6 @@ describe('play() 的结果', () => {
       play: false,
       showOverlay: false,
     });
-  });
-});
-
-describe('自动续播只在 internal', () => {
-  it('external 即使 loop 是 auto 也不续播', () => {
-    expect(allowsAutoRefill('external', 'auto')).toBe(false);
-    expect(allowsAutoRefill('internal', 'auto')).toBe(true);
-    expect(allowsAutoRefill('internal', 'list')).toBe(false);
   });
 });
 

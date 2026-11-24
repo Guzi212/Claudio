@@ -15,16 +15,16 @@ describe('radio visual contract (ink-on-xuan-paper)', () => {
     expect(html).toContain('id="desktop-titlebar"');
   });
 
-  it('歌词位于紧凑封面正下方实时展示，internal 聊天保留独立入口', () => {
+  it('歌词位于紧凑封面正下方实时展示，内置点歌聊天区已移除', () => {
     const stage = html.slice(html.indexOf('class="stage"'), html.indexOf('class="queue"'));
     const coverColumn = stage.slice(stage.indexOf('class="cover-column"'), stage.indexOf('class="playback-panel"'));
     expect(coverColumn).toContain('id="np-cover"');
     expect(coverColumn).toContain('id="lyrics-panel"');
     expect(coverColumn.indexOf('id="np-cover"')).toBeLessThan(coverColumn.indexOf('id="lyrics-panel"'));
-    expect(html).toContain('id="console-chat"');
-    expect(html).toContain('id="chat"');
-    expect(html).toContain('id="composer"');
-    expect(css).toContain('body:not(.brain-internal) #console-chat');
+    expect(html).not.toContain('id="console-chat"');
+    expect(html).not.toContain('id="chat"');
+    expect(html).not.toContain('id="composer"');
+    expect(css).not.toContain('brain-internal');
   });
 
   it('宣纸底、墨色字、朱砂印章色并同步 manifest', () => {
@@ -101,7 +101,7 @@ describe('radio visual contract (ink-on-xuan-paper)', () => {
   });
 
   it('离线壳缓存覆盖新增资源与全部水墨/品牌/像素素材', () => {
-    expect(sw).toMatch(/const CACHE = 'claudio-shell-v33'/);
+    expect(sw).toMatch(/const CACHE = 'claudio-shell-v34'/);
     expect(sw).toContain('\'/theme-store.js\'');
     expect(sw).toContain('\'/host-mood.js\'');
     expect(sw).toContain('\'/assets/brand/mark-ink.svg\'');
@@ -110,7 +110,7 @@ describe('radio visual contract (ink-on-xuan-paper)', () => {
     expect(sw).toContain('\'/assets/pixel/host-thumbsup.webp\'');
     expect(sw).toContain('\'/assets/pixel/host-head.webp\'');
     expect(sw).toContain('\'/external-playback.js\'');
-    expect(sw).toContain('\'/boot-playback.js\'');
+    expect(sw).not.toContain('\'/boot-playback.js\'');
     expect(sw).toContain('\'/runtime-sync.js\'');
     expect(sw).toContain('\'/player-mode.js\'');
     expect(sw).toContain('\'/views/playlists.js\'');

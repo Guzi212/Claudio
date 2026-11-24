@@ -7,8 +7,6 @@ import { WebSocketServer } from 'ws';
 import axios from 'axios';
 import 'dotenv/config';
 
-import { buildSystemPrompt } from './context.js';
-import { ask as claudeAsk } from './claude.js';
 import { dbApi } from './db.js';
 import { ensureLogin, startAutoRefresh, stopAutoRefresh } from './services/kugou-login.js';
 import {
@@ -21,8 +19,6 @@ import {
   startAutoRefresh as startQQAutoRefresh,
   stopAutoRefresh as stopQQAutoRefresh,
 } from './services/qq-login.js';
-import { start as startScheduler } from './scheduler.js';
-import { brainMode, startBrainServices } from './brain.js';
 import { applyProgress, readSavedScene } from './playback-control.js';
 import { createStreamRegistry, leaderBroadcast, progressBroadcast } from './runtime-events.js';
 import { readContinuePool } from './continue-pool.js';
@@ -66,11 +62,22 @@ import { musicService, getMusicProvider, getEnabledProviders } from './services/
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 
+export function warnRemovedInternalBrain({ env = process.env, db = dbApi, warn = console.warn } = {}) {
+  const candidates = [
+    env?.CLAUDIO_BRAIN,
+    env?.BRAIN_MODE,
+    db?.getPref?.('brain_mode'),
+  ];
+  const hadInternal = candidates.some(v => String(v || '').trim().toLowerCase() === 'internal');
+  if (hadInternal) {
+    warn('[claudio] internal 模式已移除，按 external 运行');
+  }
+  return hadInternal;
+}
+
 export function createApp(options = {}) {
   const db = options.db || dbApi;
   const rootDir = options.rootDir || ROOT;
-  const ask = options.ask || claudeAsk;
-  const promptBuilder = options.buildSystemPrompt || buildSystemPrompt;
   const searchDeps = {
     ...(options.search ? { search: options.search } : {}),
     ...(options.multiSearch ? { multiSearch: options.multiSearch } : {}),
@@ -97,8 +104,8 @@ export function createApp(options = {}) {
     queueOffset: 0, // 当前队列累计裁掉的头部曲目数
     paused: false,
     lastSay: '',
-    active: false,  // PWA 是否连着 WS（scheduler 的 hourly-mood 凭这门禁）
-    queueSource: null, // bot | boot | claude | playlist | scheduler
+    active: false,  // PWA 是否连着 WS
+    queueSource: null, // bot | playlist
     trackEnded: false, // 当前这首已自然结束；外部队列要到最后一首结束才算放完
     volume: readSavedVolume(db), // 0-100，prefs 里的上次音量；没有则默认 30
     volumeExplicit: hasSavedVolume(db), // false 表示 30 只是默认值，用户没显式设过
@@ -148,7 +155,7 @@ export function createApp(options = {}) {
     statusOptions: () => ({
       listeners: wsClients.size(),
       playback: wsClients.snapshot(),
-      brain: brainMode(),
+      brain: 'external',
       provider: getMusicProvider(),
       providers: getEnabledProviders(),
     }),
@@ -164,23 +171,14 @@ export function createApp(options = {}) {
     }
   });
 
-  // 快速启动：跳过 TTS 合成，直接返回完整队列。
-  // 外部点歌还没放完时，boot 在 Claude 返回之后放弃覆盖，见 server/api/boot.js。
   const volumeSaver = createVolumeSaver({ db, initial: runtime.volume });
   const rememberVolume = (value, opts) => volumeSaver.remember(value, opts);
-  const brainDeps = {
+  mountBootRoute(app, { getRuntime: () => runtime });
+  mountChatRoute(app, {
     getRuntime: () => runtime,
     broadcast,
-    brain: () => brainMode(),
     db,
-    ask,
-    buildSystemPrompt: promptBuilder,
-  };
-  mountBootRoute(app, brainDeps);
-  mountChatRoute(app, {
-    ...brainDeps,
     rememberVolume,
-    ...(options.synthesize ? { synthesize: options.synthesize } : {}),
   });
   mountControlRoute(app, { getRuntime: () => runtime, broadcast, db, rememberVolume });
   mountPlaysRoutes(app);
@@ -286,23 +284,8 @@ export function createApp(options = {}) {
 
   // W2/W3 视图依赖的扩展 API
   let djHandle = null;
-  let schedulerHandle = null;
 
   function applyLiveSettings(applied = []) {
-    if (applied.includes('brain_mode')) {
-      schedulerHandle?.stop?.();
-      schedulerHandle = startBrainServices({
-        brain: brainMode(),
-        startScheduler,
-        schedulerOptions: {
-          runtime,
-          broadcast,
-          log: (...args) => console.log('[scheduler]', ...args),
-          ask,
-          buildSystemPrompt: promptBuilder,
-        },
-      });
-    }
     if (applied.some(k => k.startsWith('dj_'))) {
       djHandle?.stop?.();
       djHandle = djEnabled()
@@ -385,7 +368,6 @@ export function createApp(options = {}) {
   });
 
   function stopBackground() {
-    schedulerHandle?.stop?.();
     djHandle?.stop?.();
   }
 
@@ -396,9 +378,8 @@ export function createApp(options = {}) {
     runtime,
     broadcast,
     db,
-    setHandles({ dj, scheduler } = {}) {
+    setHandles({ dj } = {}) {
       if (dj !== undefined) djHandle = dj;
-      if (scheduler !== undefined) schedulerHandle = scheduler;
     },
     stopBackground,
   };
@@ -414,6 +395,7 @@ export async function start() {
   const { server, runtime, broadcast, setHandles, stopBackground } = instance;
 
   console.log('[claudio] 启动中...');
+  warnRemovedInternalBrain({ db: dbApi });
 
   const login = await ensureLogin();
   if (!login.ok) {
@@ -442,23 +424,7 @@ export async function start() {
   // 时才真正调 /login/token，避免「每次启动都登录」被上游风控。
   startAutoRefresh();
 
-  // 定时推歌只在 brainMode() === internal 时挂上。external 不调用 Claude。
-  const schedulerHandle = startBrainServices({
-    brain: brainMode(),
-    startScheduler,
-    schedulerOptions: {
-      runtime,
-      broadcast,
-      log: (...args) => console.log('[scheduler]', ...args),
-      ask: claudeAsk,
-      buildSystemPrompt,
-    },
-  });
-  console.log(schedulerHandle.started
-    ? '[claudio] scheduler 已挂 cron'
-    : '[claudio] CLAUDIO_BRAIN=external，跳过定时推歌');
-
-  // 常驻主持人：跟 brain 模式无关，external 下也能自己补歌。
+  // 常驻主持人：按队列余量自动补歌。
   let djHandle = null;
   if (djEnabled()) {
     djHandle = startResidentDj({
@@ -472,7 +438,7 @@ export async function start() {
     console.log('[claudio] CLAUDIO_DJ 未开启，常驻主持人待命');
   }
 
-  setHandles({ dj: djHandle, scheduler: schedulerHandle });
+  setHandles({ dj: djHandle });
 
   const stopAllBackground = () => {
     stopAutoRefresh();

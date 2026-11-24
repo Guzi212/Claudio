@@ -1,9 +1,8 @@
-// Player 视图 · 保留原 chat + audio player 全部逻辑。
+// Player 视图 · 外部电台播放控制与队列展示。
 // 入口：initPlayer() — 在 DOM 就绪后调用一次。
 // 对外：applyRuntime(runtime) — 让 app.js 把 WS 推来的 runtime 同步进来。
-import { showAlert, clearAlert, setStatus, toast } from './ui.js';
+import { showAlert, clearAlert, toast } from './ui.js';
 import { planExternalPlayback } from '../external-playback.js';
-import { planBootPlayback } from '../boot-playback.js';
 import { claimPlayLoad, isOwnEcho, planRuntimeSync } from '../runtime-sync.js';
 import {
   externalUnlockPlan,
@@ -40,20 +39,10 @@ export { TRACK_PROVIDER_LABELS, trackProviderLabel };
 
 const $ = sel => document.querySelector(sel);
 
-const LOOP_MODES = ['list', 'one', 'auto'];
-const LOOP_MODE_META = {
-  list: { mark: '列表循环', label: '列表循环' },
-  one: { mark: '单曲循环', label: '单曲循环' },
-  auto: { mark: '自动推歌', label: '自动推歌' },
-};
-const NEXT_BATCH_PROMPT = '上一批歌已经播完了，请根据当前时间和氛围继续推荐下一批';
-
 const state = {
   queue: [],
   index: 0,
   offset: 0,
-  loopMode: 'auto',
-  brain: 'external',
   continuePoolActive: false,
   isFollower: false,
   serverPaused: false,
@@ -61,16 +50,8 @@ const state = {
   leader: null,
 };
 
-let autoRecommending = false;
-let pendingPlayFrom = -1;
-let autoRecommendGen = 0;
-
 let bootOverlay = null;
 let bootBtn = null;
-let bootReady = false;
-let bootData = null;
-let bootClicked = false;
-let brain = 'external';
 let activeAgent = null;
 let activeSession = null;
 let volumeReportTimer = null;
@@ -78,7 +59,6 @@ let appliedSay = '';
 let lastReason = '';
 let queuedAt = '';
 let lastProgressAt = 0;
-let queueVisible = true;
 const feedbackByTrack = new Map();
 const favoriteState = new Map();
 let favoriteCheckToken = 0;
@@ -95,7 +75,7 @@ function updatePixelHost() {
   const enabled = readPixelHostEnabled();
   const nextSrc = hostSprite({
     playing: hostPlaying,
-    loading: hostLoadingCount > 0 || autoRecommending,
+    loading: hostLoadingCount > 0,
     queueEmpty: state.queue.length === 0,
     flash: hostFlash,
   });
@@ -139,7 +119,7 @@ function setHostLoading(delta) {
   updatePixelHost();
 }
 
-let chat, composer, input, submitBtn, audio, npBox, npTitle, npArtist, consolePlayBtn, consoleFavoriteBtn, queueBtn, loopBtn, queueList, npSeek, npTimeCur, npTimeDur, npVol;
+let audio, npBox, npTitle, npArtist, consolePlayBtn, consoleFavoriteBtn, queueList, npSeek, npTimeCur, npTimeDur, npVol;
 
 function fmtTime(s) {
   if (!isFinite(s) || s < 0) return '0:00';
@@ -178,7 +158,7 @@ function ensurePlaybackVolume() {
 }
 
 function showUnlockOverlay() {
-  if (!bootOverlay || !bootBtn || brain === 'internal') return;
+  if (!bootOverlay || !bootBtn) return;
   bootBtn.textContent = '▶ 点击开声';
   bootOverlay.classList.remove('hidden');
 }
@@ -202,17 +182,6 @@ async function attemptPlay() {
     }
     return false;
   }
-}
-
-function applyBrainChrome() {
-  document.body?.classList.toggle('brain-internal', brain === 'internal');
-  const consoleChat = document.getElementById('console-chat');
-  if (consoleChat) consoleChat.hidden = brain !== 'internal';
-  document.querySelectorAll('[data-internal-only]').forEach(btn => { btn.hidden = brain !== 'internal'; });
-  if (brain !== 'internal' && bootBtn && bootOverlay && !bootOverlay.classList.contains('hidden')) {
-    bootBtn.textContent = '▶ 点击开声';
-  }
-  paintHostChrome();
 }
 
 function syncVolumeChrome(volume) {
@@ -268,22 +237,6 @@ function syncToServer(index, { paused = false, ended = false } = {}) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ index, queueOffset: state.offset, paused, ended, clientId: getClientId() }),
   }).then(res => res.ok ? res.json() : null).catch(() => null);
-}
-
-function addBubble(role, content, meta = null) {
-  if (!chat) return null;
-  const div = document.createElement('div');
-  div.className = `bubble ${role}`;
-  div.textContent = content;
-  if (meta) {
-    const m = document.createElement('div');
-    m.className = 'meta';
-    m.innerHTML = meta;
-    div.appendChild(m);
-  }
-  chat.appendChild(div);
-  chat.scrollTop = chat.scrollHeight;
-  return div;
 }
 
 function setConsoleDialog(text) {
@@ -351,12 +304,12 @@ function rememberQueueMeta(data) {
 }
 
 function paintHostChrome() {
-  const agentName = activeAgent?.name || (brain === 'internal' ? 'Claudio DJ' : 'Claudio');
+  const agentName = activeAgent?.name || 'Claudio';
   const agentNameEl = document.getElementById('host-agent-name');
   if (agentNameEl) agentNameEl.textContent = agentName;
   const roleChipEl = document.getElementById('host-role-chip');
   if (roleChipEl) {
-    roleChipEl.textContent = activeAgent?.name ? '电台主持人' : (brain === 'internal' ? '内置主持' : '电台主持人');
+    roleChipEl.textContent = '电台主持人';
   }
   const footerStatusEl = document.getElementById('footer-agent-status');
   if (footerStatusEl) footerStatusEl.textContent = `${agentName} 在线`;
@@ -749,114 +702,8 @@ function updatePlayButtons(isPlaying) {
   updatePixelHost();
 }
 
-async function preFetchBoot() {
-  try {
-    const res = await fetch('/api/boot', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    bootData = await res.json();
-    bootReady = true;
-    if (bootClicked) startBoot();
-  } catch (err) {
-    console.warn('[boot] pre-fetch failed:', err.message);
-    bootReady = true;
-    bootData = null;
-    if (bootClicked) {
-      showAlert('推歌失败，请手动输入指令');
-      dismissBootOverlay();
-    } else if (bootBtn) {
-      bootBtn.textContent = '▶ 开始电台';
-      bootBtn.disabled = false;
-    }
-  }
-}
-
-function startBoot() {
-  dismissBootOverlay();
-  const data = bootData;
-  if (!data) {
-    setConsoleDialog('连接失败，请手动输入指令');
-    return;
-  }
-  const songItems = (data.queue || []).filter(q => !q.isTts);
-  let metaHtml = '';
-  if (songItems.length) {
-    const list = songItems.map(q => `<li>${escapeHtml(q.title)} — ${escapeHtml(q.artist)}</li>`).join('');
-    metaHtml += `<ol>${list}</ol>`;
-  }
-  if (data.reason) metaHtml += `<div>${escapeHtml(data.reason)}</div>`;
-  if (data.say) {
-    setConsoleDialog(data.say);
-    addBubble('assistant', data.say, metaHtml || null);
-  }
-  if (data._resolveError) {
-    showAlert('酷狗搜索失败，请检查酷狗 API 服务是否正在运行');
-  } else {
-    clearAlert();
-  }
-  const plan = planBootPlayback({
-    queue: state.queue,
-    index: state.index,
-    hasSrc: Boolean(audio?.getAttribute?.('src') || audio?.src),
-    ended: Boolean(audio?.ended),
-  }, data);
-  if (plan.applyQueue) {
-    state.queue = data.queue;
-    state.index = plan.index;
-    state.offset = data.queueOffset || 0;
-  }
-  if (plan.playIndex != null) playIndex(plan.playIndex);
-}
-
 function dismissBootOverlay() {
   if (bootOverlay) bootOverlay.classList.add('hidden');
-}
-
-async function autoRecommend(prompt) {
-  if (state.continuePoolActive || autoRecommending) return;
-  autoRecommending = true;
-  if (typeof setHostLoading === 'function') setHostLoading(1);
-  const myGen = ++autoRecommendGen;
-  try {
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: prompt }),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    if (myGen !== autoRecommendGen || state.continuePoolActive) return;
-    const newSongs = (data.queue || []).filter(q => !q.isTts);
-    if (newSongs.length) {
-      state.queue = [...state.queue, ...newSongs];
-      if (data.say) setConsoleDialog(data.say);
-      renderQueuePanel();
-      if (pendingPlayFrom >= 0 && pendingPlayFrom < state.queue.length) {
-        const idx = pendingPlayFrom;
-        pendingPlayFrom = -1;
-        playIndex(idx);
-      }
-    } else if (pendingPlayFrom >= 0) {
-      setConsoleDialog('这次没拿到可播放歌曲，请手动输入指令');
-      pendingPlayFrom = -1;
-    }
-  } catch (err) {
-    console.warn('[autoRecommend] failed:', err.message);
-    if (pendingPlayFrom >= 0) setConsoleDialog('自动推荐失败，请手动输入指令');
-    pendingPlayFrom = -1;
-  } finally {
-    autoRecommending = false;
-    if (typeof setHostLoading === 'function') setHostLoading(-1);
-  }
-}
-
-function requestNextBatch({ playWhenReady = false } = {}) {
-  if (!state.queue.length) return;
-  if (playWhenReady) pendingPlayFrom = state.queue.length;
-  if (autoRecommending) {
-    setConsoleDialog('正在准备下一批曲目…');
-    return;
-  }
-  autoRecommend(NEXT_BATCH_PROMPT);
 }
 
 let currentQuality = 'flac';
@@ -1001,7 +848,7 @@ function syncFollowerRuntime(runtime) {
     if (!runtime.queue.length) {
       state.index = 0;
       state.serverPaused = true;
-      if (brain !== 'internal') setConsoleDialog('等待点歌');
+      setConsoleDialog('等待点歌');
     } else {
       const idx = Number.isFinite(runtime.index) ? runtime.index : 0;
       state.index = Math.max(0, Math.min(idx, runtime.queue.length - 1));
@@ -1084,17 +931,14 @@ async function playIndex(i, { autoplay = true, startAt = 0, resume = false, rest
     // 通知 components/lyrics.js 当前是哪首（它通过 #lyrics-panel 自动 attach）
     window.dispatchEvent(new CustomEvent('claudio:trackchange', { detail: t }));
     ensurePlaybackVolume();
-    // internal 仍等用户点「开始电台」。external 直接试 play()，被拒绝才盖遮罩。
-    if (autoplay && !(brain === 'internal' && !userActivated)) await attemptPlay();
-    else if (!autoplay) {
+    // 直接试 play()，被浏览器拒绝才盖遮罩。
+    if (autoplay) await attemptPlay();
+    else {
       syncToServer(state.index, { paused: true, ended: false });
       updatePlayButtons(false);
     }
     npBox.classList.remove('hidden');
     renderQueuePanel();
-    if (state.brain === 'internal' && state.loopMode === 'auto' && i === state.queue.length - 1 && !autoRecommending) {
-      autoRecommend(NEXT_BATCH_PROMPT);
-    }
   } finally {
     if (playLoadIndex === loadToken) playLoadIndex = null;
     suppressPauseSync = false;
@@ -1114,15 +958,6 @@ function goNext({ userInitiated = false } = {}) {
   const outcomeHint = userInitiated && shouldCountAsUserSkip() ? 'skipped' : 'switch';
   if (state.index < state.queue.length - 1) {
     playIndex(state.index + 1, { outcomeHint });
-    return;
-  }
-  if (state.brain === 'internal' && state.loopMode === 'list' && state.queue.length) {
-    playIndex(0, { outcomeHint });
-    return;
-  }
-  if (state.brain === 'internal' && state.loopMode === 'auto' && state.queue.length) {
-    if (outcomeHint === 'skipped') settleActiveSession('skipped');
-    requestNextBatch({ playWhenReady: true });
     return;
   }
   showAlert(state.queue.length ? '已经是最后一首' : '队列还是空的');
@@ -1198,7 +1033,6 @@ function renderQueuePanel() {
     if (count) count.textContent = '0 首';
     queueList.classList.add('hidden');
     if (dialogText) dialogText.classList.remove('hidden');
-    if (queueBtn) queueBtn.setAttribute('aria-pressed', 'false');
     return;
   }
   const upcoming = [];
@@ -1218,14 +1052,8 @@ function renderQueuePanel() {
     const position = String(offset + 1).padStart(2, '0');
     return `<li><button type="button" class="queue-track" data-idx="${index}" aria-label="播放 ${escapeHtml(track.artist || '')}《${escapeHtml(track.title || '')}》"><span class="position">${position}</span>${art}<span class="queue-copy"><span class="queue-title-line"><span class="queue-title">${escapeHtml(track.title || '')}</span><span class="queue-artist">${escapeHtml(track.artist || '')}</span></span>${reasonHtml}</span></button></li>`;
   }).join('');
-  queueList.classList.toggle('hidden', !queueVisible);
-  if (dialogText) dialogText.classList.toggle('hidden', queueVisible);
-  if (queueBtn) {
-    queueBtn.setAttribute('aria-pressed', String(queueVisible));
-    queueBtn.setAttribute('aria-expanded', String(queueVisible));
-    queueBtn.textContent = queueVisible ? '收起队列' : '展开队列';
-    queueBtn.setAttribute('aria-label', queueVisible ? '收起完整队列' : '展开完整队列');
-  }
+  queueList.classList.remove('hidden');
+  if (dialogText) dialogText.classList.add('hidden');
   queueList.querySelectorAll('[data-idx]').forEach(btn => {
     btn.addEventListener('click', () => {
       markActivated();
@@ -1254,32 +1082,6 @@ function bindQueueCoverFallbacks() {
   });
 }
 
-function toggleLoopMode() {
-  const current = LOOP_MODES.indexOf(state.loopMode);
-  state.loopMode = LOOP_MODES[(current + 1) % LOOP_MODES.length];
-  updateLoopButton();
-}
-
-function updateLoopButton() {
-  const meta = LOOP_MODE_META[state.loopMode] || LOOP_MODE_META.list;
-  if (loopBtn) {
-    loopBtn.textContent = meta.mark;
-    loopBtn.setAttribute('aria-label', meta.label);
-    loopBtn.setAttribute('title', meta.label);
-    loopBtn.setAttribute('aria-pressed', String(state.loopMode !== 'list'));
-    loopBtn.classList.toggle('active', state.loopMode !== 'list');
-  }
-}
-
-function toggleQueuePanel() {
-  if (!state.queue.length) {
-    showAlert('队列还是空的');
-    return;
-  }
-  queueVisible = !queueVisible;
-  renderQueuePanel();
-}
-
 function bindConsoleControls() {
   const controls = document.querySelectorAll('[data-console-control]');
   controls.forEach(btn => {
@@ -1299,70 +1101,8 @@ function bindConsoleControls() {
       if (action === 'play-pause') togglePlayback();
       if (action === 'next') goNext({ userInitiated: true });
       if (action === 'favorite') toggleFavorite();
-      if (action === 'queue') toggleQueuePanel();
-      if (action === 'loop') toggleLoopMode();
     });
   });
-}
-
-async function send(message) {
-  pendingPlayFrom = -1;
-  autoRecommendGen++;
-  addBubble('user', message);
-  input.value = '';
-  submitBtn.disabled = true;
-  setStatus('思考中…');
-  setHostLoading(1);
-
-  try {
-    const res = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message }),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-
-    const songItems = (data.queue || []).filter(q => !q.isTts);
-    let metaHtml = '';
-    if (songItems.length) {
-      const items = songItems.map(q => {
-        const name = `<span class="track-name">${escapeHtml(q.title)} — ${escapeHtml(q.artist)}</span>`;
-        const cmt  = q.comment
-          ? `<span class="track-comment">${escapeHtml(q.comment)}</span>`
-          : '';
-        return `<li>${name}${cmt}</li>`;
-      }).join('');
-      metaHtml += `<ol class="track-list">${items}</ol>`;
-    }
-
-    addBubble('assistant', data.say || '(无回应)', metaHtml || null);
-    if (data.say) {
-      appliedSay = data.say;
-      paintHostChrome();
-    }
-    setConsoleDialog(data.say || '我已经整理好这一轮电台推荐。');
-
-    if (data.queue && data.queue.length) {
-      state.queue = data.queue;
-      state.index = 0;
-      state.offset = data.queueOffset || 0;
-      playIndex(0);
-    }
-    if (data._resolveError) {
-      showAlert('酷狗搜索失败，请检查酷狗 API 服务是否正在运行');
-    } else {
-      clearAlert();
-    }
-  } catch (err) {
-    addBubble('assistant', `(出错：${err.message})`);
-    showAlert(`服务异常：${err.message}`);
-  } finally {
-    submitBtn.disabled = false;
-    setStatus('');
-    setHostLoading(-1);
-    input.focus();
-  }
 }
 
 async function postMemoryTelemetry(payload, { keepalive = false } = {}) {
@@ -1446,7 +1186,7 @@ async function startTelemetrySession(track) {
     artist: track.artist || '',
     kugouId: track.kugouId || '',
     reason: track.reason || lastReason || '',
-    source: track.source || (brain === 'internal' ? 'internal' : 'external'),
+    source: track.source || 'external',
     agentId: activeAgent?.id || null,
     durationSec: Number(track.duration) || 0,
     initialVolume: npVol ? Number(npVol.value) : null,
@@ -1579,11 +1319,6 @@ export function applyRuntime(runtime, { origin } = {}) {
   if (isOwnEcho(origin, getClientId())) return;
   if ('activeAgent' in runtime) activeAgent = runtime.activeAgent || null;
   if ('scene' in runtime) paintScene(runtime.scene);
-  if (runtime.brain === 'internal' || runtime.brain === 'external') {
-    brain = runtime.brain;
-    state.brain = brain;
-    applyBrainChrome();
-  }
   rememberQueueMeta(runtime);
   if (runtime.lastSay && runtime.lastSay !== appliedSay) {
     appliedSay = runtime.lastSay;
@@ -1612,7 +1347,7 @@ export function applyRuntime(runtime, { origin } = {}) {
     state.index = plan.index;
     state.offset = plan.queueOffset;
     renderQueuePanel();
-    if (!state.queue.length && brain !== 'internal') {
+    if (!state.queue.length) {
       setConsoleDialog('等待点歌');
       dismissBootOverlay();
     }
@@ -1630,7 +1365,7 @@ export function applyRuntime(runtime, { origin } = {}) {
     return;
   }
   if (plan.pause === true && audio && !audio.paused) audio.pause();
-  else if (plan.pause === false && audio?.paused && audio.src && !(brain === 'internal' && !userActivated)) {
+  else if (plan.pause === false && audio?.paused && audio.src) {
     const command = planPlayCommand({ queueLength: state.queue.length, userActivated });
     if (!command.play || command.showOverlay) return;
     if (audio.ended) {
@@ -1650,7 +1385,6 @@ export function applyExternalQueue({ mode, tracks, say, reason, queuedAt: at, ag
   if (say) {
     appliedSay = say;
     setConsoleDialog(say);
-    if (chat && brain === 'internal') addBubble('assistant', say, `(${agentName || '外部电台'})`);
   }
   if (reason) lastReason = reason;
   if (at) queuedAt = at;
@@ -1684,13 +1418,6 @@ export function applyExternalQueue({ mode, tracks, say, reason, queuedAt: at, ag
   if (plan.playIndex != null) playIndex(plan.playIndex, { autoplay: true });
 }
 
-// boot 后台拉完追加的歌曲，通过 WS queue-append 推进来
-export function appendToQueue(tracks) {
-  if (!Array.isArray(tracks) || !tracks.length) return;
-  state.queue = [...state.queue, ...tracks];
-  renderQueuePanel();
-}
-
 async function resumeAsLeader() {
   if (!audio) return;
   audio.muted = false;
@@ -1703,7 +1430,7 @@ async function resumeAsLeader() {
   state.index = idx;
   const t = state.queue[idx];
   const resumeAt = Number.isFinite(serverProgress) ? Math.max(0, serverProgress) : 0;
-  const autoplay = !state.serverPaused && !(brain === 'internal' && !userActivated);
+  const autoplay = !state.serverPaused;
 
   if (playLoadIndex === idx + state.offset) return;
 
@@ -1784,10 +1511,6 @@ export function applyRemoteProgress(evt = {}) {
 }
 
 export function initPlayer() {
-  chat      = $('#chat');
-  composer  = $('#composer');
-  input     = $('#input');
-  submitBtn = composer ? composer.querySelector('button') : null;
   audio     = $('#audio');
   npBox     = $('#now-playing');
   npTitle   = $('#np-title');
@@ -1799,19 +1522,11 @@ export function initPlayer() {
   audio.addEventListener('ended', async () => {
     if (state.isFollower) return;
     settleActiveSession('completed');
-    if (state.brain === 'internal' && state.loopMode === 'one') {
-      audio.currentTime = 0;
-      audio.play().catch(() => {});
-    } else if (state.index < state.queue.length - 1) {
+    if (state.index < state.queue.length - 1) {
       playIndex(state.index + 1);
     } else if (state.queue.length) {
-      // 队尾先让服务端接续播池；internal 的循环/推歌只在没有续播时执行。
-      const endedQueue = state.queue;
-      const endedIndex = state.index;
-      const result = await syncToServer(endedIndex, { paused: true, ended: true });
-      if (result?.continued || result?.stale || state.queue !== endedQueue || state.index !== endedIndex) return;
-      if (state.brain === 'internal' && state.loopMode === 'list') playIndex(0);
-      else if (state.brain === 'internal' && state.loopMode === 'auto') requestNextBatch({ playWhenReady: true });
+      // 队尾先让服务端接续播池；没有续播时自然停下。
+      await syncToServer(state.index, { paused: true, ended: true });
     } else {
       npBox.classList.add('hidden');
       syncToServer(state.index, { paused: true });
@@ -1856,10 +1571,6 @@ export function initPlayer() {
 
   consolePlayBtn = $('[data-console-control="play-pause"]');
   consoleFavoriteBtn = $('[data-console-control="favorite"]');
-  queueBtn = $('[data-console-control="queue"]');
-  loopBtn = $('[data-console-control="loop"]');
-  if (queueBtn) queueBtn.setAttribute('aria-pressed', 'false');
-  updateLoopButton();
   queueList = document.getElementById('queue-list');
   npSeek = document.getElementById('np-seek');
   npTimeCur = document.getElementById('np-time-cur');
@@ -1921,22 +1632,12 @@ export function initPlayer() {
   if (bootBtn) {
     bootBtn.addEventListener('click', () => {
       markActivated();
-      bootClicked = true;
-      if (brain !== 'internal') {
-        dismissBootOverlay();
-        const plan = externalUnlockPlan({ queue: state.queue, index: state.index });
-        if (plan.dialog) setConsoleDialog(plan.dialog);
-        if (plan.playIndex != null) {
-          const resume = Boolean(audio?.getAttribute('src')) && state.index === plan.playIndex;
-          playIndex(plan.playIndex, { autoplay: true, resume, startAt: serverProgress });
-        }
-        return;
-      }
-      if (bootReady) {
-        startBoot();
-      } else {
-        bootBtn.textContent = '加载中…';
-        bootBtn.disabled = true;
+      dismissBootOverlay();
+      const plan = externalUnlockPlan({ queue: state.queue, index: state.index });
+      if (plan.dialog) setConsoleDialog(plan.dialog);
+      if (plan.playIndex != null) {
+        const resume = Boolean(audio?.getAttribute('src')) && state.index === plan.playIndex;
+        playIndex(plan.playIndex, { autoplay: true, resume, startAt: serverProgress });
       }
     });
   }
@@ -1952,20 +1653,6 @@ export function initPlayer() {
     playIndex(0);
   });
 
-  if (composer && input && submitBtn) {
-    composer.addEventListener('submit', e => {
-      e.preventDefault();
-      const m = input.value.trim();
-      if (m) send(m);
-    });
-  }
-
-  window.addEventListener('claudio:settings-updated', e => {
-    const applied = Array.isArray(e.detail) ? e.detail : [];
-    if (applied.includes('brain_mode')) {
-      syncFromServer({ silent: true, keepOverlay: true });
-    }
-  });
   window.addEventListener('claudio:view-shown', e => {
     if (e.detail === 'player') hydrateMemoryContext({ hasServerVolume: true });
   });
@@ -1988,87 +1675,51 @@ async function bootCurrent({ silent = false, keepOverlay = false } = {}) {
     const r = await fetch('/api/now');
     if (!r.ok) return;
     const data = await r.json();
-    brain = data.brain === 'internal' ? 'internal' : 'external';
-    state.brain = brain;
     state.offset = data.queueOffset || 0;
     activeAgent = data.activeAgent || null;
     if (data.scene) paintScene(data.scene);
-    applyBrainChrome();
+    paintHostChrome();
     rememberQueueMeta(data);
     if (Number.isFinite(data.volume)) applyHeardVolume(data.volume);
     else ensurePlaybackVolume();
     // 服务端 volume 总是有限数字（默认 30），只有 volumeExplicit 才代表用户真的设过。
     hydrateMemoryContext({ hasServerVolume: data.volumeExplicit === true });
-    if (brain !== 'internal') {
-      const apiProgress = Number(data.currentTime) || 0;
-      if (!state.queue.length || apiProgress > serverProgress) serverProgress = apiProgress;
-      if (Number.isFinite(data.duration) && data.duration > 0) state.serverDuration = data.duration;
-      state.serverPaused = data.paused === true;
-      const plan = planExternalBoot({ queue: data.queue, paused: data.paused === true });
-      if (plan.dialog) setConsoleDialog(plan.dialog);
-      if (!keepOverlay) dismissBootOverlay();
-      if (!data.queue?.length) {
-        state.queue = [];
-        if (data.lastSay) {
-          appliedSay = data.lastSay;
-          setConsoleDialog(data.lastSay);
-        }
-        renderQueuePanel();
-        return;
-      }
-      state.queue = data.queue;
-      state.index = data.index || 0;
-      const t = state.queue[state.index];
-      if (t) {
-        npTitle.textContent = t.title;
-        npArtist.textContent = t.artist;
-        setStudioTrack(t);
-        npBox.classList.remove('hidden');
-      }
+
+    const apiProgress = Number(data.currentTime) || 0;
+    if (!state.queue.length || apiProgress > serverProgress) serverProgress = apiProgress;
+    if (Number.isFinite(data.duration) && data.duration > 0) state.serverDuration = data.duration;
+    state.serverPaused = data.paused === true;
+    const plan = planExternalBoot({ queue: data.queue, paused: data.paused === true });
+    if (plan.dialog) setConsoleDialog(plan.dialog);
+    if (!keepOverlay) dismissBootOverlay();
+    if (!data.queue?.length) {
+      state.queue = [];
       if (data.lastSay) {
         appliedSay = data.lastSay;
         setConsoleDialog(data.lastSay);
       }
-      if (state.isFollower) {
-        syncFollowerStage();
-        return;
-      }
       renderQueuePanel();
-      await playIndex(state.index, { autoplay: plan.play, startAt: serverProgress });
       return;
     }
-    if (data.queue && data.queue.length) {
-      state.queue = data.queue;
-      state.index = data.index || 0;
-      // cold-load 不自动播放，但展示当前曲信息
-      const t = state.queue[state.index];
-      if (t) {
-        npTitle.textContent = t.title;
-        npArtist.textContent = t.artist;
-        setStudioTrack(t);
-        setConsoleDialog(`回到电台：${t.title} — ${t.artist}。`);
-        const src = await resolveAudioSrc(t);
-        if (src) {
-          audio.preload = 'metadata';
-          audio.src = src;
-          audio.load();
-        }
-        window.dispatchEvent(new CustomEvent('claudio:trackchange', { detail: t }));
-        npBox.classList.remove('hidden');
-      }
-      renderQueuePanel();
-    } else {
-      state.queue = [];
-      renderQueuePanel();
-      if (bootOverlay) bootOverlay.classList.remove('hidden');
-      preFetchBoot();
+    state.queue = data.queue;
+    state.index = data.index || 0;
+    const t = state.queue[state.index];
+    if (t) {
+      npTitle.textContent = t.title;
+      npArtist.textContent = t.artist;
+      setStudioTrack(t);
+      npBox.classList.remove('hidden');
     }
     if (data.lastSay) {
       appliedSay = data.lastSay;
-      addBubble('assistant', data.lastSay, '(上次会话)');
       setConsoleDialog(data.lastSay);
-      paintHostChrome();
     }
+    if (state.isFollower) {
+      syncFollowerStage();
+      return;
+    }
+    renderQueuePanel();
+    await playIndex(state.index, { autoplay: plan.play, startAt: serverProgress });
   } catch (err) {
     if (!silent) showAlert(`无法连接服务：${err.message}`);
   }

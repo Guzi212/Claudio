@@ -145,36 +145,19 @@ describe('mountHealthRoute', () => {
     expect(r3.body.weather).toEqual({ ok: false, detail: 'disabled' });
   });
 
-  it('lark-cli 不存在（ENOENT 类）→ not installed', async () => {
-    mockExec.mockImplementation((cmd, opts, cb) => {
-      const err = new Error("'lark-cli' is not recognized");
-      err.code = 'ENOENT';
-      cb(err);
-    });
+  it('lark 与 calendar 保留兼容桩，固定返回 removed 且不调用外部 CLI', async () => {
     const { mountHealthRoute } = await import('../server/api/health.js');
     const app = mockApp();
     mountHealthRoute(app);
 
     const r = mockRes();
     await app.routes['GET /api/health/integrations']({}, r);
-    expect(r.body.lark.ok).toBe(false);
-    expect(r.body.lark.detail).toMatch(/not installed/i);
+    expect(r.body.lark).toEqual({ ok: false, detail: 'removed' });
+    expect(r.body.calendar).toEqual({ ok: false, detail: 'removed' });
+    expect(mockExec).not.toHaveBeenCalled();
   });
 
-  it('lark-cli 跑起来 → ok true / lark-cli ok', async () => {
-    mockExec.mockImplementation((cmd, opts, cb) => cb(null, { stdout: 'lark-cli 1.2.3', stderr: '' }));
-    const { mountHealthRoute } = await import('../server/api/health.js');
-    const app = mockApp();
-    mountHealthRoute(app);
-
-    const r = mockRes();
-    await app.routes['GET /api/health/integrations']({}, r);
-    expect(r.body.lark.ok).toBe(true);
-    expect(r.body.lark.detail).toMatch(/ok/i);
-  });
-
-  it('不会触发真实 OpenWeather / Fish 调用（健康检查仅检本地状态）', async () => {
-    mockExec.mockImplementation((cmd, opts, cb) => cb(new Error('not installed')));
+  it('不会触发真实 OpenWeather / Fish 或外部子进程调用（健康检查仅检本地状态）', async () => {
     prefMem.set('openweather_api_key', 'k1');
     prefMem.set('fish_api_key', 'k2');
 
@@ -185,8 +168,7 @@ describe('mountHealthRoute', () => {
     const r = mockRes();
     await app.routes['GET /api/health/integrations']({}, r);
 
-    // 仅 lark 用到了 exec，weather/tts 不应该有任何外部调用
-    expect(mockExec).toHaveBeenCalledTimes(1);
+    expect(mockExec).not.toHaveBeenCalled();
   });
 
   it('三源（酷狗 / 网易云 / QQ）均统一输出 loggedIn、账号标识与凭证年龄，且不泄露任何 token/cookie 明文', async () => {

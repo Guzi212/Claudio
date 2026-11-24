@@ -54,29 +54,17 @@
 - 失败先看 /api/health/integrations 是不是该源未登录
 ```
 
-> 默认只负责出声和显示。选歌交给外部的 Grok Bot（Claudio主持人）。
+> 只负责出声、检索和显示。选歌交给外部 Agent（如 Grok Bot / Claudio主持人）。
 
-酷狗音乐负责检索、直链和歌单读写；浏览器 PWA 播放。`CLAUDIO_BRAIN` 默认是 `external`：不调用 Claude，不开机选歌，不定时推歌，队列播完后从主持人设置的续播池继续，没有可用续播池就停。设成 `internal` 才恢复原来的 Claude 选歌（开机电台、聊天点歌、定时任务）。
+酷狗 / 网易云 / QQ 音乐负责检索、直链和歌单读写；浏览器 PWA 与桌面端负责播放。队列播完后从主持人设置的续播池继续，没有可用续播池就停。
 
-口味语料还在：`user/taste.md`、`user/music/kugou_taste_summary.md`、酷狗歌单导入脚本都保留，给 bot 读，不给 Claudio 自己拿来推歌。
+口味语料还在：`user/taste.md`、`user/music/kugou_taste_summary.md`、酷狗歌单导入脚本都保留，给外部 Agent 或常驻主持人读取。
 
 ---
 
-## 启动（5 步走）
+## 启动（4 步走）
 
-### 1. 选歌开关
-
-`.env` 里：
-
-```env
-CLAUDIO_BRAIN=external
-```
-
-留空也是 `external`。这个模式下不用装 Claude Code CLI。
-
-只有要恢复 Claudio 自己选歌时才改成 `internal`，并保证本机能跑 `claude -p`（或配好 DeepSeek key）。`internal` 下，外部点歌还没放完时，开机电台和定时任务不会把队列换掉。
-
-### 2. 准备 KuGouMusicApi 上游
+### 1. 准备 KuGouMusicApi 上游
 
 `npm run dev` 会自动和 Claudio 一起启动 KuGouMusicApi。先把社区版 fork 放在 Claudio 同级目录：
 ```powershell
@@ -90,7 +78,7 @@ npm install
 
 > 不同 fork 接口路径会有差异。如果搜歌返回 404，去 `server/services/kugou.js` 顶部的 `ENDPOINTS` / `LOGIN_PATH` 改路径。
 
-### 2.1 多音乐源（网易云 + QQ 音乐，可选）
+### 1.1 多音乐源（网易云 + QQ 音乐，可选）
 
 Claudio 默认 `MUSIC_PROVIDER=multi`：搜索并行聚合已启用的平台，点歌按 **酷狗 → 网易云 → QQ 音乐** 顺序自动回落。没配置 `NETEASE_API_BASE` 或 `QQ_API_BASE` 时自动跳过，只走酷狗。
 
@@ -131,7 +119,7 @@ QQ_API_BASE=http://localhost:33402
 ```
 也可在 PWA「设置 → 音乐源」下拉框随时切换并立即生效记住。
 
-### 3. 装 Claudio 依赖
+### 2. 装 Claudio 依赖
 
 ```powershell
 npm install
@@ -139,7 +127,7 @@ npm install
 
 依赖全是纯 JS，零编译。SQLite 用 Node 22.5+ 内置的 `node:sqlite` 模块，不需要 VS Build Tools。
 
-### 4. 配置 .env + 填语料
+### 3. 配置 .env + 填语料
 
 ```powershell
 copy .env.example .env
@@ -153,7 +141,7 @@ copy .env.example .env
 
 填一下 `user/taste.md` —— 至少几行"喜欢的歌手"和"一两个场景偏好"。Claudio 才不会推荐通用电台。
 
-### 4.1 导入酷狗口味数据（可选）
+### 3.1 导入酷狗口味数据（可选）
 
 如果你手头是酷狗截图、分享链接或复制出来的歌单，不需要登录抓取私有接口：
 
@@ -189,7 +177,7 @@ Sweet Soul Revue - Pizzicato Five
 - `user/music/kugou_taste_summary.md`：可读口味摘要。
 - `user/taste.md` 的酷狗蒸馏区：Claudio 每次推荐时会读到。
 
-### 5. 跑起来
+### 4. 跑起来
 
 ```powershell
 npm run dev
@@ -199,9 +187,9 @@ npm run dev
 [dev] starting KuGouMusicApi: npm start (.../KuGouMusicApi)
 [dev] starting Claudio: ...
 [kugou-login] OK · ...
-[claudio] 8080 ready · http://localhost:8080
+[claudio] listening on 127.0.0.1:8080
 ```
-浏览器打开 http://localhost:8080，跟 Claudio 说一句"来点雨天聆听的"。
+浏览器打开 http://localhost:8080，通过外部 Agent 点歌，或在歌单页搜索播放。
 
 如果只想调试 Claudio 本体、不启动 KuGouMusicApi，可用：
 ```powershell
@@ -212,7 +200,7 @@ npm run dev:app
 
 ## 验证（end-to-end）
 
-- [ ] 控制台显示 `KuGou login OK · 8080 ready`，以及 `CLAUDIO_BRAIN=external，跳过定时推歌`
+- [ ] 控制台显示 `KuGou login OK` 与 `listening on 127.0.0.1:8080`
 - [ ] 浏览器加载 PWA。允许自动播放时会直接出声；只有浏览器拒绝时才出现「点击开声」（Chrome 要用 `scripts/open-player.ps1` 打开，见下）
 - [ ] `POST /api/queue/external` 点一首歌，页面开始播，串场面板显示 `say`
 - [ ] 无续播池时队尾停下；设置续播池后，最后一首自然结束会自动续播
@@ -240,15 +228,6 @@ powershell -ExecutionPolicy Bypass -File "D:\Claude code\works\Claudio\scripts\o
 
 - `state.db` 是 SQLite。装 [DB Browser for SQLite](https://sqlitebrowser.org/) 直接看 `messages` / `plays` / `feedback` / `unmatched` / `prefs` 表
 - 酷狗匹配不到的歌都在 `unmatched` 表里
-- `CLAUDIO_BRAIN=internal` 时，Claude 输出 JSON 失败，PWA 仍会把原文当作 say。检查 `prompts/dj-persona.md`
-
-## internal 模式才有的旧能力
-
-- `POST /api/boot`：开机让 Claude 选开播曲目。外部队列还没放完时返回当前队列，`skipped: true`，`preserved: "external"`，不改 `runtime.queue` / `index`
-- `POST /api/chat`：自然语言交给 Claude 选歌，可以覆盖外部队列
-- `server/scheduler.js`：07:00 / 09:00 / 每小时。外部队列还没放完就跳过并记日志
-- 页面上的聊天框、自动推歌按钮、DeepSeek 设置。external 模式下这些不显示
-- 队列在「自动推歌」模式下播完会再向 Claude 要下一批。external 模式播完就停
 
 ## 监听地址与鉴权
 
@@ -365,7 +344,7 @@ Content-Type: application/json
 | --- | --- | --- |
 | `tracks` | 必填 | `{ title, artist, hint?, reason? }`，至少一首有 title。单首 `reason` 有内容才写进这一首；没写就不带这个字段，页面上那一行也不显示 |
 | `say` / `reason` | 空 | `say` 是主持人口播，完整显示在头像旁边，最多 500 字。整轮 `reason` 最多 200 字，记在状态里；当前这首自己没有 `reason` 时，播放区用它补一行。单首 `tracks[].reason` 同样最多 200 字。超出的部分直接截掉，不报错。Fish Audio 已配置时，`say` 会合成成队列第一条 TTS；没配置就静默跳过，歌照常进队列 |
-| `source` | `bot` | 这一轮是谁点的，最多 40 字，超出截断、不报错。写在队列条目和 `GET /api/status` 的 `source` 上。播放器内部的 `queueSource` 仍是 `bot`，开机和定时任务不会把这批歌清掉 |
+| `source` | `bot` | 这一轮是谁点的，最多 40 字，超出截断、不报错。写在队列条目和 `GET /api/status` 的 `source` 上 |
 | `mode` | `replace` | 播放队列：`replace` 换掉当前队列，`append` 接到队尾。一首都没匹配上时不会把正在播的队列清空 |
 | `target` | `queue` | `queue` 只进 Claudio 队列；`kugou_playlist` 只写酷狗歌单；`both` 两件都做 |
 | `playlistName` | `Claudio推荐` | 账号里同名歌单会复用，没有就新建 |
@@ -397,10 +376,10 @@ Content-Type: application/json
 | 待分类列表 | `GET /api/likes/pending` | Query：`limit`（默认 100，最大 200） | `ok`，`items[]`：`id`，`kugouId`，`title`，`artist`，`album`，`albumId`，`mixsongid`，`status`，`createdAt` |
 | 分类到歌单 | `POST /api/likes/:id/classify` | JSON：`playlist`（`listid` 或 `name`） | `ok`，`item`，`playlist`，`duplicate`。只写 `type=0` 自建歌单，不自动新建 |
 | 跳过分类 | `POST /api/likes/:id/skip` | JSON：`note`（可选，最多 200 字） | `ok`，`item` |
-| 聊天（external） | `POST /api/chat` | JSON：`message` | 控制命令（`/skip` `/pause` `/play` `/toggle` `/vol N` `/prev` `/now` `/queue`）照常执行。普通文字返回「当前为外部主持模式，请通过已接入的 Agent 或常驻 DJ 点歌。」，不调用 Claude |
-| 开机（external） | `POST /api/boot` | 无 | 不调用 Claude。返回当前 `queue` 和 `index`，`brain: "external"`，`skipped: true` |
+| 聊天（已弃用） | `POST /api/chat` | JSON：`message` | 已弃用：控制请用 `POST /api/control`，下个版本移除。控制命令（`/skip` `/pause` `/play` `/toggle` `/vol N` `/prev` `/now` `/queue`）照常执行；普通文字返回「当前为外部主持模式，请通过已接入的 Agent 或常驻 DJ 点歌。」 |
+| 开机（已弃用） | `POST /api/boot` | 无 | 已弃用：控制请用 `POST /api/control`，下个版本移除。返回当前 `queue` 和 `index`，`brain: "external"`，`skipped: true` |
 
-页面在 external 模式下只出声和显示。加载时，以及主持人投下新队列时，会先直接 `play()`。成功就不出遮罩；只有浏览器返回 `NotAllowedError` 才显示「点击开声」，点一下从当前队列和进度接着放。队列是空的就显示「等主持人点歌」，不盖遮罩。服务器记着暂停时，打开页面不会自己播；主持人用 replace 或 append 投下新队列，或者发 play，会再直接播。一首播完会放到队列里的下一首，整个队列播完就停。
+页面只负责出声和显示。加载时，以及主持人投下新队列时，会先直接 `play()`。成功就不出遮罩；只有浏览器返回 `NotAllowedError` 才显示「点击开声」，点一下从当前队列和进度接着放。队列是空的就显示「等主持人点歌」，不盖遮罩。服务器记着暂停时，打开页面不会自己播；主持人用 replace 或 append 投下新队列，或者发 play，会再直接播。一首播完会放到队列里的下一首，没有可用续播池时，整个队列播完就停。
 
 ### 待分类队列（bot）
 
@@ -414,9 +393,7 @@ Content-Type: application/json
 
 界面是宣纸水墨画风：浅色宣纸底配静态山水背景（宽屏和手机竖屏各一张），配色按时辰（清晨、午间、下午、傍晚、深夜）自动切换。Grokbot 头像是留白双眼的墨团。主持人口播显示外部点歌的 `say`，点歌时间显示在名字旁边。顶部导航可直接进入电台、歌单、品味和设置；右上角菜单也保留入口。音量沿用已保存的值，滑块旁边有数字。有歌词时出现「歌词」按钮，点击展开或收起，默认不挤占播放区。当前封面和待播封面加载失败时显示备用图。歌单页顶部可以按歌名 / 歌手搜索，点「播放」按选中的 hash 精确换队列，点「加入队列」接到队尾。播放页的「收藏」按钮会把当前歌曲写进酷狗「我喜欢」，再点一次移除。
 
-external 模式隐藏点歌对话和播放模式选项。internal 模式显示点歌对话、列表循环 / 单曲循环 / 自动推歌，以及队列展开或收起按钮；冷启动只预加载音频元数据，不自动播放。设置里的 DeepSeek 卡片只在 external 模式隐藏。
-
-`GET /api/weather` 在 external 模式下直接返回 `{}`，不调用 OpenWeather。播放页也不再每 5 分钟去拉天气。internal 模式这条路由仍返回当前天气；选歌提示里的天气还是在 `buildSystemPrompt` 里取，和这条路由无关。设置页里的「测试天气」按钮仍然会真的请求 OpenWeather。
+`GET /api/weather` 在 `weather_enabled` 开启时返回当前天气，关闭时直接返回 `{}`。设置页里的「测天气」按钮会绕过缓存即时检测。
 
 ### PowerShell 示例
 
@@ -544,10 +521,6 @@ Invoke-Claudio Post '/api/feedback' @{ kind = 'like'; title = '晴天'; artist =
 
 没开 `CLAUDIO_DJ` 时后两个接口返回 409。
 
-### 和 internal 模式的区别
-
-`internal` 是固定 cron（07:00 / 09:00 / 每小时）推歌，队列播完可能空着。常驻主持人是**按队列余量**补，不依赖时间点。两套可以同时开：cron 负责早上推第一轮，主持人负责后面不断流。
-
 ### 模型
 
 走 `claude.js` 的 `complete()`：有 DeepSeek key 用 DeepSeek，没有就 `claude -p`。蒸馏品味给 180 秒超时，`claude -p` 冷启动慢也不会被 60 秒默认值掐断。
@@ -571,9 +544,9 @@ Invoke-Claudio Post '/api/feedback' @{ kind = 'like'; title = '晴天'; artist =
 
 `/api/status` 和 `/api/now` 的 `continuePool` 无池时为 `null`，否则包含 `name、size、cursor、remaining、loop、shuffle、batchSize、source、setAt、lastContinuedAt、continuedCount、active`，不含曲目列表。`cursor` 是下一首索引，`remaining` 是本轮余量，`continuedCount` 是累计加入队列的曲目数，`active` 表示池还可续播。默认每批 5 首（1–50），循环开启、随机关闭；`loop:false` 耗尽后沿用原来的停止和播放键从头重播行为。
 
-PWA 在队尾向 `/api/runtime/state` 上报 `ended:true`，或调用队尾的 `/api/runtime/advance` 时触发续播；新曲直链播放时再解析。池元数据、曲目及游标保存在 prefs，重启保留；主持人推新队列不会清池。internal 模式队尾也先尝试续播，单曲循环仍沿用原行为。续播队列来源保持 `bot`，避免开机/定时任务覆盖。
+PWA 在队尾向 `/api/runtime/state` 上报 `ended:true`，或调用队尾的 `/api/runtime/advance` 时触发续播；新曲直链播放时再解析。池元数据、曲目及游标保存在 prefs，重启保留；主持人推新队列不会清池。续播队列来源保持 `bot`。
 
-每次续播加入新批次前，当前队列只保留新播放位置之前最近 20 首历史。环境变量 `CLAUDIO_QUEUE_HISTORY` 可设为大于等于 0 的整数，`0` 不保留历史，无效值使用默认 20；只影响续播池路径，不裁剪外部追加、歌单、聊天或开机队列，也不改变续播池的游标、循环和随机顺序。上一首只能回到保留历史的第 0 首，到头后沿用原来的提示/不动。整队播完后按 `play` / `toggle` 重播，从当前保留队列的第 0 首（最早保留的历史曲目）开始。
+每次续播加入新批次前，当前队列只保留新播放位置之前最近 20 首历史。环境变量 `CLAUDIO_QUEUE_HISTORY` 可设为大于等于 0 的整数，`0` 不保留历史，无效值使用默认 20；只影响续播池路径，不裁剪外部追加或歌单队列，也不改变续播池的游标、循环和随机顺序。上一首只能回到保留历史的第 0 首，到头后沿用原来的提示/不动。整队播完后按 `play` / `toggle` 重播，从当前保留队列的第 0 首（最早保留的历史曲目）开始。
 
 `/api/status`、`/api/now` 和 WS `state` 的 `queueOffset` 表示当前队列累计裁掉的头部曲目数；`index` 仍是保留队列内的相对索引，`index + queueOffset` 是绝对位置。替换队列时 offset 归零，追加时保留。PWA 的状态、显式 advance 和带 index 的进度报告应附上收到该队列时的 `queueOffset`；服务端换算迟到索引，忽略已裁掉曲目的报告。旧客户端缺省 offset 时按当前队列处理。同一绝对位置、同一曲目的裁剪/追加广播只更新队列，不重新加载音频。
 
@@ -698,7 +671,7 @@ rules:
 │   ├── app.js                 # Express + WS + 音频代理
 │   ├── router.js              # intent 分流
 │   ├── context.js             # 6 片粘成 system prompt
-│   ├── claude.js              # 仅 CLAUDIO_BRAIN=internal 时调用
+│   ├── claude.js              # 常驻主持人（DJ）模型调用
 │   ├── db.js                  # node:sqlite 包装
 │   └── services/
 │       ├── music.js           # 多源编排（搜索并行 / 点歌回落）

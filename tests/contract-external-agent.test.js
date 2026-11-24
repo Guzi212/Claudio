@@ -128,13 +128,9 @@ async function bootTestApp(overrides = {}) {
   const { createApp } = await import('../server/app.js');
   const { dbApi } = await import('../server/db.js');
   activeDb = dbApi;
-  const ask = overrides.ask || vi.fn();
-  const buildSystemPrompt = overrides.buildSystemPrompt || vi.fn();
   const resolveTrack = overrides.resolveTrack || makeFakeResolveTrack();
   const synthesize = overrides.synthesize || vi.fn(async () => null);
   const instance = createApp({
-    ask,
-    buildSystemPrompt,
     resolveTrack,
     synthesize,
     ...(overrides.multiSearch ? { multiSearch: overrides.multiSearch } : {}),
@@ -142,13 +138,9 @@ async function bootTestApp(overrides = {}) {
   return {
     ...instance,
     dbApi,
-    ask,
-    buildSystemPrompt,
     resolveTrack,
     synthesize,
     createFreshApp: (extra = {}) => createApp({
-      ask,
-      buildSystemPrompt,
       resolveTrack,
       synthesize,
       ...extra,
@@ -472,7 +464,7 @@ describe('外部 Agent 公开接口契约', () => {
     expect(reloadedStatus.body.volume).toBe(45);
   });
 
-  // 对应 README.md:384（状态：GET /api/status 与 GET /api/now）
+  // 对应 README.md:363, 545, 551（状态：GET /api/status 与 GET /api/now，含 continuePool 与 queueOffset）
   it('GET /api/status 与 GET /api/now 返回 README 列出的状态字段且 brain 经真实配置为 external', async () => {
     const { app } = await bootTestApp();
 
@@ -488,7 +480,17 @@ describe('外部 Agent 公开接口契约', () => {
       },
     });
 
-    // README.md:384：GET /api/status 与 GET /api/now 字段一致
+    const statusContractFields = [
+      'brain', 'provider', 'musicProvider', 'providers', 'nowPlaying',
+      'queue', 'index', 'queueOffset', 'paused', 'volume', 'currentTime', 'duration',
+      'active', 'listeners', 'lastSay', 'reason', 'queuedAt', 'source',
+      'continuePool',
+    ];
+    const pickContractFields = body => Object.fromEntries(
+      statusContractFields.map(key => [key, body[key]]),
+    );
+
+    // README.md:363, 545, 551：GET /api/status 与 GET /api/now 字段一致
     const snapshots = [];
     for (const urlPath of ['/api/status', '/api/now']) {
       const res = await requestApp(app, 'GET', urlPath);
@@ -506,6 +508,7 @@ describe('外部 Agent 公开接口契约', () => {
           queuedAt: expect.any(String),
         }),
         index: 0,
+        queueOffset: 0,
         paused: false,
         volume: 30,
         currentTime: expect.any(Number),
@@ -516,6 +519,7 @@ describe('外部 Agent 公开接口契约', () => {
         reason: '雨天',
         queuedAt: expect.any(String),
         source: 'grok',
+        continuePool: null,
       }));
       expect(Array.isArray(res.body.queue)).toBe(true);
       expect(res.body.queue[0]).toEqual(expect.objectContaining({
@@ -523,9 +527,66 @@ describe('外部 Agent 公开接口契约', () => {
         cover: 'https://img.example/cover.jpg',
         queuedAt: res.body.queuedAt,
       }));
+      for (const field of statusContractFields) {
+        expect(Object.prototype.hasOwnProperty.call(res.body, field)).toBe(true);
+      }
       snapshots.push(res.body);
     }
-    expect(snapshots[1]).toEqual(snapshots[0]);
+    expect(pickContractFields(snapshots[1])).toEqual(pickContractFields(snapshots[0]));
+
+    // 设置续播池并触发续播裁剪头部历史，制造非零 queueOffset，再核对两接口契约字段一致
+    vi.stubEnv('CLAUDIO_QUEUE_HISTORY', '0');
+    const poolRes = await requestApp(app, 'PUT', '/api/continue-pool', {
+      body: {
+        name: '夜间续播',
+        tracks: [
+          { title: '夜曲', artist: '周杰伦', reason: '夜里慢慢听' },
+          { title: '稻香', artist: '周杰伦' },
+        ],
+        shuffle: false,
+        loop: true,
+        batchSize: 1,
+        source: 'claudio-host',
+      },
+    });
+    expect(poolRes.statusCode).toBe(200);
+    expect(poolRes.body.ok).toBe(true);
+
+    const endRes = await requestApp(app, 'POST', '/api/runtime/state', {
+      body: { index: 0, queueOffset: 0, paused: true, ended: true },
+    });
+    expect(endRes.statusCode).toBe(200);
+    expect(endRes.body.continued).toBe(true);
+    expect(endRes.body.queueOffset).toBe(1);
+
+    const continuedSnapshots = [];
+    for (const urlPath of ['/api/status', '/api/now']) {
+      const res = await requestApp(app, 'GET', urlPath);
+      expect(res.statusCode).toBe(200);
+      for (const field of statusContractFields) {
+        expect(Object.prototype.hasOwnProperty.call(res.body, field)).toBe(true);
+      }
+      expect(res.body.queueOffset).toBe(1);
+      expect(res.body.continuePool).toEqual(expect.objectContaining({
+        name: '夜间续播',
+        size: 2,
+        cursor: 1,
+        remaining: 1,
+        loop: true,
+        shuffle: false,
+        batchSize: 1,
+        source: 'claudio-host',
+        setAt: expect.any(String),
+        lastContinuedAt: expect.any(String),
+        continuedCount: 1,
+        active: true,
+      }));
+      expect(Object.prototype.hasOwnProperty.call(res.body.continuePool, 'tracks')).toBe(false);
+      continuedSnapshots.push(res.body);
+    }
+    expect(continuedSnapshots[1].continuePool).toEqual(continuedSnapshots[0].continuePool);
+    expect(continuedSnapshots[1].queueOffset).toBe(continuedSnapshots[0].queueOffset);
+    expect(pickContractFields(continuedSnapshots[1])).toEqual(pickContractFields(continuedSnapshots[0]));
   });
 
   // 对应 README.md:400（聊天 external：8 个斜杠命令表驱动验证公开效果）
@@ -634,7 +695,7 @@ describe('外部 Agent 公开接口契约', () => {
     ];
 
     it.each(slashCases)('斜杠命令 $name', async ({ message, setup, verify }) => {
-      const { app, ask, buildSystemPrompt, createFreshApp } = await bootTestApp();
+      const { app, createFreshApp } = await bootTestApp();
       await requestApp(app, 'POST', '/api/queue/external', {
         body: {
           tracks: [
@@ -649,27 +710,23 @@ describe('外部 Agent 公开接口契约', () => {
       const res = await requestApp(app, 'POST', '/api/chat', { body: { message } });
       expect(res.statusCode).toBe(200);
       await verify({ app, createFreshApp, res });
-      expect(ask).not.toHaveBeenCalled();
-      expect(buildSystemPrompt).not.toHaveBeenCalled();
     });
 
     // 对应 README.md:400：普通文字返回固定提示原文，不调用 Claude（不锁未公开字段）
     it('普通文字返回外部主持模式提示原文且不调用模型', async () => {
-      const { app, ask, buildSystemPrompt } = await bootTestApp();
+      const { app } = await bootTestApp();
 
       const textRes = await requestApp(app, 'POST', '/api/chat', {
         body: { message: '帮我放点雨天的歌' },
       });
       expect(textRes.statusCode).toBe(200);
       expect(textRes.body.say).toBe(EXTERNAL_CHAT_HINT);
-      expect(ask).not.toHaveBeenCalled();
-      expect(buildSystemPrompt).not.toHaveBeenCalled();
     });
   });
 
   // 对应 README.md:401（开机 external：不调用模型，返回当前 queue/index、brain: "external"、skipped: true）
   it('POST /api/boot 在 external 下不调用模型，返回当前 queue/index、brain: "external" 与 skipped: true', async () => {
-    const { app, ask, buildSystemPrompt } = await bootTestApp();
+    const { app } = await bootTestApp();
 
     await requestApp(app, 'POST', '/api/queue/external', {
       body: {
@@ -692,7 +749,5 @@ describe('外部 Agent 公开接口契约', () => {
       title: '晴天',
       artist: '周杰伦',
     }));
-    expect(ask).not.toHaveBeenCalled();
-    expect(buildSystemPrompt).not.toHaveBeenCalled();
   });
 });

@@ -81,9 +81,10 @@ describe('mountSettingsRoutes', () => {
       fish_voice_id: 'voice-x',
       deepseek_api_key: '',
       deepseek_model: '',
-      calendar_provider: '',
       ui_theme: '',
     });
+    expect(r.body).not.toHaveProperty('brain_mode');
+    expect(r.body).not.toHaveProperty('calendar_provider');
   });
 
   it('PUT 写入新字段并返回 applied 列表', async () => {
@@ -144,12 +145,12 @@ describe('mountSettingsRoutes', () => {
 
     const r = mockRes();
     await app.routes['PUT /api/settings']({
-      body: { openweather_city: 'Chengdu', brain_mode: 'internal', calendar_provider: 'lark' },
+      body: { openweather_city: 'Chengdu', dj_enabled: 'true' },
     }, r);
 
     expect(invalidateCacheMock).toHaveBeenCalledTimes(1);
     expect(onSettingsSaved).toHaveBeenCalledWith(
-      expect.arrayContaining(['openweather_city', 'brain_mode', 'calendar_provider']),
+      expect.arrayContaining(['openweather_city', 'dj_enabled']),
       expect.any(Object),
     );
   });

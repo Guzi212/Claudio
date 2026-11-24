@@ -26,7 +26,6 @@ describe('services/settings', () => {
     const mod = await import('../server/services/settings.js');
     expect(Array.isArray(mod.KEYS)).toBe(true);
     expect(mod.KEYS).toEqual(expect.arrayContaining([
-      'brain_mode',
       'dj_enabled',
       'dj_poll_seconds',
       'dj_min_remaining_minutes',
@@ -42,7 +41,6 @@ describe('services/settings', () => {
       'weather_enabled',
       'openweather_api_key',
       'openweather_city',
-      'calendar_provider',
       'ui_theme',
       'global_hotkey',
       'hotkey_media_key',
@@ -50,6 +48,8 @@ describe('services/settings', () => {
       'always_on_top_mini',
       'music_provider',
     ]));
+    expect(mod.KEYS).not.toContain('brain_mode');
+    expect(mod.KEYS).not.toContain('calendar_provider');
     expect(typeof mod.getAll).toBe('function');
     expect(typeof mod.get).toBe('function');
     expect(typeof mod.set).toBe('function');
@@ -60,14 +60,14 @@ describe('services/settings', () => {
   it('get 优先返回 prefs，没有则回退 .env（同名大写或别名）', async () => {
     process.env.OPENWEATHER_CITY = 'Shanghai';
     process.env.OPENWEATHER_API_KEY = 'env-key';
-    process.env.CLAUDIO_BRAIN = 'internal';
+    process.env.CLAUDIO_DJ = '1';
     mem.set('openweather_api_key', 'pref-key');
 
     const { get } = await import('../server/services/settings.js');
     expect(get('openweather_api_key')).toBe('pref-key');
     expect(get('openweather_city')).toBe('Shanghai');
-    expect(get('brain_mode')).toBe('internal');
-    delete process.env.CLAUDIO_BRAIN;
+    expect(get('dj_enabled')).toBe('1');
+    delete process.env.CLAUDIO_DJ;
   });
 
   it('get 两边都没值返回空字符串', async () => {

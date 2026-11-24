@@ -4,7 +4,6 @@ import {
   applyRuntime,
   applyLeader,
   applyRemoteProgress,
-  appendToQueue,
   applyExternalQueue,
   syncFromServer,
 } from './views/player.js';
@@ -238,7 +237,6 @@ function connectWs() {
         applyRemoteProgress(evt);
         return;
       }
-      if (evt.type === 'queue-append' && evt.tracks) appendToQueue(evt.tracks);
       if (evt.type === 'external-queue') applyExternalQueue(evt);
       if (evt.type === 'continue-pool') applyRuntime({ continuePool: evt.continuePool });
       if (evt.type === 'settings-updated') {

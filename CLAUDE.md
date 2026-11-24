@@ -1,7 +1,7 @@
 # Claudio · 给 AI Agent 用的音乐播放器
 
 定位（[ADR-0001](docs/adr/0001-product-positioning.md)）：Agent 负责选歌和主持，Claudio 负责多音源检索（酷狗/网易云/QQ）、直链、出声和显示。现阶段面向自己玩过 AI、手里有 Agent 的用户，以桌面安装包分发；普通用户放到远期。方向与优先级见 `docs/roadmap.md`，具体任务见 `docs/dev-plan.md`。
-默认 `CLAUDIO_BRAIN=external`。`internal`（Claude 自己选歌，`router → context → claude → state.db`）已冻结，路线图阶段 1 存档移除。
+运行时固定按 `external` 模式工作。旧 `internal` 选歌链路已归档至 tag `archive/internal-brain` 并从主干移除。
 
 ## 产品规则
 
@@ -9,7 +9,7 @@
 - **稳定优先**：「装得上、不掉线、出得了声」相关的 bug 优先于任何新功能。
 - **少开终端**：需要用户开终端或改 `.env` 才能用的新功能，必须同时给界面入口，或在 `docs/roadmap.md` 阶段 2 记一条待办。
 - **公开契约**：`/api/queue/external`、`/api/music/*`、`/api/continue-pool`、`/api/health/integrations` 和 README「外部 Agent 接入」指令视为公开接口。破坏性改动先升版本、旧版至少保留一个发版周期；契约测试建好前，改这些接口必须同步 README 并在 PR 里标明。
-- **internal 冻结**：不给 internal 选歌链路加功能，只修影响 external 的 bug。
+- **不做内置选歌**：现阶段已移除旧 `internal` 链路（存档 `archive/internal-brain`）；若确认普通用户市场，按 ADR-0001 重新设计内置 harness，不复活旧链路。
 - **不加主题**：主题收敛完成前，不新增主题或大视觉改版，除非有用户反馈支撑。
 - **无个人痕迹**：仓库和默认值里不放任何人的数据、账号、城市等配置；个人语料走 git 忽略的 `.local` 文件。
 - **发版**：用户能感知的改动合并后，在 `CHANGELOG.md` 记一条用户能看懂的条目；发版打 `vX.Y.Z` tag。
