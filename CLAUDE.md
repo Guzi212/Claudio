@@ -9,7 +9,7 @@
 - **稳定优先**：「装得上、不掉线、出得了声」相关的 bug 优先于任何新功能。
 - **少开终端**：需要用户开终端或改 `.env` 才能用的新功能，必须同时给界面入口，或在 `docs/roadmap.md` 阶段 2 记一条待办。
 - **公开契约**：`/api/queue/external`、`/api/music/*`、`/api/continue-pool`、`/api/health/integrations` 和 README「外部 Agent 接入」指令视为公开接口。破坏性改动先升版本、旧版至少保留一个发版周期；契约测试建好前，改这些接口必须同步 README 并在 PR 里标明。
-- **不做内置选歌**：`internal` 选歌链路已归档（`archive/internal-brain`）并从主干移除，不再引入由 Claudio 自己选歌的分支。
+- **不做内置选歌**：现阶段已移除旧 `internal` 链路（存档 `archive/internal-brain`）；若确认普通用户市场，按 ADR-0001 重新设计内置 harness，不复活旧链路。
 - **不加主题**：主题收敛完成前，不新增主题或大视觉改版，除非有用户反馈支撑。
 - **无个人痕迹**：仓库和默认值里不放任何人的数据、账号、城市等配置；个人语料走 git 忽略的 `.local` 文件。
 - **发版**：用户能感知的改动合并后，在 `CHANGELOG.md` 记一条用户能看懂的条目；发版打 `vX.Y.Z` tag。

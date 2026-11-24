@@ -464,7 +464,7 @@ describe('外部 Agent 公开接口契约', () => {
     expect(reloadedStatus.body.volume).toBe(45);
   });
 
-  // 对应 README.md:384（状态：GET /api/status 与 GET /api/now）
+  // 对应 README.md:363, 545, 551（状态：GET /api/status 与 GET /api/now，含 continuePool 与 queueOffset）
   it('GET /api/status 与 GET /api/now 返回 README 列出的状态字段且 brain 经真实配置为 external', async () => {
     const { app } = await bootTestApp();
 
@@ -480,7 +480,17 @@ describe('外部 Agent 公开接口契约', () => {
       },
     });
 
-    // README.md:384：GET /api/status 与 GET /api/now 字段一致
+    const statusContractFields = [
+      'brain', 'provider', 'musicProvider', 'providers', 'nowPlaying',
+      'queue', 'index', 'queueOffset', 'paused', 'volume', 'currentTime', 'duration',
+      'active', 'listeners', 'lastSay', 'reason', 'queuedAt', 'source',
+      'continuePool',
+    ];
+    const pickContractFields = body => Object.fromEntries(
+      statusContractFields.map(key => [key, body[key]]),
+    );
+
+    // README.md:363, 545, 551：GET /api/status 与 GET /api/now 字段一致
     const snapshots = [];
     for (const urlPath of ['/api/status', '/api/now']) {
       const res = await requestApp(app, 'GET', urlPath);
@@ -498,6 +508,7 @@ describe('外部 Agent 公开接口契约', () => {
           queuedAt: expect.any(String),
         }),
         index: 0,
+        queueOffset: 0,
         paused: false,
         volume: 30,
         currentTime: expect.any(Number),
@@ -508,6 +519,7 @@ describe('外部 Agent 公开接口契约', () => {
         reason: '雨天',
         queuedAt: expect.any(String),
         source: 'grok',
+        continuePool: null,
       }));
       expect(Array.isArray(res.body.queue)).toBe(true);
       expect(res.body.queue[0]).toEqual(expect.objectContaining({
@@ -515,17 +527,66 @@ describe('外部 Agent 公开接口契约', () => {
         cover: 'https://img.example/cover.jpg',
         queuedAt: res.body.queuedAt,
       }));
+      for (const field of statusContractFields) {
+        expect(Object.prototype.hasOwnProperty.call(res.body, field)).toBe(true);
+      }
       snapshots.push(res.body);
     }
-    const statusContractFields = [
-      'brain', 'provider', 'musicProvider', 'providers', 'nowPlaying',
-      'queue', 'index', 'paused', 'volume', 'currentTime', 'duration',
-      'active', 'listeners', 'lastSay', 'reason', 'queuedAt', 'source',
-    ];
-    const pickContractFields = body => Object.fromEntries(
-      statusContractFields.map(key => [key, body[key]]),
-    );
     expect(pickContractFields(snapshots[1])).toEqual(pickContractFields(snapshots[0]));
+
+    // 设置续播池并触发续播裁剪头部历史，制造非零 queueOffset，再核对两接口契约字段一致
+    vi.stubEnv('CLAUDIO_QUEUE_HISTORY', '0');
+    const poolRes = await requestApp(app, 'PUT', '/api/continue-pool', {
+      body: {
+        name: '夜间续播',
+        tracks: [
+          { title: '夜曲', artist: '周杰伦', reason: '夜里慢慢听' },
+          { title: '稻香', artist: '周杰伦' },
+        ],
+        shuffle: false,
+        loop: true,
+        batchSize: 1,
+        source: 'claudio-host',
+      },
+    });
+    expect(poolRes.statusCode).toBe(200);
+    expect(poolRes.body.ok).toBe(true);
+
+    const endRes = await requestApp(app, 'POST', '/api/runtime/state', {
+      body: { index: 0, queueOffset: 0, paused: true, ended: true },
+    });
+    expect(endRes.statusCode).toBe(200);
+    expect(endRes.body.continued).toBe(true);
+    expect(endRes.body.queueOffset).toBe(1);
+
+    const continuedSnapshots = [];
+    for (const urlPath of ['/api/status', '/api/now']) {
+      const res = await requestApp(app, 'GET', urlPath);
+      expect(res.statusCode).toBe(200);
+      for (const field of statusContractFields) {
+        expect(Object.prototype.hasOwnProperty.call(res.body, field)).toBe(true);
+      }
+      expect(res.body.queueOffset).toBe(1);
+      expect(res.body.continuePool).toEqual(expect.objectContaining({
+        name: '夜间续播',
+        size: 2,
+        cursor: 1,
+        remaining: 1,
+        loop: true,
+        shuffle: false,
+        batchSize: 1,
+        source: 'claudio-host',
+        setAt: expect.any(String),
+        lastContinuedAt: expect.any(String),
+        continuedCount: 1,
+        active: true,
+      }));
+      expect(Object.prototype.hasOwnProperty.call(res.body.continuePool, 'tracks')).toBe(false);
+      continuedSnapshots.push(res.body);
+    }
+    expect(continuedSnapshots[1].continuePool).toEqual(continuedSnapshots[0].continuePool);
+    expect(continuedSnapshots[1].queueOffset).toBe(continuedSnapshots[0].queueOffset);
+    expect(pickContractFields(continuedSnapshots[1])).toEqual(pickContractFields(continuedSnapshots[0]));
   });
 
   // 对应 README.md:400（聊天 external：8 个斜杠命令表驱动验证公开效果）
