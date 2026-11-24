@@ -1,8 +1,5 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { exec } from 'node:child_process';
-import { promisify } from 'node:util';
 import axios from 'axios';
 import { dbApi } from '../db.js';
 import { axiosProxyOptions } from '../outbound-proxy.js';
@@ -12,8 +9,6 @@ import { checkProvidersHealth } from '../services/music.js';
 import { parseCookie } from '../services/kugou-cookie.js';
 import { REFRESHED_AT_PREF as KUGOU_REFRESHED_AT_PREF } from '../services/kugou-login.js';
 
-const execAsync = promisify(exec);
-const LARK_TIMEOUT_MS = 3_000;
 const KUGOU_BASE = process.env.KUGOU_API_BASE || DEFAULT_KUGOU_API_BASE;
 
 function credentialAgeFields(updatedAt, now = Date.now()) {
@@ -148,40 +143,14 @@ function checkAi() {
   return { ok: false, detail: 'no API key or claude CLI' };
 }
 
-async function checkLark() {
-  try {
-    await execAsync('lark-cli --version', { timeout: LARK_TIMEOUT_MS });
-    return { ok: true, detail: 'lark-cli ok' };
-  } catch (err) {
-    const msg = String(err?.message || '');
-    if (err?.code === 'ENOENT' || /not (recognized|found)/i.test(msg)) {
-      return { ok: false, detail: 'not installed' };
-    }
-    return { ok: false, detail: 'not logged in' };
-  }
-}
-
-function checkCalendar(lark) {
-  const provider = String(getSetting('calendar_provider') || 'none').trim().toLowerCase();
-  if (provider === 'lark') {
-    return { ok: lark.ok, provider: 'lark', detail: lark.detail };
-  }
-  if (provider === 'google') {
-    const credsPath = process.env.GOOGLE_OAUTH_CREDENTIALS
-      || path.join(os.homedir(), '.config/google-calendar-mcp/gcp-oauth.keys.json');
-    const tokensPath = path.join(path.dirname(credsPath), 'tokens.json');
-    const ready = fs.existsSync(credsPath) && fs.existsSync(tokensPath);
-    return { ok: ready, provider: 'google', detail: ready ? 'oauth ready' : 'oauth credentials missing' };
-  }
-  return { ok: false, provider: 'none', detail: 'disabled' };
-}
+// 公开契约兼容桩：日历功能已移除，lark / calendar 两个键保留一个版本。
+const REMOVED_INTEGRATION = Object.freeze({ ok: false, detail: 'removed' });
 
 export function mountHealthRoute(app, deps = {}) {
   const getDj = typeof deps.getDj === 'function' ? deps.getDj : () => null;
 
   app.get('/api/health/integrations', async (req, res) => {
-    const [lark, kugou, providersHealth] = await Promise.all([
-      checkLark(),
+    const [kugou, providersHealth] = await Promise.all([
       checkKugou(),
       checkProvidersHealth(),
     ]);
@@ -194,8 +163,8 @@ export function mountHealthRoute(app, deps = {}) {
       weather: checkWeather(),
       tts: checkSettingKey('fish_api_key'),
       ai: checkAi(),
-      lark,
-      calendar: checkCalendar(lark),
+      lark: { ...REMOVED_INTEGRATION },
+      calendar: { ...REMOVED_INTEGRATION },
       dj: djStatus?.enabled
         ? { ok: true, detail: `running (${djStatus.config?.batchSize || 5} tracks/refill)` }
         : { ok: false, detail: 'standby' },

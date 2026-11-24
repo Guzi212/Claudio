@@ -99,7 +99,7 @@ function createPreview() {
   app.get('/api/now', (_req, res) => res.json({ ok: true, ...state, nowPlaying: state.queue[state.index] }));
   app.get('/api/status', (_req, res) => res.json({ ok: true, ...state, nowPlaying: state.queue[state.index] }));
   app.get('/api/health', (_req, res) => res.json({ ok: true }));
-  app.get('/api/health/integrations', (_req, res) => res.json({ kugou: { ok: true, loggedIn: true, detail: '试听就绪' }, netease: { ok: true, loggedIn: false, anonymous: true, detail: 'anonymous' }, qq: { ok: true, loggedIn: false, detail: 'search only' }, weather: { ok: true, detail: 'Open-Meteo (keyless)' }, tts: { ok: false, detail: '未配置' }, ai: { ok: false, detail: '未配置' }, lark: { ok: false, detail: '未配置' }, calendar: { ok: false, detail: '未配置' }, dj: { ok: false, detail: 'standby' } }));
+  app.get('/api/health/integrations', (_req, res) => res.json({ kugou: { ok: true, loggedIn: true, detail: '试听就绪' }, netease: { ok: true, loggedIn: false, anonymous: true, detail: 'anonymous' }, qq: { ok: true, loggedIn: false, detail: 'search only' }, weather: { ok: true, detail: 'Open-Meteo (keyless)' }, tts: { ok: false, detail: '未配置' }, ai: { ok: false, detail: '未配置' }, lark: { ok: false, detail: 'removed' }, calendar: { ok: false, detail: 'removed' }, dj: { ok: false, detail: 'standby' } }));
   app.get('/api/settings', (_req, res) => res.json({ openweather_city: 'Changsha', ui_theme: 'auto', music_provider: 'multi' }));
   app.get('/api/memory/brief', (_req, res) => res.json({ ok: true, scene: state.scene, context: { coldStart: true, confidence: 0.1, vocalPreference: 'neutral', energyTarget: 'neutral' }, traits: [], tasteSummary: { sessionCount: 0 } }));
   app.get('/api/memory/traits', (_req, res) => res.json({ ok: true, traits: [] }));
@@ -593,10 +593,10 @@ try {
   await viewport(1280, 900); await screenshot('desktop-empty');
   await evaluate(`document.body.classList.remove('is-empty')`);
   await viewport(390, 844);
-  const consoleHidden = await evaluate(`getComputedStyle(document.querySelector('#console-chat')).display`);
-  assert.equal(consoleHidden, 'none');
-  const externalOptionsHidden = await evaluate(`[...document.querySelectorAll('[data-internal-only]')].every(el => getComputedStyle(el).display === 'none')`);
-  assert.equal(externalOptionsHidden, true);
+  const removedInternalUi = await evaluate(`({ chatRemoved: !document.querySelector('#console-chat'), loopRemoved: !document.querySelector('[data-console-control="loop"]'), queueToggleRemoved: !document.querySelector('[data-console-control="queue"]') })`);
+  assert.equal(removedInternalUi.chatRemoved, true);
+  assert.equal(removedInternalUi.loopRemoved, true);
+  assert.equal(removedInternalUi.queueToggleRemoved, true);
 
   const savedQueue = state.queue;
   state.index = 0;
@@ -625,40 +625,10 @@ try {
   await screenshot('mobile-cover-fallback');
   state.queue = savedQueue;
 
-  state.brain = 'internal';
-  await viewport(1280, 900); await navigate();
+  await viewport(390, 844); await navigate();
   await waitFor(`document.querySelector('#lyrics-panel .lyric-line')`);
-  const internal = await evaluate(`({ chat: getComputedStyle(document.querySelector('#console-chat')).display, lyrics: getComputedStyle(document.querySelector('#lyrics-panel')).display, toggle: document.querySelector('#lyrics-toggle').hidden, aiSettings: null, scrollWidth: document.documentElement.scrollWidth })`);
-  assert.notEqual(internal.chat, 'none'); assert.notEqual(internal.lyrics, 'none'); assert.equal(internal.toggle, false); assert.equal(internal.scrollWidth, 1280);
-  await screenshot('desktop-internal-lyrics');
-  await evaluate(`window.dispatchEvent(new CustomEvent('claudio:theme', { detail: 'pixel' }))`);
-  await delay(80);
-  assert.equal(await evaluate('document.documentElement.scrollWidth'), 1280, 'pixel internal lyrics overflow');
-  await screenshot('pixel-desktop-internal-lyrics');
-  await evaluate(`window.dispatchEvent(new CustomEvent('claudio:theme', { detail: 'auto' }))`);
   await click('#lyrics-toggle');
   await waitFor(`getComputedStyle(document.querySelector('#lyrics-panel')).display === 'none'`);
-  await screenshot('desktop-internal');
-  const internalOptions = {};
-  await click('[data-console-control="loop"]');
-  await waitFor(`document.querySelector('[data-console-control="loop"]').textContent === '列表循环'`);
-  internalOptions.loop = await evaluate(`document.querySelector('[data-console-control="loop"]').textContent`);
-  await click('[data-console-control="loop"]');
-  await waitFor(`document.querySelector('[data-console-control="loop"]').textContent === '单曲循环'`);
-  await click('[data-console-control="queue"]');
-  await waitFor(`getComputedStyle(document.querySelector('#queue-list')).display === 'none'`);
-  internalOptions.collapsed = await evaluate(`document.querySelector('[data-console-control="queue"]').getAttribute('aria-expanded')`);
-  await click('[data-console-control="queue"]');
-  await waitFor(`getComputedStyle(document.querySelector('#queue-list')).display !== 'none'`);
-  internalOptions.expanded = await evaluate(`document.querySelector('[data-console-control="queue"]').getAttribute('aria-expanded')`);
-  assert.equal(internalOptions.loop, '列表循环'); assert.equal(internalOptions.collapsed, 'false'); assert.equal(internalOptions.expanded, 'true');
-  await evaluate(`document.querySelector('.tab[data-view="settings"]').click()`);
-  await waitFor(`getComputedStyle(document.querySelector('#settings-ai')).display !== 'none'`);
-  internal.aiSettings = await evaluate(`getComputedStyle(document.querySelector('#settings-ai')).display`);
-  await screenshot('desktop-internal-settings');
-
-  await viewport(390, 844);
-  await evaluate(`document.querySelector('.tab[data-view="player"]').click()`);
   await evaluate(`(() => { const audio = document.querySelector('#audio'); audio.pause(); audio.currentTime = 60; })()`);
   await waitFor(`document.querySelector('.lyric-line.active')?.dataset.idx === '12'`);
   await click('#lyrics-toggle');
@@ -681,7 +651,7 @@ try {
   assert.equal(lyricFollow.centered, true, 'Following lyrics should only center within the panel');
   await screenshot('mobile-lyrics-follow');
 
-  state.brain = 'external'; state.queue = []; state.index = 0; state.paused = true;
+  state.queue = []; state.index = 0; state.paused = true;
   await viewport(390, 844); await navigate();
   await waitFor(`document.body.classList.contains('is-empty')`);
   const empty = await evaluate(`({ stage: getComputedStyle(document.querySelector('.stage')).display, empty: getComputedStyle(document.querySelector('.empty-stage')).display, overlay: getComputedStyle(document.querySelector('#boot-overlay')).display, scrollWidth: document.documentElement.scrollWidth })`);
@@ -695,7 +665,7 @@ try {
   await evaluate(`window.dispatchEvent(new CustomEvent('claudio:theme', { detail: 'auto' }))`);
 
   assert.equal(errors.length, 0, `Browser errors: ${errors.join('\n')}`);
-  await writeFile(path.join(output, 'verification.json'), JSON.stringify({ results, theme, playback, motionPlaying, motionPaused, selected, liked, exclusive, cancelled, favorited, seek, rememberedVolume, nav, focus, consoleHidden, externalOptionsHidden, longQueue, internal, internalOptions, lyricPosition, lyricFollow, empty, errors }, null, 2));
+  await writeFile(path.join(output, 'verification.json'), JSON.stringify({ results, theme, playback, motionPlaying, motionPaused, selected, liked, exclusive, cancelled, favorited, seek, rememberedVolume, nav, focus, removedInternalUi, longQueue, lyricPosition, lyricFollow, empty, errors }, null, 2));
   console.log(JSON.stringify({ ok: true, output, screenshots: 14, theme, playback, motionPlaying, motionPaused, selected, seek, rememberedVolume, nav, errors }, null, 2));
 } finally {
   if (ws?.readyState === WebSocket.OPEN) { try { await send('Browser.close'); } catch {} ws.close(); }

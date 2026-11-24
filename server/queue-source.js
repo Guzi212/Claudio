@@ -1,5 +1,4 @@
-// 播放队列从哪来。boot / scheduler 在自动换歌前看 queueSource，
-// 外部点歌（bot）还没放完时不覆盖。聊天和歌单是用户明确操作，直接换。
+// 播放队列从哪来。外部点歌（bot）还没放完时不覆盖；歌单是用户明确操作，直接换。
 
 export const PAUSE_RESET_MS = 10 * 60_000;
 

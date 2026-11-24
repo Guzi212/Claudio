@@ -50,7 +50,7 @@
 ### 阶段 1：收敛（清理 + 重构）
 
 清理：
-- [ ] internal 大脑打存档 tag `archive/internal-brain` 后从主干移除；常驻主持人单独评估
+- [ ] internal 大脑打存档 tag `archive/internal-brain` 后从主干移除；常驻主持人单独评估（进行中：PR 2 已删 internal 选歌与日历）
 - [ ] 主题收敛到 1～2 套
 - [ ] `state.db` 移到用户数据目录；默认值不再带任何个人配置（天气城市等）
 - [ ] `docs/handoffs/latest.md` 更新为当前状态

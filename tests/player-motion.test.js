@@ -13,13 +13,4 @@ describe('player motion state', () => {
     expect(playerJs).toContain("audio.addEventListener('play'");
     expect(playerJs).toContain("audio.addEventListener('pause'");
   });
-
-  it('internal 冷启动预加载歌词所需元数据，但不自动播放', () => {
-    const coldLoad = playerJs.match(/cold-load 不自动播放[\s\S]*?renderQueuePanel\(\);/)?.[0] || '';
-    // 只赋 src 不 load，preload=none 时 loadedmetadata 不会触发，歌词组件拿不到当前曲目。
-    expect(coldLoad).toContain("audio.preload = 'metadata'");
-    expect(coldLoad).toContain('audio.load()');
-    expect(coldLoad).not.toContain('playIndex(');
-    expect(coldLoad).not.toContain('attemptPlay(');
-  });
 });

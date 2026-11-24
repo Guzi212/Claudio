@@ -8,7 +8,6 @@ const indexHtml = fs.readFileSync(path.resolve('pwa/index.html'), 'utf8');
 describe('settings view API contract', () => {
   it('使用 /api/settings 的全量扁平字段契约读写配置', () => {
     const expectedKeys = [
-      'brain_mode',
       'dj_enabled',
       'dj_poll_seconds',
       'dj_min_remaining_minutes',
@@ -24,7 +23,6 @@ describe('settings view API contract', () => {
       'weather_enabled',
       'openweather_api_key',
       'openweather_city',
-      'calendar_provider',
       'ui_theme',
       'global_hotkey',
       'hotkey_media_key',
@@ -36,18 +34,24 @@ describe('settings view API contract', () => {
       expect(settingsViewJs).toContain(key);
     }
 
+    expect(settingsViewJs).not.toContain('brain_mode');
+    expect(settingsViewJs).not.toContain('calendar_provider');
+    expect(settingsViewJs).not.toContain("key: 'lark'");
+    expect(settingsViewJs).not.toContain("key: 'calendar'");
     expect(settingsViewJs).not.toContain('s?.weather?.apiKey');
     expect(settingsViewJs).not.toContain('payload.weather.apiKey');
     expect(settingsViewJs).not.toContain('s?.tts?.apiKey');
     expect(settingsViewJs).not.toContain('payload.tts.apiKey');
   });
 
-  it('AI 与日历连通测试和清空红心歌单入口就位，无多余 helper 文案', () => {
+  it('AI 连通测试和清空红心歌单入口就位，模式选择与日历设置已移除', () => {
     expect(indexHtml).toContain('data-test="ai"');
-    expect(indexHtml).toContain('data-test="calendar"');
     expect(indexHtml).toContain('id="btn-clear-like-target"');
+    expect(indexHtml).not.toContain('id="set-brain-mode"');
+    expect(indexHtml).not.toContain('id="set-calendar-provider"');
+    expect(indexHtml).not.toContain('data-test="calendar"');
     expect(settingsViewJs).toContain('/api/test/ai');
-    expect(settingsViewJs).toContain('/api/test/calendar');
+    expect(settingsViewJs).not.toContain('/api/test/calendar');
   });
 
   it('手动改红心歌单名会清掉旧的隐藏 listid', () => {

@@ -24,9 +24,10 @@ describe('player console controls', () => {
     expect(indexHtml).not.toContain('class="np-controls"');
   });
 
-  it('external 保持纯电台，internal 保留点歌对话', () => {
-    expect(playerJs).toContain("consoleChat.hidden = brain !== 'internal'");
-    expect(stylesCss).toContain('body:not(.brain-internal) #console-chat');
+  it('播放页移除内置点歌对话与 internal 专属选项', () => {
+    expect(indexHtml).not.toContain('id="console-chat"');
+    expect(indexHtml).not.toContain('data-internal-only');
+    expect(stylesCss).not.toContain('brain-internal');
   });
 
   it('播放控制包含上一首、播放/暂停、下一首与喜欢/不喜欢/收藏', () => {
@@ -38,11 +39,8 @@ describe('player console controls', () => {
     expect(indexHtml).toContain('data-feedback="dislike"');
     expect(indexHtml).toContain('data-console-control="favorite"');
     expect(indexHtml).toContain('<symbol id="heart"');
-    for (const control of ['queue', 'loop']) {
-      expect(indexHtml).toMatch(new RegExp(`<button[^>]+data-console-control="${control}"[^>]+data-internal-only`));
-    }
-    expect(stylesCss).toContain('body:not(.brain-internal) [data-internal-only]');
-    expect(playerJs).toContain("btn.hidden = brain !== 'internal'");
+    expect(indexHtml).not.toContain('data-console-control="queue"');
+    expect(indexHtml).not.toContain('data-console-control="loop"');
   });
 
   it('点踩真实上报 dislike 遥测与 feedback 并切下一首；主动切下一首按进度报 skipped', () => {
@@ -100,10 +98,10 @@ describe('player console controls', () => {
     expect(indexHtml).toContain('aria-label="电台导航"');
   });
 
-  it('DeepSeek 与电台模式设置项在设置页始终可见', () => {
+  it('设置页移除主持模式切换，DeepSeek 设置项随常驻 DJ 暂保留', () => {
     expect(indexHtml).toContain('id="settings-ai"');
-    expect(indexHtml).toContain('id="set-brain-mode"');
+    expect(indexHtml).not.toContain('id="set-brain-mode"');
     expect(stylesCss).not.toContain('#settings-ai { display: none');
-    expect(playerJs).toContain("classList.toggle('brain-internal'");
+    expect(playerJs).not.toContain('brain-internal');
   });
 });

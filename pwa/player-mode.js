@@ -9,10 +9,6 @@ export function externalUnlockPlan({ queue, index } = {}) {
   return { playIndex, dialog: null };
 }
 
-export function allowsAutoRefill(brain, loopMode) {
-  return brain === 'internal' && loopMode === 'auto';
-}
-
 // 打开页面时要不要自己播。暂停的会话保持暂停，空队列只提示，遮罩先不盖。
 export function planExternalBoot({ queue, paused } = {}) {
   const list = Array.isArray(queue) ? queue : [];
