@@ -514,6 +514,8 @@ section.view-player { position: relative; overflow-y: auto; background: transpar
 .btn.primary:hover:not(:disabled) { color: #fff; border-color: #c24e37; background: #c24e37; }
 .btn.ghost { background: transparent; }
 .ghost-pill { border: 1px solid rgba(var(--ink-rgb), .22); border-radius: 999px; background: rgba(var(--paper-rgb), .75); color: var(--ink); padding: 4px 10px; font-size: 12px; }
+.ghost-pill:disabled { opacity: .55; cursor: default; }
+.play-here { white-space: nowrap; }
 .playlist-list { margin: 4px 0 0; padding: 0; list-style: none; }
 .playlist-item { display: flex; align-items: center; justify-content: space-between; gap: 18px; min-height: 72px; padding: 14px 0; border-top: 1px solid rgba(var(--ink-rgb), .1); }
 .playlist-meta { min-width: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
@@ -624,6 +626,7 @@ details.card[open] > summary::before { content: "−"; }
   .brand-mark { width: 28px; height: 28px; }
   .wordmark { font-size: 24px; }
   .status { font-size: 11px; }
+  .play-here { font-size: 11px; padding: 3px 8px; }
   .tabs { grid-column: 1 / -1; grid-row: 2; justify-content: stretch; }
   .tab { flex: 1; min-height: 36px; }
   .masthead { min-height: 45px; }

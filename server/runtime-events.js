@@ -22,7 +22,9 @@ export function progressBroadcast(runtime, clientId) {
 export function leaderBroadcast(leader) {
   return {
     type: 'leader',
-    leader: leader ? { clientId: leader.clientId, kind: leader.kind } : null,
+    leader: leader
+      ? { clientId: leader.clientId, kind: leader.kind, claimed: Boolean(leader.claimed) }
+      : null,
   };
 }
 
@@ -31,15 +33,25 @@ export function normalizeClientKind(kind) {
 }
 
 // /stream 连接身份注册与单点播放权威选举：
-// 有 electron 连接 → 最新连接的 electron 当 leader；否则最早连接的 pwa 当 leader。
+// 有人显式认领（「在此设备播放」）→ 最新认领的连接当 leader，不看类型；
+// 否则有 electron 连接 → 最新连接的 electron 当 leader；否则最早连接的 pwa 当 leader。
+// 认领随连接存活：断开即释放，重新选举。
 export function createStreamRegistry() {
   const entries = new Map();
   let nextSeq = 0;
+  let nextClaimSeq = 0;
 
   function electEntry() {
+    let latestClaimed = null;
     let latestElectron = null;
     let earliestPwa = null;
     for (const entry of entries.values()) {
+      if (entry.claimed) {
+        if (!latestClaimed || entry.claimSeq > latestClaimed.claimSeq) {
+          latestClaimed = entry;
+        }
+        continue;
+      }
       if (entry.kind === 'electron') {
         if (!latestElectron || entry.seq > latestElectron.seq) {
           latestElectron = entry;
@@ -48,11 +60,13 @@ export function createStreamRegistry() {
         earliestPwa = entry;
       }
     }
-    return latestElectron || earliestPwa || null;
+    return latestClaimed || latestElectron || earliestPwa || null;
   }
 
   function toLeaderView(entry) {
-    return entry ? { clientId: entry.clientId, kind: entry.kind } : null;
+    return entry
+      ? { clientId: entry.clientId, kind: entry.kind, claimed: Boolean(entry.claimed) }
+      : null;
   }
 
   function connect(ws) {
@@ -63,11 +77,16 @@ export function createStreamRegistry() {
       clientId: `anon-${seq}`,
       kind: 'pwa',
       identified: false,
+      claimed: false,
+      claimSeq: 0,
     };
     entries.set(ws, entry);
     return { entry, leader: toLeaderView(electEntry()) };
   }
 
+  // claim=true 认领播放权（「在此设备播放」），claim=false 归还。
+  // 认领只跟这条连接走：断开自动归还；重复 claim 刷新次序，
+  // 让「先手机认领、再电脑网页认领」时后到者接管。
   function identify(ws, msg = {}) {
     const entry = entries.get(ws);
     if (!entry) return toLeaderView(electEntry());
@@ -75,6 +94,13 @@ export function createStreamRegistry() {
     if (rawId) entry.clientId = rawId;
     entry.kind = normalizeClientKind(msg?.kind);
     entry.identified = true;
+    if (msg?.claim === true) {
+      entry.claimed = true;
+      entry.claimSeq = ++nextClaimSeq;
+    } else if (msg?.claim === false) {
+      entry.claimed = false;
+      entry.claimSeq = 0;
+    }
     return toLeaderView(electEntry());
   }
 
@@ -112,6 +138,7 @@ export function createStreamRegistry() {
       listeners: Array.from(entries.values(), entry => ({
         clientId: entry.clientId,
         kind: entry.kind,
+        claimed: Boolean(entry.claimed),
         leader: entry === current,
       })),
     };

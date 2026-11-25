@@ -8,6 +8,7 @@ import {
   syncFromServer,
 } from './views/player.js';
 import { getClientId } from './client-id.js';
+import { wantsPlaybackHere, setWantsPlaybackHere } from './leader-claim.js';
 import { installMediaSession } from './media-session.js';
 import { initPlaylists } from './views/playlists.js';
 import { initProfile } from './views/profile.js';
@@ -218,10 +219,12 @@ function connectWs() {
       if ((evt.type === 'hello' || evt.type === 'state') && evt.runtime) {
         if (evt.type === 'hello' && ws?.readyState === 1) {
           try {
+            // claim 只在用户点过「在此设备播放」后带上；普通打开页面不抢权。
             ws.send(JSON.stringify({
               type: 'identify',
               clientId: getClientId(),
               kind: detectClientKind(),
+              ...(wantsPlaybackHere() ? { claim: true } : {}),
             }));
           } catch { /* ignore */ }
         }
@@ -249,6 +252,24 @@ function connectWs() {
   window.addEventListener('claudio:progress', ev => {
     if (!ws || ws.readyState !== 1) return;
     try { ws.send(JSON.stringify({ type: 'progress', ...ev.detail })); } catch { /* ignore */ }
+  });
+
+  // 「在此设备播放 / 返回电脑播放」按钮 → identify 里带 claim 标志重协商。
+  window.addEventListener('claudio:leader-claim', ev => {
+    const want = Boolean(ev?.detail?.want);
+    if (!ws || ws.readyState !== 1) {
+      // 离线时意图已记下，重连后的 identify 会自动带上 claim；归还则清掉意图。
+      setWantsPlaybackHere(want);
+      return;
+    }
+    try {
+      ws.send(JSON.stringify({
+        type: 'identify',
+        clientId: getClientId(),
+        kind: detectClientKind(),
+        claim: want,
+      }));
+    } catch { /* ignore */ }
   });
 
   const kick = () => {

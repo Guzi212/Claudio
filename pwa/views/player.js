@@ -14,6 +14,7 @@ import {
 } from '../player-mode.js';
 import { readLocalVolume, writeLocalVolume } from '../volume-memory.js';
 import { getClientId } from '../client-id.js';
+import { wantsPlaybackHere, requestPlaybackHere } from '../leader-claim.js';
 import { hostSprite, PIXEL_HOST_SPRITES, readPixelHostEnabled } from '../host-mood.js';
 
 function escapeHtml(str) {
@@ -52,6 +53,36 @@ const state = {
 
 let bootOverlay = null;
 let bootBtn = null;
+let playHereBtn = null;
+// 点过「在此设备播放」等待服务端确认时置真，防重复点击；
+// leader 广播到达后清掉。
+let playHerePending = false;
+
+// 顶部「在此设备播放 / 返回电脑播放」按钮的显示与文案：
+// follower（别的客户端在出声）→ 显示「在此设备播放」；
+// 本端显式认领着 → 显示「返回电脑播放」；
+// 本端是默认选举出的 leader（没人认领）→ 隐藏，不打扰。
+function updatePlayHereButton() {
+  if (!playHereBtn) return;
+  const myId = getClientId();
+  const iAmClaimedLeader = Boolean(
+    state.leader && state.leader.clientId === myId && state.leader.claimed
+  );
+  const show = playHerePending || state.isFollower || iAmClaimedLeader;
+  playHereBtn.hidden = !show;
+  if (!show) {
+    playHerePending = false;
+    playHereBtn.disabled = false;
+    return;
+  }
+  if (playHerePending) {
+    playHereBtn.disabled = true;
+    playHereBtn.textContent = '正在切换…';
+    return;
+  }
+  playHereBtn.disabled = false;
+  playHereBtn.textContent = iAmClaimedLeader ? '返回电脑播放' : '在此设备播放';
+}
 let activeAgent = null;
 let activeSession = null;
 let volumeReportTimer = null;
@@ -1461,7 +1492,11 @@ async function resumeAsLeader() {
 export function applyLeader(leader) {
   const prevFollower = Boolean(state.isFollower);
   const nextLeader = leader && leader.clientId
-    ? { clientId: String(leader.clientId), kind: leader.kind === 'electron' ? 'electron' : 'pwa' }
+    ? {
+      clientId: String(leader.clientId),
+      kind: leader.kind === 'electron' ? 'electron' : 'pwa',
+      claimed: Boolean(leader.claimed),
+    }
     : null;
   state.leader = nextLeader;
   const myId = getClientId();
@@ -1469,10 +1504,12 @@ export function applyLeader(leader) {
   state.isFollower = nextFollower;
 
   if (nextFollower) {
+    playHerePending = false;
     activeSession = null;
     silenceFollowerAudio();
     dismissBootOverlay();
     syncFollowerStage({ forceTrackEvent: !prevFollower });
+    updatePlayHereButton();
     return;
   }
 
@@ -1481,6 +1518,8 @@ export function applyLeader(leader) {
     renderedFollowerKey = '';
     resumeAsLeader();
   }
+  playHerePending = false;
+  updatePlayHereButton();
 }
 
 export function applyRemoteProgress(evt = {}) {
@@ -1615,6 +1654,28 @@ export function initPlayer() {
         postMemoryTelemetry({ event: 'volume', volume, trigger: 'manual' });
       }, 600);
     });
+  }
+
+  playHereBtn = $('#play-here-btn');
+  if (playHereBtn) {
+    playHereBtn.addEventListener('click', () => {
+      // 点击本身就是移动端的 user gesture，解锁本端 audio.play()。
+      markActivated();
+      const myId = getClientId();
+      const iAmClaimedLeader = Boolean(
+        state.leader && state.leader.clientId === myId && state.leader.claimed
+      );
+      if (iAmClaimedLeader) {
+        // 归还播放权：回到默认选举（桌面在则桌面接）。
+        requestPlaybackHere(false);
+        updatePlayHereButton();
+        return;
+      }
+      playHerePending = true;
+      requestPlaybackHere(true);
+      updatePlayHereButton();
+    });
+    updatePlayHereButton();
   }
 
   bindConsoleControls();
