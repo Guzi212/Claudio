@@ -48,8 +48,9 @@
 - [x] 生产 `.env` 已配 `CLAUDIO_HOST=0.0.0.0` + `CLAUDIO_API_TOKEN` + `CLAUDIO_ALLOWED_HOSTS`（含 tailnet 域名/IP），
   完整手机访问 URL 保存在 `D:\works\claudio-runtime\mobile-access.txt`（不入库）。
 - [x] 实测回执：tailnet IP 打 `/api/health/integrations` 带 token 200 / 不带 401；`/api/proxy` 转发 kugou 音频流 206 + `audio/flac`。
-- [ ] 手机真机端到端验收（点歌出声、锁屏控制、播放权 leader 在多端间的归属表现）待 loic 实机确认。
-- [ ] 移动端 UI 适配视图（进度/按钮排布）列为下一阶段。
+- [x] loic 真机验收（2026-11-25）：手机能打开 HTTPS 页面并点歌——但**出声仍在电脑**。原因：#48 防双声
+  机制让 Electron 客户端固定当播放 leader，手机被压成 follower 静音。修复在 PR #57（「在此设备播放」认领）。
+- [ ] 手机端出声待 #57 合并后复验；移动端 UI 适配视图（进度/按钮排布）列为下一阶段。
 
 ### 阶段二：补源 + 适配层抽象（待评估）
 
