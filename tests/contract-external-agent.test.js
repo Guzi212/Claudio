@@ -22,7 +22,7 @@ vi.mock('axios', () => ({
   },
 }));
 
-const EXTERNAL_CHAT_HINT = '当前为外部主持模式，请通过已接入的 Agent 或常驻 DJ 点歌。';
+const EXTERNAL_CHAT_HINT = '当前为外部主持模式，请通过已接入的 Agent 点歌。';
 
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'claudio-contract-'));
 let dbCounter = 0;

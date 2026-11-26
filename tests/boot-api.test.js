@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { mountBootRoute } from '../server/api/boot.js';
-import { warnRemovedInternalBrain } from '../server/app.js';
+import { warnRemovedInternalBrain, warnRemovedResidentDj } from '../server/app.js';
 
 function mockApp() {
   const routes = {};
@@ -83,6 +83,28 @@ describe('warnRemovedInternalBrain', () => {
   it('未设置 internal 时静默', () => {
     const warn = vi.fn();
     expect(warnRemovedInternalBrain({ env: { CLAUDIO_BRAIN: 'external' }, db: { getPref: () => null }, warn })).toBe(false);
+    expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+describe('warnRemovedResidentDj', () => {
+  it('环境或旧设置仍开启常驻 DJ 时打一行 warn，不抛错', () => {
+    const warn = vi.fn();
+    expect(warnRemovedResidentDj({ env: { CLAUDIO_DJ: '1' }, db: { getPref: () => null }, warn })).toBe(true);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('常驻 DJ 已移除，自动续歌请用续播池或让 Agent 追加'));
+
+    warn.mockClear();
+    expect(warnRemovedResidentDj({ env: { DJ_ENABLED: 'true' }, db: { getPref: () => null }, warn })).toBe(true);
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    warn.mockClear();
+    expect(warnRemovedResidentDj({ env: {}, db: { getPref: k => (k === 'dj_enabled' ? 'true' : null) }, warn })).toBe(true);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('未开启常驻 DJ 时静默', () => {
+    const warn = vi.fn();
+    expect(warnRemovedResidentDj({ env: { CLAUDIO_DJ: '0' }, db: { getPref: () => 'false' }, warn })).toBe(false);
     expect(warn).not.toHaveBeenCalled();
   });
 });

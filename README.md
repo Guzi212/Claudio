@@ -58,7 +58,7 @@
 
 酷狗 / 网易云 / QQ 音乐负责检索、直链和歌单读写；浏览器 PWA 与桌面端负责播放。队列播完后从主持人设置的续播池继续，没有可用续播池就停。
 
-口味语料还在：`user/taste.md`、`user/music/kugou_taste_summary.md`、酷狗歌单导入脚本都保留，给外部 Agent 或常驻主持人读取。
+口味语料还在：`user/taste.md`、`user/music/kugou_taste_summary.md`、酷狗歌单导入脚本都保留，给外部 Agent 读取。
 
 ---
 
@@ -311,7 +311,7 @@ WebSocket 还会看 `Origin`。没有 Origin（非浏览器的 bot）放行，�
 
 ## 外部歌单（Bot）
 
-`POST /api/queue/external` 接收 bot 给的歌单。Claudio 只做酷狗匹配（沿用现有打分：未点名的 DJ 版直接 0 分，现场 / live / remix 等降权，阈值 60），**不调用 Claude**，也**不限制在账号歌单候选池里**。搜不到的歌按原方式写入 `unmatched`。
+`POST /api/queue/external` 接收 bot 给的歌单。Claudio 只做多源匹配（沿用现有打分：未点名的 DJ 版直接 0 分，现场 / live / remix 等降权，阈值 60），**不调用大模型**。搜不到的歌按原方式写入 `unmatched`。
 
 匹配成功后可以放进 Claudio 播放队列（WebSocket 通知本机 PWA 播），也可以写进酷狗账号里的歌单，或两件都做。写歌单只调用本机 KuGouMusicApi 的 `user/playlist`、`playlist/add`、`playlist/tracks/add`，重写时先 `playlist/tracks/del`。酷狗客户端不能被远程拉起播放，这条路径不会去按播放。
 
@@ -376,7 +376,7 @@ Content-Type: application/json
 | 待分类列表 | `GET /api/likes/pending` | Query：`limit`（默认 100，最大 200） | `ok`，`items[]`：`id`，`kugouId`，`title`，`artist`，`album`，`albumId`，`mixsongid`，`status`，`createdAt` |
 | 分类到歌单 | `POST /api/likes/:id/classify` | JSON：`playlist`（`listid` 或 `name`） | `ok`，`item`，`playlist`，`duplicate`。只写 `type=0` 自建歌单，不自动新建 |
 | 跳过分类 | `POST /api/likes/:id/skip` | JSON：`note`（可选，最多 200 字） | `ok`，`item` |
-| 聊天（已弃用） | `POST /api/chat` | JSON：`message` | 已弃用：控制请用 `POST /api/control`，下个版本移除。控制命令（`/skip` `/pause` `/play` `/toggle` `/vol N` `/prev` `/now` `/queue`）照常执行；普通文字返回「当前为外部主持模式，请通过已接入的 Agent 或常驻 DJ 点歌。」 |
+| 聊天（已弃用） | `POST /api/chat` | JSON：`message` | 已弃用：控制请用 `POST /api/control`，下个版本移除。控制命令（`/skip` `/pause` `/play` `/toggle` `/vol N` `/prev` `/now` `/queue`）照常执行；普通文字返回「当前为外部主持模式，请通过已接入的 Agent 点歌。」 |
 | 开机（已弃用） | `POST /api/boot` | 无 | 已弃用：控制请用 `POST /api/control`，下个版本移除。返回当前 `queue` 和 `index`，`brain: "external"`，`skipped: true` |
 
 页面只负责出声和显示。加载时，以及主持人投下新队列时，会先直接 `play()`。成功就不出遮罩；只有浏览器返回 `NotAllowedError` 才显示「点击开声」，点一下从当前队列和进度接着放。队列是空的就显示「等主持人点歌」，不盖遮罩。服务器记着暂停时，打开页面不会自己播；主持人用 replace 或 append 投下新队列，或者发 play，会再直接播。一首播完会放到队列里的下一首，没有可用续播池时，整个队列播完就停。
@@ -490,40 +490,6 @@ Invoke-Claudio Post '/api/feedback' @{ kind = 'like'; title = '晴天'; artist =
 ```
 
 `target` 不含播放队列时 `queue` 为 `null`。不含酷狗歌单时 `playlist` 为 `null`。歌单写入失败时 HTTP 仍是 200，看 `ok` 和 `playlist.ok` / `playlist.error`，避免客户端自动重试造成重复写入。
-
-## 常驻主持人（DJ）
-
-`CLAUDIO_DJ=1` 时，Claudio 自己当主持人，不用外部 bot 一直盯着。
-
-它每 20 秒看一次队列（`CLAUDIO_DJ_TICK_MS`），算从当前这首到队尾还剩多少秒：
-
-- 剩余不足 `CLAUDIO_DJ_REFILL_BELOW`（默认 600 秒）→ 让模型按当前氛围排 `CLAUDIO_DJ_BATCH` 首（默认 5），**接在队尾**（append），不打断正在放的那首。
-- 有页面连着（`active`）且没暂停才动手，没人听不烧 token。
-- 外部 bot 刚投过歌（`queuedAt` 在 `CLAUDIO_DJ_YIELD_MS` 内，默认 3 分钟）就让位，不跟人抢。
-- 新一批里剔掉最近 40 首播过的；模型给的全重复就放弃这一轮，90 秒后再试。
-- 串词 `say` 走原来的 Fish Audio TTS，排在新歌最前面。
-
-### 品味学习
-
-每次补歌成功后检查一次：新增播放满 15 条、且距上次蒸馏超过 6 小时，就把近 30 天的播放和反馈压成统计，让模型写成 `user/taste.learned.md`：
-
-- 常驻歌手 / 在升温 / 在退潮 / 雷区 / 时段规律 / 一句话画像，每条带次数和比例。
-- 这个文件作为 `=== ② 自动学到的品味 ===` 注入选歌提示，排在 `user/taste.md` 后面，可信度更低。
-- 文件被 git 忽略；手改会在下次蒸馏时覆盖，想长期生效写进 `taste.md`。
-
-### 接口
-
-| 用途 | 方法 + 路径 | 返回 |
-| --- | --- | --- |
-| 状态 | `GET /api/dj/status` | `enabled`、`refillCount`、`lastRefillAt`、`lastError`、`lastDecision`、`remainingSeconds`、`tasteLearnedAt`、`config` |
-| 手动补一批 | `POST /api/dj/refill` | `{ok, added, say, reason}`，不等剩余阈值 |
-| 手动重学品味 | `POST /api/dj/learn` | `{ok, path, stats}` |
-
-没开 `CLAUDIO_DJ` 时后两个接口返回 409。
-
-### 模型
-
-走 `claude.js` 的 `complete()`：有 DeepSeek key 用 DeepSeek，没有就 `claude -p`。蒸馏品味给 180 秒超时，`claude -p` 冷启动慢也不会被 60 秒默认值掐断。
 
 ## 续播池
 
@@ -670,8 +636,6 @@ rules:
 ├── server/                    # Node 后端
 │   ├── app.js                 # Express + WS + 音频代理
 │   ├── router.js              # intent 分流
-│   ├── context.js             # 6 片粘成 system prompt
-│   ├── claude.js              # 常驻主持人（DJ）模型调用
 │   ├── db.js                  # node:sqlite 包装
 │   └── services/
 │       ├── music.js           # 多源编排（搜索并行 / 点歌回落）
@@ -689,8 +653,6 @@ rules:
 │   ├── manifest.json
 │   ├── views/ components/     # 各视图和歌词等组件
 │   └── assets/ink/            # 水墨背景、宣纸纹理、Grokbot 头像、图标
-├── prompts/
-│   └── dj-persona.md          # Claudio 的人格 + JSON schema 硬约束
 ├── user/
 │   ├── taste.md               # 你的品味语料（填我）
 │   └── routines.md            # 你的日常节奏（可填）

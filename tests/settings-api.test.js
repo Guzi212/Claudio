@@ -28,8 +28,6 @@ beforeEach(() => {
   delete process.env.OPENWEATHER_CITY;
   delete process.env.FISH_API_KEY;
   delete process.env.FISH_VOICE_ID;
-  delete process.env.DEEPSEEK_API_KEY;
-  delete process.env.DEEPSEEK_MODEL;
   vi.resetModules();
 });
 
@@ -79,12 +77,13 @@ describe('mountSettingsRoutes', () => {
       openweather_city: 'Shanghai',
       fish_api_key: '',
       fish_voice_id: 'voice-x',
-      deepseek_api_key: '',
-      deepseek_model: '',
       ui_theme: '',
     });
     expect(r.body).not.toHaveProperty('brain_mode');
     expect(r.body).not.toHaveProperty('calendar_provider');
+    expect(r.body).not.toHaveProperty('dj_enabled');
+    expect(r.body).not.toHaveProperty('deepseek_api_key');
+    expect(r.body).not.toHaveProperty('deepseek_model');
   });
 
   it('PUT 写入新字段并返回 applied 列表', async () => {
@@ -145,12 +144,12 @@ describe('mountSettingsRoutes', () => {
 
     const r = mockRes();
     await app.routes['PUT /api/settings']({
-      body: { openweather_city: 'Chengdu', dj_enabled: 'true' },
+      body: { openweather_city: 'Chengdu', ui_theme: 'dark' },
     }, r);
 
     expect(invalidateCacheMock).toHaveBeenCalledTimes(1);
     expect(onSettingsSaved).toHaveBeenCalledWith(
-      expect.arrayContaining(['openweather_city', 'dj_enabled']),
+      expect.arrayContaining(['openweather_city', 'ui_theme']),
       expect.any(Object),
     );
   });

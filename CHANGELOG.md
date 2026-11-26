@@ -2,9 +2,11 @@
 
 ## 未发布
 
-- **移除旧 `internal` 选歌模式**：不再支持旧 `internal` 模式的内置选歌、开机推荐和定时推歌，选歌交给外部 Agent（或可选的常驻 DJ）；此前配置为 `internal` 的用户启动时会收到提示并自动按 `external` 模式运行。
-- **移除日程 / 日历功能**：移除 Google Calendar 与飞书日历集成及相关设置项；`GET /api/health/integrations` 中的 `lark`、`calendar` 字段暂保留一个版本并返回 `removed` 状态。
-- **接口弃用**：`POST /api/chat` 与 `POST /api/boot` 进入弃用过渡期，播放控制请改用 `POST /api/control`，这两个接口将在下个版本移除。
+- **移除旧 `internal` 选歌模式**：不再支持旧 `internal` 模式的内置选歌、开机推荐和定时推歌，选歌交给外部 Agent；此前配置为 `internal` 的用户启动时会收到提示并自动按 `external` 模式运行。
+- **移除常驻 DJ（常驻主持人）**：自动续歌请改用续播池（`PUT /api/continue-pool`）或让外部 Agent 追加；原先开启常驻 DJ 的用户启动时会收到提示，服务照常启动。
+- **移除 DeepSeek / Claude 模型设置与歌单候选池**：删除设置页的电台引擎与 AI 模型配置项、歌单页候选池以及 `/api/dj/*`、`/api/kugou/playlists/pool`、`/api/test/ai` 接口。
+- **移除日程 / 日历功能**：移除 Google Calendar 与飞书日历集成及相关设置项；`GET /api/health/integrations` 中的 `lark`、`calendar`、`ai`、`dj` 字段暂保留一个版本并固定返回 `removed` 状态。
+- **接口弃用与提示更新**：`POST /api/chat` 与 `POST /api/boot` 进入弃用过渡期，播放控制请改用 `POST /api/control`，这两个接口将在下个版本移除；`POST /api/chat` 普通文字提示文案更新为「当前为外部主持模式，请通过已接入的 Agent 点歌。」。
 
 ## v0.1.0 — 2026-11-23
 

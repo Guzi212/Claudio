@@ -99,7 +99,7 @@ function createPreview() {
   app.get('/api/now', (_req, res) => res.json({ ok: true, ...state, nowPlaying: state.queue[state.index] }));
   app.get('/api/status', (_req, res) => res.json({ ok: true, ...state, nowPlaying: state.queue[state.index] }));
   app.get('/api/health', (_req, res) => res.json({ ok: true }));
-  app.get('/api/health/integrations', (_req, res) => res.json({ kugou: { ok: true, loggedIn: true, detail: '试听就绪' }, netease: { ok: true, loggedIn: false, anonymous: true, detail: 'anonymous' }, qq: { ok: true, loggedIn: false, detail: 'search only' }, weather: { ok: true, detail: 'Open-Meteo (keyless)' }, tts: { ok: false, detail: '未配置' }, ai: { ok: false, detail: '未配置' }, lark: { ok: false, detail: 'removed' }, calendar: { ok: false, detail: 'removed' }, dj: { ok: false, detail: 'standby' } }));
+  app.get('/api/health/integrations', (_req, res) => res.json({ kugou: { ok: true, loggedIn: true, detail: '试听就绪' }, netease: { ok: true, loggedIn: false, anonymous: true, detail: 'anonymous' }, qq: { ok: true, loggedIn: false, detail: 'search only' }, weather: { ok: true, detail: 'Open-Meteo (keyless)' }, tts: { ok: false, detail: '未配置' }, ai: { ok: false, detail: 'removed' }, lark: { ok: false, detail: 'removed' }, calendar: { ok: false, detail: 'removed' }, dj: { ok: false, detail: 'removed' } }));
   app.get('/api/settings', (_req, res) => res.json({ openweather_city: 'Changsha', ui_theme: 'auto', music_provider: 'multi' }));
   app.get('/api/memory/brief', (_req, res) => res.json({ ok: true, scene: state.scene, context: { coldStart: true, confidence: 0.1, vocalPreference: 'neutral', energyTarget: 'neutral' }, traits: [], tasteSummary: { sessionCount: 0 } }));
   app.get('/api/memory/traits', (_req, res) => res.json({ ok: true, traits: [] }));
@@ -113,7 +113,6 @@ function createPreview() {
   app.get('/api/studio/state', (_req, res) => res.json({ studio: { activeMode: 'dark', onAir: !state.paused } }));
   app.get('/api/taste', (_req, res) => res.json({ taste: '# 喜欢的声音\n\n- 周杰伦\n- 陈奕迅\n- 安静的夜晚\n\n<!-- kugou-distilled:start -->\n<!-- kugou-distilled:end -->', routines: '# 日常\n\n- 09:00 工作\n- 22:00 放松' }));
   app.get('/api/kugou/playlists', (_req, res) => res.json({ ok: true, playlists: [{ listid: '1', name: '深夜循环', songCount: 28 }, { listid: '2', name: '通勤路上', songCount: 45 }, { listid: '3', name: '那些年的华语歌', songCount: 62 }] }));
-  app.get('/api/kugou/playlists/pool', (_req, res) => res.json({ ok: true, pool: null }));
   app.get('/api/kugou/search', (_req, res) => res.json({ ok: true, tracks: [{ hash: 'preview-search', title: '晴天', artist: '周杰伦', album: '叶惠美', duration: 269000, cover: '' }] }));
   app.get('/api/music/search', (_req, res) => res.json({ ok: true, provider: 'multi', providersUsed: ['kugou', 'netease', 'qq'], tracks: [{ provider: 'kugou', id: 'preview-search', hash: 'preview-search', title: '晴天', artist: '周杰伦', album: '叶惠美', duration: 269, cover: '' }, { provider: 'netease', id: '186016', hash: 'netease:186016', title: '晴天', artist: '周杰伦', album: '叶惠美', duration: 269, cover: '' }] }));
   app.get('/api/kugou/favorite', (_req, res) => res.json({ ok: true, liked: false }));
@@ -388,11 +387,35 @@ try {
     await waitFor(`!document.querySelector('#view-${view}').classList.contains('hidden')`);
     await delay(120);
     if (view === 'playlists') {
+      await waitFor(`document.querySelectorAll('#playlist-list .playlist-item').length === 3`);
+      const playlistsCheck = await evaluate(`({
+        hasPoolCard: !!document.querySelector('.pool-card'),
+        alertHidden: document.querySelector('#alert-bar')?.classList.contains('hidden'),
+        alertText: document.querySelector('#alert-bar')?.textContent || '',
+      })`);
+      assert.equal(playlistsCheck.hasPoolCard, false, 'pool-card should be removed from playlists view');
+      assert.equal(playlistsCheck.alertHidden, true, `playlists view should not show alert: ${playlistsCheck.alertText}`);
       await evaluate(`(() => { const input = document.querySelector('#search-input'); input.value = '晴天'; document.querySelector('#search-form').requestSubmit(); })()`);
       await waitFor(`document.querySelectorAll('#search-results .search-result').length > 0`);
     }
     if (view === 'settings') {
       await waitFor(`document.querySelector('#kugou-status')?.textContent !== '读取中…'`);
+      const settingsCheck = await evaluate(`(() => {
+        const cards = [...document.querySelectorAll('#view-settings .card')];
+        const emptyCards = cards.filter(c => c.querySelectorAll('input, select, button, a, ul li').length === 0).length;
+        const healthLabels = [...document.querySelectorAll('#health-list .label')].map(el => el.textContent);
+        return {
+          hasAiCard: !!document.querySelector('#settings-ai'),
+          hasDjInput: !!document.querySelector('#set-dj-enabled'),
+          emptyCards,
+          healthLabels,
+        };
+      })()`);
+      assert.equal(settingsCheck.hasAiCard, false, 'settings-ai card should be removed');
+      assert.equal(settingsCheck.hasDjInput, false, 'DJ inputs should be removed');
+      assert.equal(settingsCheck.emptyCards, 0, 'settings view should have no empty cards');
+      assert.equal(settingsCheck.healthLabels.includes('AI'), false, 'health list should not show AI');
+      assert.equal(settingsCheck.healthLabels.includes('DJ'), false, 'health list should not show DJ');
       await evaluate(`(() => { const sel = document.querySelector('#set-ui-theme'); sel.value = 'pixel'; sel.dispatchEvent(new Event('change', { bubbles: true })); })()`);
       await delay(80);
       assert.equal(await evaluate(`document.documentElement.dataset.theme`), 'pixel');

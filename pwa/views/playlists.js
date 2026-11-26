@@ -1,28 +1,11 @@
-// Playlists 视图 · 酷狗账号歌单 → 设候选池 / 整单播放。
-// 候选池交给服务端持久化（prefs），Claudio 推荐时优先从池里选歌。
+// Playlists 视图 · 酷狗账号歌单 → 设为喜欢单 / 整单播放，以及多源歌曲搜索。
 import { showAlert, toast } from './ui.js';
 
-let listEl, poolStatusEl, poolClearBtn, refreshBtn;
+let listEl, refreshBtn;
 let searchForm, searchInput, searchResults, searchStatus;
 let loaded = false;
 let loading = false;
 let playlists = [];
-
-async function setPool(playlist) {
-  try {
-    const r = await fetch('/api/kugou/playlists/pool', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ playlist }),
-    });
-    const data = await r.json();
-    if (!data.ok) throw new Error(data.error || `HTTP ${r.status}`);
-    renderPool(data.pool);
-    toast(`候选池已设为《${playlist.name}》`);
-  } catch (err) {
-    showAlert(`设置候选池失败：${err.message}`);
-  }
-}
 
 async function setLikeTarget(playlist) {
   try {
@@ -39,22 +22,6 @@ async function setLikeTarget(playlist) {
     toast(`已设为默认红心歌单：《${playlist.name}》`);
   } catch (err) {
     showAlert(`设置默认红心歌单失败：${err.message}`);
-  }
-}
-
-async function clearPool() {
-  try {
-    const r = await fetch('/api/kugou/playlists/pool', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
-    });
-    const data = await r.json();
-    if (!data.ok) throw new Error(data.error || `HTTP ${r.status}`);
-    renderPool(null);
-    toast('候选池已清除');
-  } catch (err) {
-    showAlert(`清除候选池失败：${err.message}`);
   }
 }
 
@@ -193,16 +160,6 @@ async function searchTracks(query) {
   }
 }
 
-function renderPool(pool) {
-  if (pool) {
-    poolStatusEl.textContent = `《${pool.name}》 · ${pool.trackCount} 首`;
-    poolClearBtn.classList.remove('hidden');
-  } else {
-    poolStatusEl.textContent = '未设置（Claudio 会按 taste.md 自由推荐）';
-    poolClearBtn.classList.add('hidden');
-  }
-}
-
 function renderList(items) {
   listEl.textContent = '';
   if (!items.length) {
@@ -239,17 +196,11 @@ function renderList(items) {
       likeBtn.addEventListener('click', () => setLikeTarget(p));
       actions.appendChild(likeBtn);
     }
-    const poolBtn = document.createElement('button');
-    poolBtn.type = 'button';
-    poolBtn.className = 'btn ghost';
-    poolBtn.textContent = '设为候选池';
-    poolBtn.addEventListener('click', () => setPool(p));
     const playBtn = document.createElement('button');
     playBtn.type = 'button';
     playBtn.className = 'btn primary';
     playBtn.textContent = '整单播放';
     playBtn.addEventListener('click', () => playPlaylist(p));
-    actions.appendChild(poolBtn);
     actions.appendChild(playBtn);
 
     li.appendChild(meta);
@@ -265,15 +216,10 @@ async function load(force = false) {
   refreshBtn.disabled = true;
   listEl.innerHTML = '<li class="muted">加载中…</li>';
   try {
-    const [listRes, poolRes] = await Promise.all([
-      fetch('/api/kugou/playlists'),
-      fetch('/api/kugou/playlists/pool'),
-    ]);
+    const listRes = await fetch('/api/kugou/playlists');
     const listData = await listRes.json();
     if (!listData.ok) throw new Error(listData.error || `HTTP ${listRes.status}`);
-    const poolData = await poolRes.json();
     playlists = Array.isArray(listData.playlists) ? listData.playlists : [];
-    renderPool(poolData.pool);
     renderList(playlists);
     loaded = true;
   } catch (err) {
@@ -287,8 +233,6 @@ async function load(force = false) {
 
 export function initPlaylists() {
   listEl = document.getElementById('playlist-list');
-  poolStatusEl = document.getElementById('pool-status');
-  poolClearBtn = document.getElementById('pool-clear');
   refreshBtn = document.getElementById('playlists-refresh');
   searchForm = document.getElementById('search-form');
   searchInput = document.getElementById('search-input');
@@ -296,7 +240,6 @@ export function initPlaylists() {
   searchStatus = document.getElementById('search-status');
 
   refreshBtn.addEventListener('click', () => load(true));
-  poolClearBtn.addEventListener('click', clearPool);
   if (searchForm) {
     searchForm.addEventListener('submit', e => {
       e.preventDefault();

@@ -1,12 +1,8 @@
 /**
- * intent 分流。
+ * intent 分流（供弃用过渡期 /api/chat 解析斜杠控制命令）。
  *
- * MVP 阶段：
- *   - 以 `/` 开头 → control（跳过 Claude，直连播放器）
- *   - 其他一切 → chat（走 Claude 子进程）
- *
- * "搜索直连"（例如 "放周杰伦的晴天" 不进 Claude）现阶段不做：
- * 让 Claude 处理一切自然语言，反正它在 dj-persona.md 里已经被教会"用户明确指定单曲时只返回 1 条 play"。
+ *   - 以 `/` 开头 → control（直连播放控制）
+ *   - 其他一切 → chat（返回外部主持提示）
  */
 
 const CONTROL_RE = /^\/([a-z]+)(?:\s+(.*))?$/i;
