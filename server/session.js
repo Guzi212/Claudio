@@ -57,7 +57,8 @@ export function sessionCookieHeader(id, { secure = false } = {}) {
 export function mountSessionRoute(app) {
   app.post('/api/session', (req, res) => {
     const id = createSession();
-    const secure = Boolean(req.socket?.encrypted);
+    const forwardedProto = String(req.headers?.['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+    const secure = Boolean(req.socket?.encrypted) || forwardedProto === 'https';
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('Set-Cookie', sessionCookieHeader(id, { secure }));
     res.json({ ok: true });

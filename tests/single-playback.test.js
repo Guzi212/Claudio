@@ -70,6 +70,11 @@ function startTestStreamServer(initialRuntime = {}) {
           broadcast(leaderBroadcast(nextLeader));
           return;
         }
+        if (msg?.type === 'claim') {
+          const nextLeader = registry.claim(ws, msg?.want === true || msg?.want === 'true');
+          broadcast(leaderBroadcast(nextLeader));
+          return;
+        }
         if (msg?.type === 'progress') {
           if (!registry.isLeader(ws)) return;
           if (!applyProgress(runtime, msg)) return;
@@ -206,18 +211,22 @@ describe('单点播放服务端选举与广播', () => {
     expect(reg.identify(phone, { clientId: 'phone', kind: 'pwa' }))
       .toEqual({ clientId: 'desktop', kind: 'electron', claimed: false });
 
-    // 手机点「在此设备播放」→ 立即接管
+    // identify 不再携带 claim：claim 字段被忽略，旧意图不能借 identify 复活
     expect(reg.identify(phone, { clientId: 'phone', kind: 'pwa', claim: true }))
+      .toEqual({ clientId: 'desktop', kind: 'electron', claimed: false });
+
+    // 手机显式 claim → 立即接管
+    expect(reg.claim(phone, true))
       .toEqual({ clientId: 'phone', kind: 'pwa', claimed: true });
 
     // 另一台网页再认领 → 后到者接管（独占只有一个）
     reg.connect(laptop);
     reg.identify(laptop, { clientId: 'laptop', kind: 'pwa' });
-    expect(reg.identify(laptop, { clientId: 'laptop', kind: 'pwa', claim: true }))
+    expect(reg.claim(laptop, true))
       .toEqual({ clientId: 'laptop', kind: 'pwa', claimed: true });
 
     // laptop 归还 → 回落到仍认领着 的 phone（不是 electron）
-    expect(reg.identify(laptop, { clientId: 'laptop', kind: 'pwa', claim: false }))
+    expect(reg.claim(laptop, false))
       .toEqual({ clientId: 'phone', kind: 'pwa', claimed: true });
 
     // 手机断开 → 没有认领者了，回到默认选举：desktop（electron）
@@ -386,10 +395,10 @@ describe('单点播放服务端选举与广播', () => {
       phone.ws.send(JSON.stringify({ type: 'identify', clientId: 'phone', kind: 'pwa' }));
       await phoneSeesDesk;
 
-      // 手机点「在此设备播放」→ claim=true，两端都收到 phone 为 leader
+      // 手机点「在此设备播放」→ claim want=true，两端都收到 phone 为 leader
       const deskSawPhone = desk.waitNext(e => e.type === 'leader' && e.leader?.clientId === 'phone');
       const phoneSawSelf = phone.waitNext(e => e.type === 'leader' && e.leader?.clientId === 'phone');
-      phone.ws.send(JSON.stringify({ type: 'identify', clientId: 'phone', kind: 'pwa', claim: true }));
+      phone.ws.send(JSON.stringify({ type: 'claim', clientId: 'phone', want: true }));
       const [dl, pl] = await Promise.all([deskSawPhone, phoneSawSelf]);
       expect(pl.leader).toEqual({ clientId: 'phone', kind: 'pwa', claimed: true });
       expect(dl.leader.claimed).toBe(true);
@@ -405,21 +414,67 @@ describe('单点播放服务端选举与广播', () => {
       const st = await fetch(`${srv.baseUrl}/api/status`).then(r => r.json());
       expect(st.playback.leader).toEqual({ clientId: 'phone', kind: 'pwa', claimed: true });
 
-      // 手机点「返回电脑播放」→ claim=false，两端都收到 desktop 复任
+      // 手机点「归还播放权」→ claim want=false，两端都收到 desktop 复任
       const deskRegained = desk.waitNext(e => e.type === 'leader' && e.leader?.clientId === 'desktop');
       const phoneSawDeskBack = phone.waitNext(e => e.type === 'leader' && e.leader?.clientId === 'desktop');
-      phone.ws.send(JSON.stringify({ type: 'identify', clientId: 'phone', kind: 'pwa', claim: false }));
+      phone.ws.send(JSON.stringify({ type: 'claim', clientId: 'phone', want: false }));
       await Promise.all([deskRegained, phoneSawDeskBack]);
 
       // 手机再认领一次后直接断开 → 认领随连接回收，desktop 接回
       const phoneClaimedAgain = desk.waitNext(e => e.type === 'leader' && e.leader?.clientId === 'phone');
-      phone.ws.send(JSON.stringify({ type: 'identify', clientId: 'phone', kind: 'pwa', claim: true }));
+      phone.ws.send(JSON.stringify({ type: 'claim', clientId: 'phone', want: true }));
       await phoneClaimedAgain;
       const deskBackAfterClose = desk.waitNext(e => e.type === 'leader' && e.leader?.clientId === 'desktop');
       phone.ws.close();
       const evt = await deskBackAfterClose;
       expect(evt.leader).toEqual({ clientId: 'desktop', kind: 'electron', claimed: false });
 
+      desk.ws.close();
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it('真实 WS：A 认领后 B 再认领，A 断网重连不会用旧意图抢回', async () => {
+    const srv = await startTestStreamServer();
+    try {
+      const desk = await connectClient(srv.wsUrl);
+      await desk.waitFor(e => e.type === 'hello');
+      desk.ws.send(JSON.stringify({ type: 'identify', clientId: 'desktop', kind: 'electron' }));
+      await desk.waitNext(e => e.type === 'leader' && e.leader?.clientId === 'desktop');
+
+      // A 认领
+      const a = await connectClient(srv.wsUrl);
+      await a.waitFor(e => e.type === 'hello');
+      a.ws.send(JSON.stringify({ type: 'identify', clientId: 'phone-a', kind: 'pwa' }));
+      a.ws.send(JSON.stringify({ type: 'claim', clientId: 'phone-a', want: true }));
+      await a.waitNext(e => e.type === 'leader' && e.leader?.clientId === 'phone-a');
+
+      // B 再认领：后到者接管
+      const b = await connectClient(srv.wsUrl);
+      await b.waitFor(e => e.type === 'hello');
+      b.ws.send(JSON.stringify({ type: 'identify', clientId: 'phone-b', kind: 'pwa' }));
+      const bLead = b.waitNext(e => e.type === 'leader' && e.leader?.clientId === 'phone-b');
+      b.ws.send(JSON.stringify({ type: 'claim', clientId: 'phone-b', want: true }));
+      await bLead;
+
+      // A 断网重连：新连接只 identify（前端现在不携带 claim 意图）
+      a.ws.close();
+      const a2 = await connectClient(srv.wsUrl);
+      await a2.waitFor(e => e.type === 'hello');
+      const a2SeesB = a2.waitNext(e => e.type === 'leader' && e.leader?.clientId === 'phone-b');
+      a2.ws.send(JSON.stringify({ type: 'identify', clientId: 'phone-a', kind: 'pwa' }));
+      const evt = await a2SeesB;
+      // 重连后 B 仍是 leader——A 的旧意图不会复活抢走
+      expect(evt.leader.clientId).toBe('phone-b');
+
+      // 即使 A 在同一条新连接上再送一次 claim=true 到 identify，也被忽略
+      a2.ws.send(JSON.stringify({ type: 'identify', clientId: 'phone-a', kind: 'pwa', claim: true }));
+      const st = await fetch(`${srv.baseUrl}/api/status`).then(r => r.json());
+      expect(st.playback.leader.clientId).toBe('phone-b');
+
+      a2.ws.close();
+      b.ws.close();
       desk.ws.close();
     } finally {
       await srv.close();

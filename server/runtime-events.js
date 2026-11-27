@@ -46,6 +46,8 @@ export function createStreamRegistry() {
     let latestElectron = null;
     let earliestPwa = null;
     for (const entry of entries.values()) {
+      // 独立播放客户端（如手机独立模式）不参与全局单点选举，既不抢电脑出声也不被电脑静音。
+      if (entry.standalone) continue;
       if (entry.claimed) {
         if (!latestClaimed || entry.claimSeq > latestClaimed.claimSeq) {
           latestClaimed = entry;
@@ -77,6 +79,7 @@ export function createStreamRegistry() {
       clientId: `anon-${seq}`,
       kind: 'pwa',
       identified: false,
+      standalone: false,
       claimed: false,
       claimSeq: 0,
     };
@@ -84,20 +87,33 @@ export function createStreamRegistry() {
     return { entry, leader: toLeaderView(electEntry()) };
   }
 
-  // claim=true 认领播放权（「在此设备播放」），claim=false 归还。
-  // 认领只跟这条连接走：断开自动归还；重复 claim 刷新次序，
-  // 让「先手机认领、再电脑网页认领」时后到者接管。
   function identify(ws, msg = {}) {
     const entry = entries.get(ws);
     if (!entry) return toLeaderView(electEntry());
     const rawId = typeof msg?.clientId === 'string' ? msg.clientId.trim() : '';
     if (rawId) entry.clientId = rawId;
     entry.kind = normalizeClientKind(msg?.kind);
+    entry.standalone = Boolean(msg?.standalone);
+    if (entry.standalone) {
+      entry.claimed = false;
+      entry.claimSeq = 0;
+    }
     entry.identified = true;
-    if (msg?.claim === true) {
+    return toLeaderView(electEntry());
+  }
+
+  // 显式认领/归还播放权（「在此设备播放 / 归还播放权」）。
+  // 必须是连接上的独立动作，不随 identify 走：断线重连只重新 identify，
+  // 不会静默复活旧意图抢走别人的有效认领。
+  // want=true 认领；want=false 归还。认领只跟这条连接走，断开自动归还；
+  // 后到认领接前到者，保证当前有效认领单一。
+  function claim(ws, want) {
+    const entry = entries.get(ws);
+    if (!entry) return toLeaderView(electEntry());
+    if (want) {
       entry.claimed = true;
       entry.claimSeq = ++nextClaimSeq;
-    } else if (msg?.claim === false) {
+    } else {
       entry.claimed = false;
       entry.claimSeq = 0;
     }
@@ -131,6 +147,16 @@ export function createStreamRegistry() {
     return true;
   }
 
+  function clientsForId(clientId) {
+    const id = typeof clientId === 'string' ? clientId.trim() : '';
+    if (!id) return [];
+    const matched = [];
+    for (const entry of entries.values()) {
+      if (entry.clientId === id) matched.push(entry.ws);
+    }
+    return matched;
+  }
+
   function snapshot() {
     const current = electEntry();
     return {
@@ -138,6 +164,7 @@ export function createStreamRegistry() {
       listeners: Array.from(entries.values(), entry => ({
         clientId: entry.clientId,
         kind: entry.kind,
+        ...(entry.standalone ? { standalone: true } : {}),
         claimed: Boolean(entry.claimed),
         leader: entry === current,
       })),
@@ -147,11 +174,13 @@ export function createStreamRegistry() {
   return {
     connect,
     identify,
+    claim,
     disconnect,
     leader,
     isLeader,
     canReportState,
     getClient: ws => entries.get(ws) || null,
+    clientsForId,
     size: () => entries.size,
     clients: () => entries.keys(),
     snapshot,

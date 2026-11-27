@@ -5,10 +5,13 @@ import {
   applyLeader,
   applyRemoteProgress,
   applyExternalQueue,
+  applyClientControl,
+  applyHostReply,
   syncFromServer,
 } from './views/player.js';
 import { getClientId } from './client-id.js';
-import { wantsPlaybackHere, setWantsPlaybackHere } from './leader-claim.js';
+import { setWantsPlaybackHere } from './leader-claim.js';
+import { detectStandaloneMobile } from './mobile-mode.js';
 import { installMediaSession } from './media-session.js';
 import { initPlaylists } from './views/playlists.js';
 import { initProfile } from './views/profile.js';
@@ -24,6 +27,8 @@ const DEFAULT_VIEW = 'player';
 let mediaSession = { noteRuntime() {} };
 
 export { applyTheme };
+
+export { detectStandaloneMobile };
 
 export function detectClientKind(win = globalThis.window) {
   return win?.claudioDesktop?.isDesktop ? 'electron' : 'pwa';
@@ -144,7 +149,17 @@ async function startApp() {
   applyPixelHostSetting(readPixelHostEnabled(), { persist: false });
   await loadInitialTheme();
   await adoptUrlToken();
-  mediaSession = installMediaSession();
+  const standaloneMobile = detectStandaloneMobile();
+  mediaSession = installMediaSession(
+    standaloneMobile
+      ? {
+          postControl: command => {
+            applyClientControl({ command });
+            return Promise.resolve({ ok: true });
+          },
+        }
+      : {},
+  );
 
   initPlayer();
   initPlaylists();
@@ -208,6 +223,8 @@ function connectWs() {
     });
     ws.addEventListener('close', () => {
       setStatus('● 离线');
+      // 认领随连接结束即死，旧意图清掉，不留给重连自动复活。
+      setWantsPlaybackHere(false);
       scheduleRetry();
     });
     ws.addEventListener('error', () => {
@@ -219,12 +236,13 @@ function connectWs() {
       if ((evt.type === 'hello' || evt.type === 'state') && evt.runtime) {
         if (evt.type === 'hello' && ws?.readyState === 1) {
           try {
-            // claim 只在用户点过「在此设备播放」后带上；普通打开页面不抢权。
+            // identify 只报身份，不带播放权：断线重连不复活旧意图，
+            // 想再接管必须重新点一次「在此设备播放」。
             ws.send(JSON.stringify({
               type: 'identify',
               clientId: getClientId(),
               kind: detectClientKind(),
-              ...(wantsPlaybackHere() ? { claim: true } : {}),
+              standalone: detectStandaloneMobile(),
             }));
           } catch { /* ignore */ }
         }
@@ -241,6 +259,8 @@ function connectWs() {
         return;
       }
       if (evt.type === 'external-queue') applyExternalQueue(evt);
+      if (evt.type === 'client-control') applyClientControl(evt);
+      if (evt.type === 'host-reply') applyHostReply(evt);
       if (evt.type === 'continue-pool') applyRuntime({ continuePool: evt.continuePool });
       if (evt.type === 'settings-updated') {
         loadInitialTheme();
@@ -263,12 +283,7 @@ function connectWs() {
       return;
     }
     try {
-      ws.send(JSON.stringify({
-        type: 'identify',
-        clientId: getClientId(),
-        kind: detectClientKind(),
-        claim: want,
-      }));
+      ws.send(JSON.stringify({ type: 'claim', want }));
     } catch { /* ignore */ }
   });
 

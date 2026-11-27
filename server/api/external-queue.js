@@ -70,12 +70,14 @@ export function mountExternalQueueRoutes(app, deps = {}) {
     ? deps.getRuntime
     : () => deps.runtime;
   const broadcast = typeof deps.broadcast === 'function' ? deps.broadcast : () => {};
+  const sendToClient = typeof deps.sendToClient === 'function' ? deps.sendToClient : () => 0;
   const synthesize = deps.synthesize || defaultSynthesize;
 
   app.post('/api/queue/external', async (req, res) => {
     const body = req.body || {};
     const target = body.target == null || body.target === '' ? 'queue' : String(body.target);
     const mode = body.mode == null || body.mode === '' ? 'replace' : String(body.mode);
+    const targetClientId = clipText(body.targetClientId, 80);
     const playlistMode = body.playlistMode == null || body.playlistMode === ''
       ? 'append'
       : String(body.playlistMode);
@@ -185,12 +187,8 @@ export function mountExternalQueueRoutes(app, deps = {}) {
     let queueResult = null;
     let playlistResult = null;
 
+    let delivered = null;
     if (touchQueue && queueItems.length) {
-      const runtime = getRuntime();
-      if (!runtime) {
-        res.status(500).json({ ok: false, error: 'runtime 不可用' });
-        return;
-      }
       if (say) {
         try {
           const voice = await synthesize(say);
@@ -212,61 +210,96 @@ export function mountExternalQueueRoutes(app, deps = {}) {
           console.warn('[external-queue] tts skipped:', err.message);
         }
       }
-      // 点歌请求在合成语音之后才改队列。音量快照放在这段同步改动之前，
-      // 这样等待搜索/语音时用户调过的音量不会被后面的还原盖掉。
-      const savedVolume = runtime.volume;
-      const keepSavedVolume = body.volume == null || body.volume === '';
-      if (mode === 'replace') {
-        runtime.queue = queueItems;
-        runtime.queueOffset = 0;
-        runtime.index = 0;
-        runtime.paused = false;
-        markQueueSource(runtime, 'bot');
+
+      // 定向推给指定独立客户端（例如手机独立播放页）：不改写电脑端全局队列与播放状态。
+      if (targetClientId) {
+        for (const item of queueItems) {
+          if (item.isTts) continue;
+          db.addPlay({
+            kugouId: item.kugouId,
+            title: item.title,
+            artist: item.artist,
+            reason: reason || null,
+            source: 'bot',
+            quality: 'queued',
+            agentId,
+          });
+        }
+        delivered = sendToClient(targetClientId, {
+          type: 'external-queue',
+          targetClientId,
+          mode,
+          tracks: queueItems,
+          say,
+          reason,
+          queuedAt,
+          source: requestSource,
+          agentId,
+          agentName,
+        });
+        queueResult = { mode, added: queueItems.length, length: queueItems.length, targetClientId, delivered };
       } else {
-        const wasEmpty = !Array.isArray(runtime.queue) || runtime.queue.length === 0;
-        runtime.queue = [...(runtime.queue || []), ...queueItems];
-        if (wasEmpty) {
+        const runtime = getRuntime();
+        if (!runtime) {
+          res.status(500).json({ ok: false, error: 'runtime 不可用' });
+          return;
+        }
+        // 点歌请求在合成语音之后才改队列。音量快照放在这段同步改动之前，
+        // 这样等待搜索/语音时用户调过的音量不会被后面的还原盖掉。
+        const savedVolume = runtime.volume;
+        const keepSavedVolume = body.volume == null || body.volume === '';
+        if (mode === 'replace') {
+          runtime.queue = queueItems;
+          runtime.queueOffset = 0;
           runtime.index = 0;
           runtime.paused = false;
           markQueueSource(runtime, 'bot');
         } else {
-          // 接到正在播的队列后面：来源改成 bot，避免开机/定时任务把还没放的歌清掉。
-          // 当前这首如果已经结束，保留 trackEnded，后面的新歌仍然算没放完。
-          runtime.queueSource = 'bot';
+          const wasEmpty = !Array.isArray(runtime.queue) || runtime.queue.length === 0;
+          runtime.queue = [...(runtime.queue || []), ...queueItems];
+          if (wasEmpty) {
+            runtime.index = 0;
+            runtime.paused = false;
+            markQueueSource(runtime, 'bot');
+          } else {
+            // 接到正在播的队列后面：来源改成 bot，避免开机/定时任务把还没放的歌清掉。
+            // 当前这首如果已经结束，保留 trackEnded，后面的新歌仍然算没放完。
+            runtime.queueSource = 'bot';
+          }
         }
-      }
-      if (say) runtime.lastSay = say;
-      if (reason) runtime.lastReason = reason;
-      runtime.queuedAt = queuedAt;
-      runtime.queuedSource = requestSource;
-      runtime.activeAgent = { id: agentId, name: agentName, updatedAt: queuedAt };
-      for (const item of queueItems) {
-        if (item.isTts) continue;
-        db.addPlay({
-          kugouId: item.kugouId,
-          title: item.title,
-          artist: item.artist,
-          reason: reason || null,
-          source: 'bot',
-          quality: 'queued',
-          agentId,
+        if (say) runtime.lastSay = say;
+        if (reason) runtime.lastReason = reason;
+        runtime.queuedAt = queuedAt;
+        runtime.queuedSource = requestSource;
+        runtime.activeAgent = { id: agentId, name: agentName, updatedAt: queuedAt };
+        for (const item of queueItems) {
+          if (item.isTts) continue;
+          db.addPlay({
+            kugouId: item.kugouId,
+            title: item.title,
+            artist: item.artist,
+            reason: reason || null,
+            source: 'bot',
+            quality: 'queued',
+            agentId,
+          });
+        }
+        // 缺省、null、空字符串都不是调音量。这个接口不写 prefs。
+        if (keepSavedVolume) runtime.volume = savedVolume;
+        broadcast({
+          type: 'external-queue',
+          mode,
+          tracks: queueItems,
+          say,
+          reason,
+          queuedAt,
+          source: requestSource,
         });
+        broadcast({ type: 'state', runtime });
+        queueResult = { mode, added: queueItems.length, length: runtime.queue.length };
       }
-      // 缺省、null、空字符串都不是调音量。这个接口不写 prefs。
-      if (keepSavedVolume) runtime.volume = savedVolume;
-      broadcast({
-        type: 'external-queue',
-        mode,
-        tracks: queueItems,
-        say,
-        reason,
-        queuedAt,
-        source: requestSource,
-      });
-      broadcast({ type: 'state', runtime });
-      queueResult = { mode, added: queueItems.length, length: runtime.queue.length };
     } else if (touchQueue) {
-      queueResult = { mode, added: 0, length: getRuntime()?.queue?.length || 0 };
+      queueResult = { mode, added: 0, length: targetClientId ? 0 : (getRuntime()?.queue?.length || 0) };
     }
 
     if (touchPlaylist) {

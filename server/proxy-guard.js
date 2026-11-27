@@ -125,6 +125,39 @@ export function refererForProxyUrl(rawUrl) {
   return 'https://www.kugou.com';
 }
 
+const AUDIO_EXT_MIME = {
+  '.mp3': 'audio/mpeg',
+  '.flac': 'audio/flac',
+  '.m4a': 'audio/mp4',
+  '.mp4': 'audio/mp4',
+  '.aac': 'audio/aac',
+  '.ogg': 'audio/ogg',
+  '.wav': 'audio/wav',
+  '.opus': 'audio/opus',
+  '.webm': 'audio/webm',
+};
+
+/**
+ * 修正上游 CDN 返回 application/octet-stream 或非标准 audio/x-flac 的情况：
+ * /api/proxy 路径不含扩展名，iOS Safari CoreMedia 依赖标准 audio/* Content-Type 才能稳定做分段流式播放。
+ */
+export function inferProxyContentType(targetUrl, upstreamContentType = '') {
+  const raw = String(upstreamContentType || '').trim();
+  const base = raw.split(';')[0].trim().toLowerCase();
+  const needsInfer = !base
+    || base === 'application/octet-stream'
+    || base === 'binary/octet-stream'
+    || base === 'audio/x-flac';
+  if (!needsInfer) return raw;
+  try {
+    const pathname = new URL(String(targetUrl || '')).pathname.toLowerCase();
+    const dot = pathname.lastIndexOf('.');
+    const ext = dot >= 0 ? pathname.slice(dot) : '';
+    if (AUDIO_EXT_MIME[ext]) return AUDIO_EXT_MIME[ext];
+  } catch { /* ignore */ }
+  return raw;
+}
+
 function proxyBlockedError(reason, hostname) {
   const err = new Error(`proxy target blocked: ${reason}`);
   err.code = BLOCKED_CODE;
@@ -181,6 +214,7 @@ export default {
   checkProxyUrl,
   isAllowedProxyUrl,
   refererForProxyUrl,
+  inferProxyContentType,
   redirectTargetOf,
   createRedirectGuard,
   findProxyBlock,

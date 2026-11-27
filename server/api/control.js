@@ -1,21 +1,43 @@
 import { dbApi as defaultDb } from '../db.js';
 import { applyControl, SCENE_PREF_KEY } from '../playback-control.js';
 
+const CLIENT_CONTROL_COMMANDS = new Set(['play', 'pause', 'toggle', 'next', 'prev', 'jump', 'volume']);
+
 export function mountControlRoute(app, deps = {}) {
   const db = deps.db || defaultDb;
   const broadcast = typeof deps.broadcast === 'function' ? deps.broadcast : () => {};
+  const sendToClient = typeof deps.sendToClient === 'function' ? deps.sendToClient : () => 0;
   const getRuntime = typeof deps.getRuntime === 'function'
     ? deps.getRuntime
     : () => deps.runtime;
   const rememberVolume = typeof deps.rememberVolume === 'function' ? deps.rememberVolume : () => {};
 
   app.post('/api/control', (req, res) => {
+    const body = req.body || {};
+    const targetClientId = typeof body.targetClientId === 'string' ? body.targetClientId.trim().slice(0, 80) : '';
+    if (targetClientId) {
+      const command = String(body.command || '').trim().toLowerCase();
+      if (!CLIENT_CONTROL_COMMANDS.has(command)) {
+        res.status(400).json({ ok: false, error: `不支持的定向指令: ${command || '(empty)'}` });
+        return;
+      }
+      const say = typeof body.say === 'string' ? body.say.trim().slice(0, 300) : '';
+      const delivered = sendToClient(targetClientId, {
+        type: 'client-control',
+        targetClientId,
+        command,
+        value: body.value ?? body.arg,
+        ...(say ? { say } : {}),
+      });
+      res.json({ ok: true, command, targetClientId, delivered });
+      return;
+    }
+
     const runtime = getRuntime();
     if (!runtime) {
       res.status(500).json({ ok: false, error: 'runtime 不可用' });
       return;
     }
-    const body = req.body || {};
     if (body.agentId || body.agentName) {
       const id = String(body.agentId || body.agentName).trim().slice(0, 60);
       const name = String(body.agentName || body.agentId).trim().slice(0, 60);

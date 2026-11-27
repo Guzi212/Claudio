@@ -1,7 +1,7 @@
 // 极简 service worker：只缓存壳层（HTML/CSS/JS），不缓存音频和 /api/*
-const CACHE = 'claudio-shell-v35';
+const CACHE = 'claudio-shell-v37';
 const SHELL = [
-  '/', '/index.html', '/app.js', '/session-url.js', '/theme-store.js', '/host-mood.js', '/volume-memory.js', '/client-id.js', '/leader-claim.js', '/media-session.js', '/styles.css', '/manifest.json', '/icon.svg',
+  '/', '/index.html', '/app.js', '/session-url.js', '/theme-store.js', '/host-mood.js', '/volume-memory.js', '/client-id.js', '/leader-claim.js', '/mobile-mode.js', '/media-session.js', '/styles.css', '/manifest.json', '/icon.svg',
   '/assets/ink/landscape-wide.webp', '/assets/ink/landscape-tall.webp', '/assets/ink/paper.webp',
   '/assets/ink/cover.webp', '/assets/ink/grokbot.webp', '/assets/ink/icon-512.png',
   '/assets/brand/mark-ink.svg', '/assets/brand/mark-pixel.png', '/assets/brand/mark-pixel@2x.png', '/assets/brand/mark-pixel@3x.png',
