@@ -163,7 +163,7 @@ describe('CLAUDIO_REQUIRE_TOKEN', () => {
   });
 
   it('会话 cookie 可以过，但 cookie 值不能是原始令牌', () => {
-    const id = createSession();
+    const id = createSession(Date.now(), { token: env.CLAUDIO_API_TOKEN });
     expect(id).not.toBe('secret-token');
     expect(authorizeRequest(req({
       ip: '127.0.0.1',
@@ -177,7 +177,7 @@ describe('CLAUDIO_REQUIRE_TOKEN', () => {
   });
 
   it('带了错误令牌时，即使 cookie 有效也拒绝', () => {
-    const id = createSession();
+    const id = createSession(Date.now(), { token: env.CLAUDIO_API_TOKEN });
     expect(authorizeRequest(req({
       ip: '127.0.0.1',
       headers: {
@@ -188,7 +188,7 @@ describe('CLAUDIO_REQUIRE_TOKEN', () => {
   });
 
   it('开关关闭时非回环仍可用会话 cookie', () => {
-    const id = createSession();
+    const id = createSession(Date.now(), { token: 'secret-token' });
     const open = { CLAUDIO_API_TOKEN: 'secret-token' };
     expect(authorizeRequest(req({
       ip: '10.0.0.8',
@@ -203,8 +203,37 @@ describe('CLAUDIO_REQUIRE_TOKEN', () => {
     }), open).ok).toBe(false);
   });
 
+  it('轮换 CLAUDIO_API_TOKEN 或清空令牌后，旧会话 cookie 在 /api/*、/tts/*、/stream 全部失效', () => {
+    const id = createSession(Date.now(), { token: 'token-v1' });
+    const cookieHeader = { cookie: `${SESSION_COOKIE}=${id}` };
+    const envV1 = { CLAUDIO_API_TOKEN: 'token-v1', CLAUDIO_REQUIRE_TOKEN: '1' };
+    const envV2 = { CLAUDIO_API_TOKEN: 'token-v2', CLAUDIO_REQUIRE_TOKEN: '1' };
+    const envEmpty = { CLAUDIO_REQUIRE_TOKEN: '1' };
+
+    expect(authorizeRequest(req({ ip: '10.0.0.8', path: '/api/health', headers: cookieHeader }), envV1))
+      .toMatchObject({ ok: true, via: 'cookie' });
+    expect(authorizeRequest(req({ ip: '10.0.0.8', path: '/tts/abc.mp3', headers: cookieHeader }), envV1))
+      .toMatchObject({ ok: true, via: 'cookie' });
+    expect(authorizeUpgrade(req({
+      ip: '10.0.0.8',
+      url: '/stream',
+      headers: { host: '127.0.0.1:8080', ...cookieHeader },
+    }), envV1)).toMatchObject({ ok: true, via: 'cookie' });
+
+    expect(authorizeRequest(req({ ip: '10.0.0.8', path: '/api/health', headers: cookieHeader }), envV2).ok).toBe(false);
+    expect(authorizeRequest(req({ ip: '10.0.0.8', path: '/tts/abc.mp3', headers: cookieHeader }), envV2).ok).toBe(false);
+    expect(authorizeUpgrade(req({
+      ip: '10.0.0.8',
+      url: '/stream',
+      headers: { host: '127.0.0.1:8080', ...cookieHeader },
+    }), envV2)).toMatchObject({ ok: false, status: 401 });
+
+    expect(authorizeRequest(req({ ip: '10.0.0.8', path: '/api/health', headers: cookieHeader }), envEmpty))
+      .toMatchObject({ ok: false, via: 'no-token-configured' });
+  });
+
   it('换 cookie 必须带对令牌，回环免检和旧 cookie 都不行', () => {
-    const id = createSession();
+    const id = createSession(Date.now(), { token: 'secret-token' });
     const off = { CLAUDIO_API_TOKEN: 'secret-token' };
     expect(authorizeSessionMint(req({ ip: '127.0.0.1' }), off).ok).toBe(false);
     expect(authorizeSessionMint(req({
