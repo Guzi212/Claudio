@@ -8,12 +8,6 @@ const indexHtml = fs.readFileSync(path.resolve('pwa/index.html'), 'utf8');
 describe('settings view API contract', () => {
   it('使用 /api/settings 的全量扁平字段契约读写配置', () => {
     const expectedKeys = [
-      'dj_enabled',
-      'dj_poll_seconds',
-      'dj_min_remaining_minutes',
-      'dj_batch_size',
-      'deepseek_api_key',
-      'deepseek_model',
       'adaptive_volume_enabled',
       'volume_safe_max',
       'like_target_listid',
@@ -36,21 +30,28 @@ describe('settings view API contract', () => {
 
     expect(settingsViewJs).not.toContain('brain_mode');
     expect(settingsViewJs).not.toContain('calendar_provider');
+    expect(settingsViewJs).not.toContain('dj_enabled');
+    expect(settingsViewJs).not.toContain('deepseek_api_key');
+    expect(settingsViewJs).not.toContain('deepseek_model');
     expect(settingsViewJs).not.toContain("key: 'lark'");
     expect(settingsViewJs).not.toContain("key: 'calendar'");
+    expect(settingsViewJs).not.toContain("key: 'ai'");
+    expect(settingsViewJs).not.toContain("key: 'dj'");
     expect(settingsViewJs).not.toContain('s?.weather?.apiKey');
     expect(settingsViewJs).not.toContain('payload.weather.apiKey');
     expect(settingsViewJs).not.toContain('s?.tts?.apiKey');
     expect(settingsViewJs).not.toContain('payload.tts.apiKey');
   });
 
-  it('AI 连通测试和清空红心歌单入口就位，模式选择与日历设置已移除', () => {
-    expect(indexHtml).toContain('data-test="ai"');
+  it('清空红心歌单入口就位，模式选择、日历、常驻 DJ 与 AI 设置已移除', () => {
     expect(indexHtml).toContain('id="btn-clear-like-target"');
     expect(indexHtml).not.toContain('id="set-brain-mode"');
     expect(indexHtml).not.toContain('id="set-calendar-provider"');
     expect(indexHtml).not.toContain('data-test="calendar"');
-    expect(settingsViewJs).toContain('/api/test/ai');
+    expect(indexHtml).not.toContain('id="settings-ai"');
+    expect(indexHtml).not.toContain('id="set-dj-enabled"');
+    expect(indexHtml).not.toContain('data-test="ai"');
+    expect(settingsViewJs).not.toContain('/api/test/ai');
     expect(settingsViewJs).not.toContain('/api/test/calendar');
   });
 

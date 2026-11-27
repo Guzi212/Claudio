@@ -1,4 +1,4 @@
-// Bot 点歌入口。不调用 Claude，也不读账号歌单候选池。
+// Bot 点歌入口。不调用内置模型。
 // 每首歌走 music.resolveTrack：按配置模式选源或依次回落（酷狗 → 网易云 → QQ），失败记 unmatched。
 import { dbApi as defaultDb } from '../db.js';
 import { resolveTrack as defaultResolveTrack, normalizeProviderName } from '../services/music.js';

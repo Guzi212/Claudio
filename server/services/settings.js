@@ -2,12 +2,6 @@ import { dbApi } from '../db.js';
 import { normalizeProviderName } from './providers/base.js';
 
 export const KEYS = [
-  'dj_enabled',
-  'dj_poll_seconds',
-  'dj_min_remaining_minutes',
-  'dj_batch_size',
-  'deepseek_api_key',
-  'deepseek_model',
   'adaptive_volume_enabled',
   'volume_safe_max',
   'like_target_listid',
@@ -27,11 +21,6 @@ export const KEYS = [
 ];
 
 export const DEFAULTS = {
-  dj_enabled: 'false',
-  dj_poll_seconds: '20',
-  dj_min_remaining_minutes: '10',
-  dj_batch_size: '5',
-  deepseek_model: 'deepseek-chat',
   adaptive_volume_enabled: 'true',
   volume_safe_max: '85',
   weather_enabled: 'true',
@@ -44,15 +33,10 @@ export const DEFAULTS = {
   music_provider: 'multi',
 };
 
-const SENSITIVE = new Set(['openweather_api_key', 'fish_api_key', 'deepseek_api_key']);
-
-const ENV_ALIASES = {
-  dj_enabled: ['DJ_ENABLED', 'CLAUDIO_DJ'],
-  dj_batch_size: ['DJ_BATCH_SIZE', 'CLAUDIO_DJ_BATCH'],
-};
+const SENSITIVE = new Set(['openweather_api_key', 'fish_api_key']);
 
 function envNamesFor(key) {
-  return ENV_ALIASES[key] || [key.toUpperCase()];
+  return [key.toUpperCase()];
 }
 
 export function isSensitive(key) {

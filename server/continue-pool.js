@@ -1,6 +1,6 @@
 import { trimPlayedHistory } from './queue-source.js';
 
-// 续播池独立于 internal 选歌候选池；只保存主持人已经选好的歌。
+// 续播池：只保存主持人已经选好的歌，队列播完后按序/随机续播。
 export const CONTINUE_POOL_KEY = 'continue_pool';
 
 export function shuffleTracks(tracks, random = Math.random) {

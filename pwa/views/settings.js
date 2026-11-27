@@ -6,12 +6,6 @@ const MASK = '****已配置';
 export const FEEDBACK_URL = 'https://github.com/Guzi212/Claudio/issues/new/choose';
 
 const fields = {
-  djEnabled:        '#set-dj-enabled',
-  djPoll:           '#set-dj-poll',
-  djMinRem:         '#set-dj-min-rem',
-  djBatch:          '#set-dj-batch',
-  deepseekKey:      '#set-deepseek-key',
-  deepseekModel:    '#set-deepseek-model',
   musicProvider:    '#set-music-provider',
   adaptiveVol:      '#set-adaptive-vol',
   playbackQuality:  '#set-playback-quality',
@@ -88,8 +82,6 @@ const HEALTH_KEYS = [
   { key: 'qq',       label: 'QQ Music' },
   { key: 'weather',  label: 'Weather'  },
   { key: 'tts',      label: 'TTS'      },
-  { key: 'ai',       label: 'AI'       },
-  { key: 'dj',       label: 'DJ'       },
 ];
 
 export function renderHealthItems(container, items) {
@@ -252,12 +244,6 @@ function boolFrom(raw, fallback) {
 }
 
 function applySettings(s) {
-  if (nodes.djEnabled) nodes.djEnabled.checked = boolFrom(s?.dj_enabled, false);
-  if (nodes.djPoll) nodes.djPoll.value = s?.dj_poll_seconds || '20';
-  if (nodes.djMinRem) nodes.djMinRem.value = s?.dj_min_remaining_minutes || '10';
-  if (nodes.djBatch) nodes.djBatch.value = s?.dj_batch_size || '5';
-  if (nodes.deepseekKey) nodes.deepseekKey.value = s?.deepseek_api_key || '';
-  if (nodes.deepseekModel) nodes.deepseekModel.value = s?.deepseek_model || 'deepseek-chat';
   if (nodes.musicProvider) {
     lastSavedProvider = s?.music_provider || 'multi';
     nodes.musicProvider.value = lastSavedProvider;
@@ -290,16 +276,6 @@ function applySettings(s) {
 // 构造 PUT body：跳过 mask 占位（避免覆盖原 key）
 function buildPayload() {
   const payload = {};
-  if (nodes.djEnabled) payload.dj_enabled = String(Boolean(nodes.djEnabled.checked));
-  if (nodes.djPoll) payload.dj_poll_seconds = String(nodes.djPoll.value || '20').trim();
-  if (nodes.djMinRem) payload.dj_min_remaining_minutes = String(nodes.djMinRem.value || '10').trim();
-  if (nodes.djBatch) payload.dj_batch_size = String(nodes.djBatch.value || '5').trim();
-
-  if (nodes.deepseekKey && nodes.deepseekKey.value !== MASK) {
-    payload.deepseek_api_key = nodes.deepseekKey.value;
-  }
-  if (nodes.deepseekModel) payload.deepseek_model = nodes.deepseekModel.value || 'deepseek-chat';
-
   if (nodes.musicProvider) payload.music_provider = nodes.musicProvider.value || 'multi';
   if (nodes.playbackQuality) payload.playback_quality = nodes.playbackQuality.value || 'flac';
   if (nodes.adaptiveVol) payload.adaptive_volume_enabled = String(Boolean(nodes.adaptiveVol.checked));
@@ -607,26 +583,6 @@ export function initSettings() {
       } finally {
         btnWeatherTest.textContent = original;
         btnWeatherTest.disabled = false;
-      }
-    });
-  }
-
-  const btnAiTest = document.querySelector('button[data-test="ai"]');
-  if (btnAiTest) {
-    btnAiTest.addEventListener('click', async () => {
-      btnAiTest.disabled = true;
-      const original = btnAiTest.textContent;
-      btnAiTest.textContent = '测试中…';
-      try {
-        const r = await fetch('/api/test/ai', { method: 'POST' });
-        const data = await r.json();
-        if (!data.ok) throw new Error(data.error || '连接失败');
-        toast(`AI 响应正常：${data.reply}`);
-      } catch (err) {
-        showAlert(`AI 测试失败：${err.message}`);
-      } finally {
-        btnAiTest.textContent = original;
-        btnAiTest.disabled = false;
       }
     });
   }

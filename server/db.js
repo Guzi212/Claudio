@@ -289,7 +289,7 @@ const VALID_PLAY_SOURCES = new Set(['claude', 'manual', 'search', 'boot', 'bot']
 
 function normalizePlaySource(source) {
   const s = String(source || '').trim().toLowerCase();
-  if (s === 'external' || s === 'continue-pool' || s === 'resident-dj' || s === 'bot') return 'bot';
+  if (s === 'external' || s === 'continue-pool' || s === 'bot') return 'bot';
   if (s === 'playlist' || s === 'manual') return 'manual';
   if (s === 'search') return 'search';
   if (s === 'boot') return 'boot';

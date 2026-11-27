@@ -1,5 +1,5 @@
-// 酷狗歌单 API：列表 / 曲目 / 候选池 / 整单播放 / 直链懒解析。
-// 依赖全部可注入，方便单测；默认走真实 kugou service 与 candidate-pool。
+// 酷狗歌单 API：列表 / 曲目 / 整单播放 / 直链懒解析。
+// 依赖全部可注入，方便单测；默认走真实 kugou service。
 import {
   fetchUserPlaylists as defaultFetchUserPlaylists,
   fetchUserPlaylistTracks as defaultFetchUserPlaylistTracks,
@@ -11,12 +11,6 @@ import {
   decodeTrackId,
   normalizeProviderName,
 } from '../services/music.js';
-import {
-  getPool as defaultGetPool,
-  getPoolTracks as defaultGetPoolTracks,
-  setPool as defaultSetPool,
-  clearPool as defaultClearPool,
-} from '../services/candidate-pool.js';
 import { markQueueSource } from '../queue-source.js';
 import { mojibakeField, mojibakeError, COVER_MISSING_WARNING } from '../utf8-guard.js';
 import { dbApi as defaultDb } from '../db.js';
@@ -69,18 +63,8 @@ export function mountPlaylistRoutes(app, deps = {}) {
   const fetchUserPlaylistTracks = deps.fetchUserPlaylistTracks || defaultFetchUserPlaylistTracks;
   const resolveSongUrl = deps.resolveSongUrl || defaultSongUrlForPlayback;
   const resolveMusicTrackUrl = deps.resolveMusicTrackUrl || defaultMusicTrackUrl;
-  const getPool = deps.getPool || defaultGetPool;
-  const getPoolTracks = deps.getPoolTracks || defaultGetPoolTracks;
-  const setPool = deps.setPool || defaultSetPool;
-  const clearPool = deps.clearPool || defaultClearPool;
   const getRuntime = typeof deps.getRuntime === 'function' ? deps.getRuntime : () => deps.runtime || {};
   const broadcast = typeof deps.broadcast === 'function' ? deps.broadcast : () => {};
-
-  function poolView() {
-    const meta = getPool();
-    if (!meta) return null;
-    return { ...meta, trackCount: getPoolTracks().length };
-  }
 
   // 账号歌单列表
   app.get('/api/kugou/playlists', async (req, res) => {
@@ -113,43 +97,6 @@ export function mountPlaylistRoutes(app, deps = {}) {
       res.json({ ok: true, ...result });
     } catch (err) {
       console.error('[playlists-api] tracks failed:', err.message);
-      res.status(500).json({ ok: false, error: err.message });
-    }
-  });
-
-  // 当前候选池
-  app.get('/api/kugou/playlists/pool', (req, res) => {
-    res.json({ ok: true, pool: poolView() });
-  });
-
-  // 设置 / 清除候选池
-  app.post('/api/kugou/playlists/pool', async (req, res) => {
-    const playlist = req.body?.playlist;
-    if (!playlist) {
-      clearPool();
-      res.json({ ok: true, pool: null });
-      return;
-    }
-    const { listid, globalCollectionId } = playlistRef(playlist);
-    if (!listid && !globalCollectionId) {
-      res.status(400).json({ ok: false, error: 'playlist.listid 或 playlist.globalCollectionId 必填' });
-      return;
-    }
-    try {
-      const { tracks } = await fetchUserPlaylistTracks({ listid, globalCollectionId });
-      if (!tracks.length) {
-        res.status(404).json({ ok: false, error: '歌单没有可用曲目' });
-        return;
-      }
-      setPool({
-        id: playlist.id || globalCollectionId || listid,
-        listid,
-        globalCollectionId,
-        name: playlist.name || '未命名歌单',
-      }, tracks);
-      res.json({ ok: true, pool: poolView() });
-    } catch (err) {
-      console.error('[playlists-api] set pool failed:', err.message);
       res.status(500).json({ ok: false, error: err.message });
     }
   });

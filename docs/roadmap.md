@@ -1,6 +1,6 @@
 # Claudio 路线图
 
-> 最近更新：2026-11-23（阶段 0 进度同步）
+> 最近更新：2026-11-24（阶段 1 内置大脑与常驻主持人清理完成）
 >
 > 这份文档管方向和优先级；具体技术任务记在 [`dev-plan.md`](dev-plan.md)。
 
@@ -20,7 +20,6 @@
 | 安装门槛高 | 要同级克隆 KuGouMusicApi、NeteaseCloudMusicApiEnhanced、QQMusicApi + Python venv，占 3 个端口，Node ≥ 22.12 | 普通用户基本装不上 |
 | Agent 接入靠粘贴指令 | README 一段 prompt 发给 Grok Bot | 普通用户手里没有 Agent |
 | 接口无版本 | README 点歌指令就是事实上的公开契约 | 改一次就打断别人的 bot |
-| 两套大脑 | internal 选歌链路约 2700 行默认不跑 | 维护成本高，定位说不清 |
 | 前端巨石 | `pwa/views/player.js` 2075 行、`styles.css` 1685 行、3 套主题 | 改一处动全身 |
 | 个人痕迹 | `state.db` 在仓库根；天气默认长沙；`user/` 品味语料 | 别人装上后行为奇怪 |
 
@@ -50,7 +49,7 @@
 ### 阶段 1：收敛（清理 + 重构）
 
 清理：
-- [ ] internal 大脑打存档 tag `archive/internal-brain` 后从主干移除；常驻主持人单独评估（进行中：PR 2 已删 internal 选歌与日历）
+- [x] internal 大脑与常驻主持人打存档 tag `archive/internal-brain` 后从主干移除（PR #53、PR #54、阶段 1 PR 3）
 - [ ] 主题收敛到 1～2 套
 - [ ] `state.db` 移到用户数据目录；默认值不再带任何个人配置（天气城市等）
 - [ ] `docs/handoffs/latest.md` 更新为当前状态

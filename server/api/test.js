@@ -1,5 +1,4 @@
 import { getCurrent, invalidateCache } from '../services/weather.js';
-import { complete as defaultComplete } from '../claude.js';
 import { synthesize } from '../tts.js';
 
 export async function testWeather({ getWeather = getCurrent, clearCache = invalidateCache } = {}) {
@@ -16,12 +15,6 @@ export async function testTts({ tts = synthesize, voiceId } = {}) {
   return { ok: true, url: result.url };
 }
 
-export async function testAi({ complete = defaultComplete } = {}) {
-  const reply = await complete('你是连接测试助手。只回复 OK。', 'ping', { timeoutMs: 25_000 });
-  if (!String(reply || '').trim()) return { ok: false, error: 'AI 返回空响应' };
-  return { ok: true, reply: String(reply).trim().slice(0, 80) };
-}
-
 export function mountTestRoutes(app, deps = {}) {
   app.post('/api/test/weather', async (req, res) => {
     try {
@@ -36,14 +29,6 @@ export function mountTestRoutes(app, deps = {}) {
       const { voice_id } = req.body || {};
       const opts = { ...deps, ...(voice_id != null ? { voiceId: voice_id } : {}) };
       res.json(await testTts(opts));
-    } catch (err) {
-      res.json({ ok: false, error: err.message });
-    }
-  });
-
-  app.post('/api/test/ai', async (req, res) => {
-    try {
-      res.json(await testAi(deps));
     } catch (err) {
       res.json({ ok: false, error: err.message });
     }

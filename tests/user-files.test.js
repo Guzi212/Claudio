@@ -17,7 +17,7 @@ function makeTmpDir() {
 describe('services/user-files', () => {
   it('localCounterpartPath 正确映射 .local counterpart 路径', () => {
     expect(localCounterpartPath('user/taste.md')).toBe('user/taste.local.md');
-    expect(localCounterpartPath('claudio/journal.md')).toBe('claudio/journal.local.md');
+    expect(localCounterpartPath('user/routines.md')).toBe('user/routines.local.md');
     expect(localCounterpartPath('user/taste.local.md')).toBe('user/taste.local.md');
   });
 

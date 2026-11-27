@@ -11,7 +11,7 @@ import {
 
 export { queueFinished, notePlaybackActivity, continuousListenMinutes, PAUSE_RESET_MS };
 
-export const EXTERNAL_CHAT_HINT = '当前为外部主持模式，请通过已接入的 Agent 或常驻 DJ 点歌。';
+export const EXTERNAL_CHAT_HINT = '当前为外部主持模式，请通过已接入的 Agent 点歌。';
 
 export const SCENES = {
   auto: '自动',

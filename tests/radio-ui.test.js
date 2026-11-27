@@ -103,6 +103,7 @@ describe('radio visual contract (ink-on-xuan-paper)', () => {
   it('离线壳缓存覆盖新增资源与全部水墨/品牌/像素素材', () => {
     expect(sw).toMatch(/const CACHE = 'claudio-shell-v37'/);
     expect(sw).toContain('\'/leader-claim.js\'');
+    expect(sw).toContain('\'/mobile-mode.js\'');
     expect(sw).toContain('\'/theme-store.js\'');
     expect(sw).toContain('\'/host-mood.js\'');
     expect(sw).toContain('\'/assets/brand/mark-ink.svg\'');
@@ -151,16 +152,19 @@ describe('radio visual contract (ink-on-xuan-paper)', () => {
     expect(pixelSection).toMatch(/:root\[data-theme="pixel"\]\s+\.modal-status\.off\s*\{[^}]*color:\s*var\(--pixel-red\)/);
   });
 
-  it('歌单页支持多源搜索、设置默认红心单并精确播放单曲', () => {
+  it('歌单页支持多源搜索、设置默认红心单并精确播放单曲，不再包含候选池', () => {
     expect(html).toContain('id="search-form"');
     expect(html).toContain('id="search-input"');
     expect(html).toContain('id="search-results"');
     expect(html).toContain('id="set-music-provider"');
+    expect(html).not.toContain('pool-card');
+    expect(html).not.toContain('id="pool-status"');
     const playlistsJs = fs.readFileSync(path.resolve('pwa/views/playlists.js'), 'utf8');
     expect(playlistsJs).toContain('/api/music/search?q=');
     expect(playlistsJs).toContain('/api/kugou/play');
     expect(playlistsJs).toContain('like_target_listid');
     expect(playlistsJs).toContain('claudio:queue-replace');
+    expect(playlistsJs).not.toContain('/api/kugou/playlists/pool');
     // 订阅/系统歌单不可写，不能设为红心目标。
     expect(playlistsJs).toContain('p.writable !== false');
   });
