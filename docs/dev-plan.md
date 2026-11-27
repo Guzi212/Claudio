@@ -41,6 +41,17 @@
   Windows curl 发 GBK 会产出 `EF BF BD`（�）烂数据入队列，服务端应检测 `\uFFFD` 占比 >0 直接 400 拒收
   （或 Content-Type 无 `charset=utf-8` 时警告）；同时把 `cover` 列为必填或明确文档化，避免封面字段静默丢失。
 
+### 阶段 1.6：移动端远程访问 MVP ✅ 本机已通（2026-11-25）
+
+- [x] **Tailscale HTTPS 远程接入已打通**：`tailscale serve` 把本机 :8080 暴露为 `https://<机器>.<tailnet>.ts.net`，
+  手机浏览器打开 `?token=` 地址后换 HttpOnly cookie，PWA 可装到主屏。
+- [x] 生产 `.env` 已配 `CLAUDIO_HOST=0.0.0.0` + `CLAUDIO_API_TOKEN` + `CLAUDIO_ALLOWED_HOSTS`（含 tailnet 域名/IP），
+  完整手机访问 URL 保存在 `D:\works\claudio-runtime\mobile-access.txt`（不入库）。
+- [x] 实测回执：tailnet IP 打 `/api/health/integrations` 带 token 200 / 不带 401；`/api/proxy` 转发 kugou 音频流 206 + `audio/flac`。
+- [x] loic 真机验收（2026-11-25）：手机能打开 HTTPS 页面并点歌——但**出声仍在电脑**。原因：#48 防双声
+  机制让 Electron 客户端固定当播放 leader，手机被压成 follower 静音。修复在 PR #57（「在此设备播放」认领）。
+- [ ] 手机端出声待 #57 合并后复验；移动端 UI 适配视图（进度/按钮排布）列为下一阶段。
+
 ### 阶段二：补源 + 适配层抽象（待评估）
 
 前提：阶段一在生产环境稳定跑一段时间后再动。
