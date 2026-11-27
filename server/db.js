@@ -215,6 +215,23 @@ export function migrateMemorySchema(database) {
 
 migrateMemorySchema(db);
 
+/**
+ * 幂等创建认证会话表：仅存会话 id 哈希与当前 API 令牌指纹，不存任何明文凭据。
+ */
+export function ensureAuthSessionsTable(database) {
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS auth_sessions (
+      id_hash    TEXT PRIMARY KEY,
+      token_hash TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_auth_sessions_expires ON auth_sessions(expires_at);
+  `);
+}
+
+ensureAuthSessionsTable(db);
+
 const stmts = {
   insertMessage: db.prepare(`INSERT INTO messages (role, content, ts) VALUES (?, ?, ?)`),
   recentMessages: db.prepare(`SELECT id, role, content, ts FROM messages ORDER BY ts DESC LIMIT ?`),

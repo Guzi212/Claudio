@@ -2,6 +2,7 @@
 
 ## 未发布
 
+- **手机登录态持久化**：`claudio_session` 会话改由本地 SQLite（`state.db`）持久化保存（仅存会话哈希与令牌指纹），服务或电脑重启后 30 天内无需重新输入 token 登录；更换 `CLAUDIO_API_TOKEN` 后旧会话自动失效。
 - **移除旧 `internal` 选歌模式**：不再支持旧 `internal` 模式的内置选歌、开机推荐和定时推歌，选歌交给外部 Agent；此前配置为 `internal` 的用户启动时会收到提示并自动按 `external` 模式运行。
 - **移除常驻 DJ（常驻主持人）**：自动续歌请改用续播池（`PUT /api/continue-pool`）或让外部 Agent 追加；原先开启常驻 DJ 的用户启动时会收到提示，服务照常启动。
 - **移除 DeepSeek / Claude 模型设置与歌单候选池**：删除设置页的电台引擎与 AI 模型配置项、歌单页候选池以及 `/api/dj/*`、`/api/kugou/playlists/pool`、`/api/test/ai` 接口。

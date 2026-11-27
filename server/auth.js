@@ -86,7 +86,7 @@ export function authorizeRequest(req, env = process.env) {
     // 带了错误令牌就拒绝，不回落到 cookie。
     return { ok: false, via: expected ? 'rejected' : 'no-token-configured' };
   }
-  if (sessionValid(readSessionId(req))) {
+  if (expected && sessionValid(readSessionId(req), Date.now(), { token: expected })) {
     return { ok: true, via: 'cookie' };
   }
   return { ok: false, via: expected ? 'rejected' : 'no-token-configured' };
