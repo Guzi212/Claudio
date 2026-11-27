@@ -1,5 +1,7 @@
 import express from 'express';
 import http from 'node:http';
+import https from 'node:https';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -38,6 +40,7 @@ import { mountStudioRoutes } from './api/studio.js';
 import { mountTestRoutes } from './api/test.js';
 import { mountPlaylistRoutes } from './api/playlists.js';
 import { mountExternalQueueRoutes } from './api/external-queue.js';
+import { mountHostAskRoutes } from './api/host-ask.js';
 import { mountBootRoute } from './api/boot.js';
 import { mountChatRoute } from './api/chat.js';
 import { mountControlRoute } from './api/control.js';
@@ -54,11 +57,26 @@ import { hostGuard } from './host-guard.js';
 import { mountSessionRoute } from './session.js';
 import { resolveListenHost } from './listen.js';
 import { axiosProxyOptions } from './outbound-proxy.js';
-import { checkProxyUrl, createRedirectGuard, findProxyBlock, refererForProxyUrl } from './proxy-guard.js';
+import { checkProxyUrl, createRedirectGuard, findProxyBlock, inferProxyContentType, refererForProxyUrl } from './proxy-guard.js';
 import { musicService, getMusicProvider, getEnabledProviders } from './services/music.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
+
+// 复用上游 CDN TCP 连接，避免 iOS Safari 连续 Range 分段请求每次重新握手。
+const proxyHttpAgent = new http.Agent({ keepAlive: true, maxSockets: 16 });
+const proxyHttpsAgent = new https.Agent({ keepAlive: true, maxSockets: 16 });
+
+function proxyEtagFor(target, headers = {}, status = 200) {
+  if (headers.etag) return headers.etag;
+  let total = '';
+  const cr = String(headers['content-range'] || '');
+  const m = cr.match(/\/(\d+)\s*$/);
+  if (m) total = m[1];
+  else if (status === 200 && headers['content-length']) total = String(headers['content-length']);
+  const hash = createHash('sha1').update(String(target)).digest('hex').slice(0, 16);
+  return total ? `W/"${hash}-${total}"` : `W/"${hash}"`;
+}
 
 export function warnRemovedInternalBrain({ env = process.env, db = dbApi, warn = console.warn } = {}) {
   const candidates = [
@@ -142,6 +160,20 @@ export function createApp(options = {}) {
     }
   }
 
+  function sendToClient(clientId, event) {
+    const payload = JSON.stringify(event);
+    let sent = 0;
+    for (const ws of wsClients.clientsForId(clientId)) {
+      if (ws.readyState === 1) {
+        try {
+          ws.send(payload);
+          sent += 1;
+        } catch { /* ignore */ }
+      }
+    }
+    return sent;
+  }
+
   // ────────────────────────────────────────────────────────
   // 静态：PWA
   // ────────────────────────────────────────────────────────
@@ -192,13 +224,13 @@ export function createApp(options = {}) {
     db,
     rememberVolume,
   });
-  mountControlRoute(app, { getRuntime: () => runtime, broadcast, db, rememberVolume });
+  mountControlRoute(app, { getRuntime: () => runtime, broadcast, sendToClient, db, rememberVolume });
   mountPlaysRoutes(app);
   mountSearchRoute(app, searchDeps);
   mountFavoriteRoutes(app, { db });
   mountLikeRoutes(app, { db });
 
-  // 音频代理：破酷狗防盗链 + 支持 Range
+  // 音频代理：破酷狗防盗链 + 支持 Range + 适配 iOS Safari CoreMedia 分段流式播放
   // timeout 只覆盖 connect 阶段（10s），body 流式读取不限时（长歌可能 5+ min）。
   app.get('/api/proxy', async (req, res) => {
     const url = req.query.u;
@@ -209,8 +241,11 @@ export function createApp(options = {}) {
 
     const range = req.headers.range;
     const ac = new AbortController();
-    // 客户端中途断开时（用户切歌 / 关页面）立刻终止上游拉流，不浪费带宽
-    req.on('close', () => ac.abort());
+    // 客户端中途断开时（用户切歌 / 关页面 / CoreMedia 取消分段）立刻终止上游拉流；
+    // 用 res.on('close') + !res.writableEnded 避免误伤已正常读完请求体的 GET。
+    res.on('close', () => {
+      if (!res.writableEnded) ac.abort();
+    });
 
     try {
       const target = decodeURIComponent(url);
@@ -221,8 +256,8 @@ export function createApp(options = {}) {
         res.status(403).send('forbidden target');
         return;
       }
-      const upstream = await axios.get(target, {
-        responseType: 'stream',
+      const proxyOpts = axiosProxyOptions(target);
+      const commonOpts = {
         headers: {
           Referer: refererForProxyUrl(target),
           'User-Agent': req.headers['user-agent'] || 'Mozilla/5.0',
@@ -235,8 +270,14 @@ export function createApp(options = {}) {
         // 重定向的每一跳都重新判定，跳到白名单外直接中止
         beforeRedirect: createRedirectGuard(),
         // CDN 走 KUGOU_PROXY；目标若是 127.0.0.1 / localhost 则强制直连。
-        ...axiosProxyOptions(target),
-      });
+        ...proxyOpts,
+        ...(proxyOpts.proxy ? {} : { httpAgent: proxyHttpAgent, httpsAgent: proxyHttpsAgent }),
+      };
+
+      const isHead = req.method === 'HEAD';
+      const upstream = isHead
+        ? await axios.head(target, commonOpts)
+        : await axios.get(target, { ...commonOpts, responseType: 'stream' });
 
       // 兜底：万一某一跳没走 beforeRedirect，最终地址也复查一次
       const finalUrl = upstream.request?.res?.responseUrl;
@@ -250,11 +291,21 @@ export function createApp(options = {}) {
         }
       }
 
-      for (const h of ['content-type', 'content-length', 'accept-ranges', 'content-range']) {
+      const contentType = inferProxyContentType(finalUrl || target, upstream.headers['content-type']);
+      if (contentType) res.setHeader('content-type', contentType);
+      for (const h of ['content-length', 'content-range', 'last-modified']) {
         const v = upstream.headers[h];
         if (v) res.setHeader(h, v);
       }
+      res.setHeader('accept-ranges', upstream.headers['accept-ranges'] || 'bytes');
+      res.setHeader('etag', proxyEtagFor(finalUrl || target, upstream.headers, upstream.status));
+      res.setHeader('cache-control', 'private, max-age=3600');
       res.status(upstream.status);
+
+      if (isHead) {
+        res.end();
+        return;
+      }
 
       // 拿到 response 后清掉 axios 的 timeout，body 读取不限时
       if (upstream.request?.socket) {
@@ -310,7 +361,8 @@ export function createApp(options = {}) {
   mountStudioRoutes(app, { getRuntime: () => runtime });
   mountTestRoutes(app);
   mountPlaylistRoutes(app, { runtime, broadcast });
-  mountExternalQueueRoutes(app, { runtime, broadcast, db, ...externalQueueDeps });
+  mountExternalQueueRoutes(app, { runtime, broadcast, sendToClient, db, ...externalQueueDeps });
+  mountHostAskRoutes(app, { broadcast, sendToClient, ...(options.hostAsk || {}) });
   mountContinuePoolRoutes(app, { runtime, broadcast, db, ...continuePoolDeps });
   mountKugouImportApiRoute(app, { rootDir });
   mountUnmatchedRoute(app, { db });
@@ -344,6 +396,11 @@ export function createApp(options = {}) {
           broadcast(leaderBroadcast(nextLeader));
           return;
         }
+        if (msg?.type === 'claim') {
+          const nextLeader = wsClients.claim(ws, msg?.want === true || msg?.want === 'true');
+          broadcast(leaderBroadcast(nextLeader));
+          return;
+        }
         if (msg?.type === 'progress') {
           if (!wsClients.isLeader(ws)) return;
           const before = runtime.volume;
@@ -362,7 +419,20 @@ export function createApp(options = {}) {
     });
   });
 
-  function stopBackground() {}
+  // 保活心跳：经 Tailscale DERP / 手机 NAT 代理时，定期 ping 防止空闲 WS 被静默切断导致手机丢失播放权。
+  const wsPingTimer = setInterval(() => {
+    for (const ws of wsClients.clients()) {
+      if (ws.readyState === 1) {
+        try { ws.ping(); } catch { /* ignore */ }
+      }
+    }
+  }, 25_000);
+  wsPingTimer.unref?.();
+  wss.on('close', () => clearInterval(wsPingTimer));
+
+  function stopBackground() {
+    clearInterval(wsPingTimer);
+  }
 
   return {
     app,

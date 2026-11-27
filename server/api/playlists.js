@@ -234,17 +234,20 @@ export function mountPlaylistRoutes(app, deps = {}) {
         return;
       }
       const url = proxyUrl(upstream);
-      // 播放页切档时同步运行中队列项，让 /api/status 读到实际档
-      const runtime = getRuntime();
-      const q = Array.isArray(runtime?.queue) ? runtime.queue : [];
-      for (const item of q) {
-        if (
-          item?.kugouId === rawIdOrHash
-          || item?.kugouId === decoded.rawId
-          || (item?.provider === decoded.provider && item?.id === decoded.rawId)
-        ) {
-          item.audioUrl = url;
-          item.audioQuality = audioQuality;
+      // 播放页切档时同步运行中队列项，让 /api/status 读到实际档；
+      // 远程手机端用 sync=0 取本端轻量音质时，不覆盖桌面共享队列。
+      if (String(req.query?.sync ?? '').trim() !== '0') {
+        const runtime = getRuntime();
+        const q = Array.isArray(runtime?.queue) ? runtime.queue : [];
+        for (const item of q) {
+          if (
+            item?.kugouId === rawIdOrHash
+            || item?.kugouId === decoded.rawId
+            || (item?.provider === decoded.provider && item?.id === decoded.rawId)
+          ) {
+            item.audioUrl = url;
+            item.audioQuality = audioQuality;
+          }
         }
       }
       res.json({ ok: true, url, audioQuality, provider: decoded.provider });

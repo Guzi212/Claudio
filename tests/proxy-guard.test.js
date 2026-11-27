@@ -11,6 +11,7 @@ import {
   checkProxyUrl,
   createRedirectGuard,
   findProxyBlock,
+  inferProxyContentType,
   isAllowedProxyUrl,
   isIpLiteralHost,
   redirectTargetOf,
@@ -231,5 +232,25 @@ describe('proxy-guard · 接线', () => {
     expect(body).toContain('res.status(upstreamStatus)');
     // 416 的 content-range 也应透传，客户端才能知道总长度
     expect(body).toContain("['content-range']");
+  });
+
+  it('inferProxyContentType 修正 application/octet-stream 与 audio/x-flac 为标准音频 MIME', () => {
+    expect(inferProxyContentType('http://fsandroid.tx.kugou.com/a/b.flac', 'application/octet-stream')).toBe('audio/flac');
+    expect(inferProxyContentType('http://fsandroid.tx.kugou.com/a/b.flac', 'audio/x-flac')).toBe('audio/flac');
+    expect(inferProxyContentType('http://fsandroid.tx.kugou.com/a/b.mp3', '')).toBe('audio/mpeg');
+    expect(inferProxyContentType('http://fsandroid.tx.kugou.com/a/b.mp3', 'audio/mpeg')).toBe('audio/mpeg');
+  });
+
+  it('/api/proxy 兼容 iOS Safari CoreMedia（res.on close、HEAD、ETag、Cache-Control、MIME 修正）', () => {
+    const appSource = fs.readFileSync(path.join(ROOT, 'server', 'app.js'), 'utf8');
+    const route = appSource.slice(appSource.indexOf("app.get('/api/proxy'"));
+    const body = route.slice(0, route.indexOf('// TTS 路由'));
+
+    expect(body).toContain("res.on('close'");
+    expect(body).toContain('!res.writableEnded');
+    expect(body).toContain("req.method === 'HEAD'");
+    expect(body).toContain('inferProxyContentType');
+    expect(body).toContain("res.setHeader('etag'");
+    expect(body).toContain("res.setHeader('cache-control'");
   });
 });

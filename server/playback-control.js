@@ -92,6 +92,7 @@ export function playbackStatus(
     ? playback.listeners.map(item => ({
         clientId: String(item?.clientId || ''),
         kind: item?.kind === 'electron' ? 'electron' : 'pwa',
+        claimed: Boolean(item?.claimed),
         leader: Boolean(item?.leader),
       }))
     : [];
@@ -99,6 +100,7 @@ export function playbackStatus(
     ? {
         clientId: String(playback.leader.clientId),
         kind: playback.leader.kind === 'electron' ? 'electron' : 'pwa',
+        claimed: Boolean(playback.leader.claimed),
       }
     : null;
   const listenerCount = Number.isFinite(listeners) ? listeners : playbackListeners.length;

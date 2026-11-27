@@ -251,6 +251,18 @@ describe('GET /api/kugou/track-url', () => {
     expect(runtime.queue[0].audioUrl).toContain('/api/proxy?u=');
   });
 
+  it('传 sync=0 时只返回本端直链，不覆盖共享队列项', async () => {
+    const runtime = { queue: [{ title: 'A', kugouId: 'h1', audioUrl: '/api/proxy?u=orig.flac', audioQuality: 'flac' }], index: 0 };
+    const app = mockApp();
+    mountPlaylistRoutes(app, makeDeps({ runtime, resolveSongUrl: vi.fn(async () => ({ url: 'http://upstream/a.mp3', quality: '128' })) }));
+    const res = mockRes();
+    await app.routes['GET /api/music/track-url']({ query: { hash: 'h1', quality: '128', sync: '0' } }, res);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.audioQuality).toBe('128');
+    expect(runtime.queue[0].audioQuality).toBe('flac');
+    expect(runtime.queue[0].audioUrl).toBe('/api/proxy?u=orig.flac');
+  });
+
   it('取不到直链 → 404', async () => {
     const app = mockApp();
     mountPlaylistRoutes(app, makeDeps({ resolveSongUrl: vi.fn(async () => null) }));

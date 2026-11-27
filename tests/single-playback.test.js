@@ -70,6 +70,11 @@ function startTestStreamServer(initialRuntime = {}) {
           broadcast(leaderBroadcast(nextLeader));
           return;
         }
+        if (msg?.type === 'claim') {
+          const nextLeader = registry.claim(ws, msg?.want === true || msg?.want === 'true');
+          broadcast(leaderBroadcast(nextLeader));
+          return;
+        }
         if (msg?.type === 'progress') {
           if (!registry.isLeader(ws)) return;
           if (!applyProgress(runtime, msg)) return;
@@ -162,33 +167,79 @@ describe('单点播放服务端选举与广播', () => {
     const s4 = {};
 
     // 未 identify 默认 pwa
-    expect(reg.connect(s1).leader).toEqual({ clientId: 'anon-1', kind: 'pwa' });
-    expect(reg.identify(s1, { clientId: 'pwa-1', kind: 'pwa' })).toEqual({ clientId: 'pwa-1', kind: 'pwa' });
+    expect(reg.connect(s1).leader).toEqual({ clientId: 'anon-1', kind: 'pwa', claimed: false });
+    expect(reg.identify(s1, { clientId: 'pwa-1', kind: 'pwa' })).toEqual({ clientId: 'pwa-1', kind: 'pwa', claimed: false });
 
     // 第二个 pwa 连入，leader 仍是最早的 pwa-1
     reg.connect(s2);
-    expect(reg.identify(s2, { clientId: 'pwa-2', kind: 'pwa' })).toEqual({ clientId: 'pwa-1', kind: 'pwa' });
+    expect(reg.identify(s2, { clientId: 'pwa-2', kind: 'pwa' })).toEqual({ clientId: 'pwa-1', kind: 'pwa', claimed: false });
 
     // electron 连入并 identify → 立即抢占 leader
     reg.connect(s3);
-    expect(reg.identify(s3, { clientId: 'elec-1', kind: 'electron' })).toEqual({ clientId: 'elec-1', kind: 'electron' });
+    expect(reg.identify(s3, { clientId: 'elec-1', kind: 'electron' })).toEqual({ clientId: 'elec-1', kind: 'electron', claimed: false });
 
     // 第二个 electron 连入 → 最新连接的 electron 当 leader
     reg.connect(s4);
-    expect(reg.identify(s4, { clientId: 'elec-2', kind: 'electron' })).toEqual({ clientId: 'elec-2', kind: 'electron' });
+    expect(reg.identify(s4, { clientId: 'elec-2', kind: 'electron' })).toEqual({ clientId: 'elec-2', kind: 'electron', claimed: false });
 
     // 最新 electron 断开 → 回落到仍在场的 elec-1
-    expect(reg.disconnect(s4)).toEqual({ clientId: 'elec-1', kind: 'electron' });
+    expect(reg.disconnect(s4)).toEqual({ clientId: 'elec-1', kind: 'electron', claimed: false });
 
     // 所有 electron 断开 → 回落到最早连接的 pwa-1
-    expect(reg.disconnect(s3)).toEqual({ clientId: 'pwa-1', kind: 'pwa' });
+    expect(reg.disconnect(s3)).toEqual({ clientId: 'pwa-1', kind: 'pwa', claimed: false });
 
     // pwa-1 断开 → 切换到 pwa-2
-    expect(reg.disconnect(s1)).toEqual({ clientId: 'pwa-2', kind: 'pwa' });
+    expect(reg.disconnect(s1)).toEqual({ clientId: 'pwa-2', kind: 'pwa', claimed: false });
 
     // 全部断开 → null
     expect(reg.disconnect(s2)).toBeNull();
     expect(reg.snapshot()).toEqual({ leader: null, listeners: [] });
+  });
+
+  it('显式认领（claim）优先于 electron；归还或断开后回落默认选举', () => {
+    const reg = createStreamRegistry();
+    const desk = {};
+    const phone = {};
+    const laptop = {};
+
+    reg.connect(desk);
+    expect(reg.identify(desk, { clientId: 'desktop', kind: 'electron' }))
+      .toEqual({ clientId: 'desktop', kind: 'electron', claimed: false });
+
+    // 手机连入：不抢权，desktop 仍是 leader
+    reg.connect(phone);
+    expect(reg.identify(phone, { clientId: 'phone', kind: 'pwa' }))
+      .toEqual({ clientId: 'desktop', kind: 'electron', claimed: false });
+
+    // identify 不再携带 claim：claim 字段被忽略，旧意图不能借 identify 复活
+    expect(reg.identify(phone, { clientId: 'phone', kind: 'pwa', claim: true }))
+      .toEqual({ clientId: 'desktop', kind: 'electron', claimed: false });
+
+    // 手机显式 claim → 立即接管
+    expect(reg.claim(phone, true))
+      .toEqual({ clientId: 'phone', kind: 'pwa', claimed: true });
+
+    // 另一台网页再认领 → 后到者接管（独占只有一个）
+    reg.connect(laptop);
+    reg.identify(laptop, { clientId: 'laptop', kind: 'pwa' });
+    expect(reg.claim(laptop, true))
+      .toEqual({ clientId: 'laptop', kind: 'pwa', claimed: true });
+
+    // laptop 归还 → 回落到仍认领着 的 phone（不是 electron）
+    expect(reg.claim(laptop, false))
+      .toEqual({ clientId: 'phone', kind: 'pwa', claimed: true });
+
+    // 手机断开 → 没有认领者了，回到默认选举：desktop（electron）
+    expect(reg.disconnect(phone))
+      .toEqual({ clientId: 'desktop', kind: 'electron', claimed: false });
+
+    // laptop 断开只剩 desktop
+    expect(reg.disconnect(laptop))
+      .toEqual({ clientId: 'desktop', kind: 'electron', claimed: false });
+    expect(reg.snapshot()).toEqual({
+      leader: { clientId: 'desktop', kind: 'electron', claimed: false },
+      listeners: [{ clientId: 'desktop', kind: 'electron', claimed: false, leader: true }],
+    });
   });
 
   it('真实 WS 双客户端（pwa + electron）连接、进度连续广播、follower progress 被拒与断开恢复', async () => {
@@ -235,10 +286,10 @@ describe('单点播放服务端选举与广播', () => {
       const statusJson = await statusRes.json();
       expect(statusJson.listeners).toBe(2);
       expect(statusJson.playback).toEqual({
-        leader: { clientId: 'elec-client', kind: 'electron' },
+        leader: { clientId: 'elec-client', kind: 'electron', claimed: false },
         listeners: [
-          { clientId: 'pwa-client', kind: 'pwa', leader: false },
-          { clientId: 'elec-client', kind: 'electron', leader: true },
+          { clientId: 'pwa-client', kind: 'pwa', claimed: false, leader: false },
+          { clientId: 'elec-client', kind: 'electron', claimed: false, leader: true },
         ],
       });
 
@@ -284,14 +335,14 @@ describe('单点播放服务端选举与广播', () => {
       elec.ws.close();
       expect(await pwaRegained).toEqual({
         type: 'leader',
-        leader: { clientId: 'pwa-client', kind: 'pwa' },
+        leader: { clientId: 'pwa-client', kind: 'pwa', claimed: false },
       });
       const afterCloseStatus = await fetch(`${srv.baseUrl}/api/status`).then(r => r.json());
       expect(afterCloseStatus.listeners).toBe(1);
       expect(afterCloseStatus.currentTime).toBe(58.2);
       expect(afterCloseStatus.playback).toEqual({
-        leader: { clientId: 'pwa-client', kind: 'pwa' },
-        listeners: [{ clientId: 'pwa-client', kind: 'pwa', leader: true }],
+        leader: { clientId: 'pwa-client', kind: 'pwa', claimed: false },
+        listeners: [{ clientId: 'pwa-client', kind: 'pwa', claimed: false, leader: true }],
       });
 
       pwa.ws.close();
@@ -319,9 +370,112 @@ describe('单点播放服务端选举与广播', () => {
       pwa1.ws.close();
       expect(await promoted).toEqual({
         type: 'leader',
-        leader: { clientId: 'pwa-2', kind: 'pwa' },
+        leader: { clientId: 'pwa-2', kind: 'pwa', claimed: false },
       });
       pwa2.ws.close();
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it('真实 WS：桌面 electron 在播时手机 claim 接管、归还回落、断开自动回收', async () => {
+    const srv = await startTestStreamServer();
+    try {
+      // 桌面 electron 先连上并当 leader
+      const desk = await connectClient(srv.wsUrl);
+      await desk.waitFor(e => e.type === 'hello');
+      const deskLeader = desk.waitNext(e => e.type === 'leader' && e.leader?.clientId === 'desktop');
+      desk.ws.send(JSON.stringify({ type: 'identify', clientId: 'desktop', kind: 'electron' }));
+      await deskLeader;
+
+      // 手机连入：不带 claim → desktop 仍是 leader，手机只收到 desktop 的领导广播
+      const phone = await connectClient(srv.wsUrl);
+      await phone.waitFor(e => e.type === 'hello');
+      const phoneSeesDesk = phone.waitNext(e => e.type === 'leader' && e.leader?.clientId === 'desktop');
+      phone.ws.send(JSON.stringify({ type: 'identify', clientId: 'phone', kind: 'pwa' }));
+      await phoneSeesDesk;
+
+      // 手机点「在此设备播放」→ claim want=true，两端都收到 phone 为 leader
+      const deskSawPhone = desk.waitNext(e => e.type === 'leader' && e.leader?.clientId === 'phone');
+      const phoneSawSelf = phone.waitNext(e => e.type === 'leader' && e.leader?.clientId === 'phone');
+      phone.ws.send(JSON.stringify({ type: 'claim', clientId: 'phone', want: true }));
+      const [dl, pl] = await Promise.all([deskSawPhone, phoneSawSelf]);
+      expect(pl.leader).toEqual({ clientId: 'phone', kind: 'pwa', claimed: true });
+      expect(dl.leader.claimed).toBe(true);
+
+      // 手机作为 leader 上报进度 → 广播带 origin
+      const deskGotPhoneProgress = desk.waitNext(e => e.type === 'progress' && e.origin === 'phone');
+      phone.ws.send(JSON.stringify({
+        type: 'progress', currentTime: 10, duration: 269, paused: false, index: 0, clientId: 'phone',
+      }));
+      expect(await deskGotPhoneProgress).toMatchObject({ currentTime: 10, origin: 'phone' });
+
+      // /api/status 的 playback 里 phone 标记为 claimed leader
+      const st = await fetch(`${srv.baseUrl}/api/status`).then(r => r.json());
+      expect(st.playback.leader).toEqual({ clientId: 'phone', kind: 'pwa', claimed: true });
+
+      // 手机点「归还播放权」→ claim want=false，两端都收到 desktop 复任
+      const deskRegained = desk.waitNext(e => e.type === 'leader' && e.leader?.clientId === 'desktop');
+      const phoneSawDeskBack = phone.waitNext(e => e.type === 'leader' && e.leader?.clientId === 'desktop');
+      phone.ws.send(JSON.stringify({ type: 'claim', clientId: 'phone', want: false }));
+      await Promise.all([deskRegained, phoneSawDeskBack]);
+
+      // 手机再认领一次后直接断开 → 认领随连接回收，desktop 接回
+      const phoneClaimedAgain = desk.waitNext(e => e.type === 'leader' && e.leader?.clientId === 'phone');
+      phone.ws.send(JSON.stringify({ type: 'claim', clientId: 'phone', want: true }));
+      await phoneClaimedAgain;
+      const deskBackAfterClose = desk.waitNext(e => e.type === 'leader' && e.leader?.clientId === 'desktop');
+      phone.ws.close();
+      const evt = await deskBackAfterClose;
+      expect(evt.leader).toEqual({ clientId: 'desktop', kind: 'electron', claimed: false });
+
+      desk.ws.close();
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it('真实 WS：A 认领后 B 再认领，A 断网重连不会用旧意图抢回', async () => {
+    const srv = await startTestStreamServer();
+    try {
+      const desk = await connectClient(srv.wsUrl);
+      await desk.waitFor(e => e.type === 'hello');
+      desk.ws.send(JSON.stringify({ type: 'identify', clientId: 'desktop', kind: 'electron' }));
+      await desk.waitNext(e => e.type === 'leader' && e.leader?.clientId === 'desktop');
+
+      // A 认领
+      const a = await connectClient(srv.wsUrl);
+      await a.waitFor(e => e.type === 'hello');
+      a.ws.send(JSON.stringify({ type: 'identify', clientId: 'phone-a', kind: 'pwa' }));
+      a.ws.send(JSON.stringify({ type: 'claim', clientId: 'phone-a', want: true }));
+      await a.waitNext(e => e.type === 'leader' && e.leader?.clientId === 'phone-a');
+
+      // B 再认领：后到者接管
+      const b = await connectClient(srv.wsUrl);
+      await b.waitFor(e => e.type === 'hello');
+      b.ws.send(JSON.stringify({ type: 'identify', clientId: 'phone-b', kind: 'pwa' }));
+      const bLead = b.waitNext(e => e.type === 'leader' && e.leader?.clientId === 'phone-b');
+      b.ws.send(JSON.stringify({ type: 'claim', clientId: 'phone-b', want: true }));
+      await bLead;
+
+      // A 断网重连：新连接只 identify（前端现在不携带 claim 意图）
+      a.ws.close();
+      const a2 = await connectClient(srv.wsUrl);
+      await a2.waitFor(e => e.type === 'hello');
+      const a2SeesB = a2.waitNext(e => e.type === 'leader' && e.leader?.clientId === 'phone-b');
+      a2.ws.send(JSON.stringify({ type: 'identify', clientId: 'phone-a', kind: 'pwa' }));
+      const evt = await a2SeesB;
+      // 重连后 B 仍是 leader——A 的旧意图不会复活抢走
+      expect(evt.leader.clientId).toBe('phone-b');
+
+      // 即使 A 在同一条新连接上再送一次 claim=true 到 identify，也被忽略
+      a2.ws.send(JSON.stringify({ type: 'identify', clientId: 'phone-a', kind: 'pwa', claim: true }));
+      const st = await fetch(`${srv.baseUrl}/api/status`).then(r => r.json());
+      expect(st.playback.leader.clientId).toBe('phone-b');
+
+      a2.ws.close();
+      b.ws.close();
+      desk.ws.close();
     } finally {
       await srv.close();
     }

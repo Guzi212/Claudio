@@ -42,6 +42,7 @@
     </nav>
     <div class="topbar-right">
       <span id="status" class="status"></span>
+      <button type="button" id="play-here-btn" class="ghost-pill play-here" hidden>在此设备播放</button>
       <button type="button" id="mini-expand-btn" class="ghost-pill mini-only" aria-label="恢复完整窗口">展开</button>
     </div>
   </header>
@@ -109,6 +110,10 @@
               <span id="host-time">在线</span>
             </div>
             <p class="host-line" id="host-line">我在。让我挑一首适合现在的歌。</p>
+            <form id="host-ask-form" class="host-ask-form" aria-label="给主持人发消息">
+              <input id="host-ask-input" type="text" maxlength="300" placeholder="让主持人选歌、切歌或控制播放…" aria-label="给主持人发消息" autocomplete="off">
+              <button type="submit" id="host-ask-btn" class="btn primary host-ask-btn">发送</button>
+            </form>
           </div>
           <div class="voice" id="host-speaking" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
         </section>

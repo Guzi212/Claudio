@@ -14,6 +14,8 @@ import {
 } from '../player-mode.js';
 import { readLocalVolume, writeLocalVolume } from '../volume-memory.js';
 import { getClientId } from '../client-id.js';
+import { wantsPlaybackHere, requestPlaybackHere } from '../leader-claim.js';
+import { detectStandaloneMobile } from '../mobile-mode.js';
 import { hostSprite, PIXEL_HOST_SPRITES, readPixelHostEnabled } from '../host-mood.js';
 
 function escapeHtml(str) {
@@ -44,6 +46,7 @@ const state = {
   index: 0,
   offset: 0,
   continuePoolActive: false,
+  standalone: detectStandaloneMobile(),
   isFollower: false,
   serverPaused: false,
   serverDuration: 0,
@@ -52,6 +55,117 @@ const state = {
 
 let bootOverlay = null;
 let bootBtn = null;
+let playHereBtn = null;
+// 点过「在此设备播放」等待服务端确认时置真，防重复点击；
+// leader 广播到达后清掉；超时未确认自动恢复可点，避免一直禁用。
+let playHerePending = false;
+let playHerePendingTimer = null;
+
+function iAmClaimedLeader() {
+  return Boolean(
+    state.leader && state.leader.clientId === getClientId() && state.leader.claimed
+  );
+}
+
+function setPlayHerePending(pending) {
+  playHerePending = pending;
+  if (playHerePendingTimer) {
+    clearTimeout(playHerePendingTimer);
+    playHerePendingTimer = null;
+  }
+  if (pending) {
+    // 请求在途或离线没走通时，8 秒后自动放手让用户可重试。
+    playHerePendingTimer = setTimeout(() => {
+      playHerePending = false;
+      playHerePendingTimer = null;
+      updatePlayHereButton();
+    }, 8000);
+  }
+}
+
+// 顶部「在此设备播放 / 归还播放权」按钮的显示与文案：
+// follower（别的客户端在出声）→ 显示「在此设备播放」；
+// 本端显式认领着 → 显示「归还播放权」（交回默认选举，不一定回电脑）；
+// 本端是默认选举出的 leader（没人认领）→ 隐藏，不打扰。
+function updatePlayHereButton() {
+  if (!playHereBtn) return;
+  if (state.standalone) {
+    setPlayHerePending(false);
+    playHereBtn.hidden = true;
+    playHereBtn.disabled = false;
+    return;
+  }
+  const show = playHerePending || state.isFollower || iAmClaimedLeader();
+  playHereBtn.hidden = !show;
+  if (!show) {
+    setPlayHerePending(false);
+    playHereBtn.disabled = false;
+    return;
+  }
+  if (playHerePending) {
+    playHereBtn.disabled = true;
+    playHereBtn.textContent = '正在切换…';
+    return;
+  }
+  playHereBtn.disabled = false;
+  playHereBtn.textContent = iAmClaimedLeader() ? '归还播放权' : '在此设备播放';
+}
+
+// 44 字节静音 WAV，仅用于「在此设备播放」手势帧内同步解锁移动端 <audio>，避免先拉 30MB FLAC。
+const SILENT_UNLOCK_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+const LOSSLESS_QUALITIES = new Set(['viper_clear', 'viper_atmos', 'high', 'flac']);
+const REMOTE_COMPACT_QUALITY = '128';
+let primingGesture = false;
+let manualQualitySelected = false;
+
+function isRemotePlaybackClient() {
+  try {
+    const loc = globalThis.location;
+    if (!loc || (loc.protocol !== 'http:' && loc.protocol !== 'https:')) return false;
+    const host = String(loc.hostname || '').toLowerCase();
+    return host !== 'localhost' && host !== '127.0.0.1' && host !== '::1' && host !== '[::1]';
+  } catch {
+    return false;
+  }
+}
+
+function needsRemoteCompactAudio(track) {
+  if (!isRemotePlaybackClient() || manualQualitySelected) return false;
+  if (!track || track.isTts) return false;
+  const id = String(track.kugouId || track.id || '').trim();
+  if (!id) return false;
+  const q = String(track.audioQuality || '').trim().toLowerCase();
+  if (LOSSLESS_QUALITIES.has(q)) return true;
+  return /\.flac(?:$|[?&%])/i.test(String(track.audioUrl || ''));
+}
+
+// 「在此设备播放」点击帧内必须完成的事：
+// iOS Safari 的自动播放解锁只信手势帧内同步调 audio.play()，
+// 不能先 await 网络请求，也不能被 follower 的 play 监听当场 pause 掉。
+// 用极短静音 WAV 在手势帧内立刻解锁元素；真正出声等成为 leader 后切到目标直链再播。
+async function primePlaybackInGesture() {
+  if (!audio) return;
+  ensurePlaybackVolume();
+  if (!audio.getAttribute('src')) {
+    try { audio.src = SILENT_UNLOCK_WAV; } catch { /* ignore */ }
+  }
+  const wasMuted = audio.muted;
+  audio.muted = true;
+  primingGesture = true;
+  try {
+    await audio.play();
+    markActivated();
+  } catch (err) {
+    // 浏览器仍拒绝（Safari 严格模式）：亮遮罩当显式第二步，
+    // 用户点「点击开声」时同一手势帧直接 play，且已认领着、出声即来。
+    if (err?.name === 'NotAllowedError') showUnlockOverlay();
+  } finally {
+    primingGesture = false;
+    // play() await 期间可能已被服务端授予 leader 并解静音；
+    // 只在仍是 follower 时才把静音改回去。
+    if (state.isFollower) audio.muted = wasMuted;
+  }
+}
 let activeAgent = null;
 let activeSession = null;
 let volumeReportTimer = null;
@@ -211,7 +325,7 @@ function applyHeardVolume(volume) {
 }
 
 function reportProgress(force = false) {
-  if (!audio || state.isFollower) return;
+  if (!audio || state.standalone || state.isFollower) return;
   const now = Date.now();
   if (!force && now - lastProgressAt < 1000) return;
   lastProgressAt = now;
@@ -231,7 +345,7 @@ function reportProgress(force = false) {
 // 把服务端的真实位置推回前端的镜像状态（避免 server / client 两边索引漂移）。
 // clientId 会跟着广播回来；这份页面看到自己的 origin 就不再改播放。
 function syncToServer(index, { paused = false, ended = false } = {}) {
-  if (state.isFollower) return Promise.resolve(null);
+  if (state.standalone || state.isFollower) return Promise.resolve(null);
   return fetch('/api/runtime/state', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -455,6 +569,7 @@ function seamlessSrcChange(src, resumeAt, { autoplay = true } = {}) {
 export async function switchPlaybackQuality(q, { track = null } = {}) {
   const opt = QUALITY_OPTIONS.find(o => o.q === q);
   if (!opt) return { ok: false, error: 'unknown quality' };
+  manualQualitySelected = true;
   const token = ++qualitySwitchToken;
 
   // 目标档写进设置（后续新解析沿用）。失败不阻塞本次切换。
@@ -484,6 +599,8 @@ export async function switchPlaybackQuality(q, { track = null } = {}) {
 
   t.audioUrl = resolved.url;
   t.audioQuality = resolved.audioQuality || q;
+  delete t._remoteAudioUrl;
+  delete t._remoteAudioQuality;
   paintAudioQuality(t);
   const actualLabel = QUALITY_LABEL[t.audioQuality] || t.audioQuality;
 
@@ -710,11 +827,14 @@ let currentQuality = 'flac';
 let qualitySwitchToken = 0;
 
 // 歌单队列只带 hash，播到这首时才向服务端换直链（避免大歌单一上来解析几百条）。
-async function resolveTrackUrl(hash, quality = '') {
+async function resolveTrackUrl(hash, quality = '', { provider = '', sync = true } = {}) {
   if (!hash) return null;
   try {
     const q = quality ? `&quality=${encodeURIComponent(quality)}` : '';
-    const r = await fetch(`/api/kugou/track-url?hash=${encodeURIComponent(hash)}${q}`);
+    const p = provider ? `&provider=${encodeURIComponent(provider)}` : '';
+    const s = sync ? '' : '&sync=0';
+    const endpoint = (!sync || (provider && provider !== 'kugou')) ? '/api/music/track-url' : '/api/kugou/track-url';
+    const r = await fetch(`${endpoint}?hash=${encodeURIComponent(hash)}${q}${p}${s}`);
     if (!r.ok) return null;
     const d = await r.json();
     if (!d?.url) return null;
@@ -726,6 +846,28 @@ async function resolveTrackUrl(hash, quality = '') {
 
 async function resolveAudioSrc(track) {
   if (!track) return null;
+  // 远程手机端（如经 Tailscale DERP）默认用 128k MP3（~4MB/首、audio/mpeg），
+  // 避免 30MB 无损 FLAC 在高延迟链路上缓冲几秒即卡住；sync=0 不覆盖电脑端无损队列。
+  if (needsRemoteCompactAudio(track)) {
+    if (track._remoteAudioUrl) {
+      if (track._remoteAudioQuality) {
+        paintAudioQuality({ ...track, audioQuality: track._remoteAudioQuality });
+      }
+      return track._remoteAudioUrl;
+    }
+    const id = String(track.kugouId || track.id || '').trim();
+    const resolved = await resolveTrackUrl(id, REMOTE_COMPACT_QUALITY, {
+      provider: String(track.provider || '').trim(),
+      sync: false,
+    });
+    const compactUrl = typeof resolved === 'string' ? resolved : resolved?.url;
+    if (compactUrl) {
+      track._remoteAudioUrl = compactUrl;
+      track._remoteAudioQuality = resolved?.audioQuality || REMOTE_COMPACT_QUALITY;
+      paintAudioQuality({ ...track, audioQuality: track._remoteAudioQuality });
+      return compactUrl;
+    }
+  }
   if (track.audioUrl) return track.audioUrl;
   const resolved = await resolveTrackUrl(track.kugouId);
   // 兼容旧后端只回 {url} 或直接 string 的情况
@@ -760,7 +902,8 @@ function alreadyPlayingIndex(i) {
   if (!track || !audio || audio.paused || audio.ended) return false;
   if (state.index !== i) return false;
   const src = audio.getAttribute('src') || '';
-  return Boolean(track.audioUrl) && src === track.audioUrl;
+  const expected = needsRemoteCompactAudio(track) ? track._remoteAudioUrl : track.audioUrl;
+  return Boolean(expected) && src === expected;
 }
 
 function shouldCountAsUserSkip() {
@@ -1312,11 +1455,97 @@ async function hydrateMemoryContext({ hasServerVolume = false } = {}) {
   } catch { /* ignore */ }
 }
 
+let hostAskPending = false;
+let hostAskTimer = null;
+
+function setHostLineText(text) {
+  const clean = String(text || '').trim();
+  if (!clean) return;
+  appliedSay = clean;
+  setConsoleDialog(clean);
+  const line = document.getElementById('host-line');
+  if (line) line.textContent = clean;
+}
+
+function setHostAskPending(pending, statusText = '') {
+  hostAskPending = Boolean(pending);
+  if (hostAskTimer) {
+    clearTimeout(hostAskTimer);
+    hostAskTimer = null;
+  }
+  const btn = document.getElementById('host-ask-btn');
+  if (btn) {
+    btn.disabled = hostAskPending;
+    btn.textContent = hostAskPending ? '选歌中…' : '发送';
+  }
+  if (statusText) setHostLineText(statusText);
+  if (hostAskPending) {
+    hostAskTimer = setTimeout(() => {
+      hostAskPending = false;
+      hostAskTimer = null;
+      const b = document.getElementById('host-ask-btn');
+      if (b) {
+        b.disabled = false;
+        b.textContent = '发送';
+      }
+    }, 20_000);
+  }
+}
+
+function bindHostAskForm() {
+  const form = document.getElementById('host-ask-form');
+  const input = document.getElementById('host-ask-input');
+  if (!form || !input) return;
+
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    markActivated();
+    const message = input.value.trim();
+    if (!message || hostAskPending) return;
+    setHostAskPending(true, '已发给主持人，正在为你处理…');
+    const cur = currentTrack();
+    try {
+      const r = await fetch('/api/host/ask', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message,
+          clientId: getClientId(),
+          standalone: state.standalone,
+          nowPlaying: cur ? { title: cur.title || '', artist: cur.artist || '' } : null,
+        }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data.ok) {
+        throw new Error(data.error || `HTTP ${r.status}`);
+      }
+      input.value = '';
+    } catch (err) {
+      setHostAskPending(false);
+      showAlert(`发送给主持人失败：${err.message}`);
+    }
+  });
+}
+
 // 服务端 WS 推 runtime 时同步进本地状态（仅当本地没有超前播放）
 export function applyRuntime(runtime, { origin } = {}) {
   if (!runtime) return;
   // 自己刚 POST 出去的状态又广播回来时，不再 play / pause / playIndex。
   if (isOwnEcho(origin, getClientId())) return;
+  if (state.standalone) {
+    // 手机独立播放模式：只在本端空队列时顺手借用一次初始歌单，之后完全不受电脑端广播打断。
+    if (!state.queue.length && Array.isArray(runtime.queue) && runtime.queue.length) {
+      state.queue = runtime.queue;
+      state.offset = runtime.queueOffset || 0;
+      const idx = Number.isFinite(runtime.index) ? runtime.index : 0;
+      state.index = Math.max(0, Math.min(idx, runtime.queue.length - 1));
+      if (runtime.lastSay && !appliedSay) setHostLineText(runtime.lastSay);
+      renderQueuePanel();
+      playIndex(state.index, { autoplay: false, startAt: 0 });
+    }
+    return;
+  }
   if ('activeAgent' in runtime) activeAgent = runtime.activeAgent || null;
   if ('scene' in runtime) paintScene(runtime.scene);
   rememberQueueMeta(runtime);
@@ -1376,15 +1605,18 @@ export function applyRuntime(runtime, { origin } = {}) {
 }
 
 // 外部 bot 推来的歌。replace 接管当前队列；append 只在没在播时开播。
-export function applyExternalQueue({ mode, tracks, say, reason, queuedAt: at, agentId, agentName } = {}) {
+export function applyExternalQueue({ mode, tracks, say, reason, queuedAt: at, agentId, agentName, targetClientId } = {}) {
+  if (targetClientId && targetClientId !== getClientId()) return;
+  // 手机独立播放模式下，忽略非定向给本机的全局电脑点歌（除非本机还没歌）。
+  if (state.standalone && !targetClientId && state.queue.length > 0) return;
   const list = Array.isArray(tracks) ? tracks.filter(track => track && track.title) : [];
   if (!list.length) return;
+  if (targetClientId === getClientId()) setHostAskPending(false);
   if (agentName || agentId) {
     activeAgent = { id: agentId || null, name: agentName || agentId || null };
   }
   if (say) {
-    appliedSay = say;
-    setConsoleDialog(say);
+    setHostLineText(say);
   }
   if (reason) lastReason = reason;
   if (at) queuedAt = at;
@@ -1418,6 +1650,56 @@ export function applyExternalQueue({ mode, tracks, say, reason, queuedAt: at, ag
   if (plan.playIndex != null) playIndex(plan.playIndex, { autoplay: true });
 }
 
+export function applyClientControl(evt = {}) {
+  if (!evt) return;
+  if (evt.targetClientId && evt.targetClientId !== getClientId()) return;
+  if (evt.targetClientId === getClientId()) setHostAskPending(false);
+  if (evt.say) setHostLineText(evt.say);
+  const cmd = String(evt.command || '').trim().toLowerCase();
+  if (!cmd) return;
+  if (cmd === 'play') {
+    if (!audio?.getAttribute('src') && state.queue.length) {
+      playIndex(state.index || 0, { autoplay: true });
+    } else {
+      attemptPlay();
+    }
+    return;
+  }
+  if (cmd === 'pause') {
+    if (audio && !audio.paused) audio.pause();
+    return;
+  }
+  if (cmd === 'toggle') {
+    togglePlayback();
+    return;
+  }
+  if (cmd === 'next') {
+    goNext({ userInitiated: true });
+    return;
+  }
+  if (cmd === 'prev') {
+    goPrev();
+    return;
+  }
+  if (cmd === 'jump') {
+    const idx = Number(evt.value);
+    if (Number.isInteger(idx) && idx >= 0 && idx < state.queue.length) {
+      playIndex(idx, { autoplay: true });
+    }
+    return;
+  }
+  if (cmd === 'volume') {
+    const vol = Number(evt.value);
+    if (Number.isFinite(vol)) applyHeardVolume(Math.max(0, Math.min(100, Math.round(vol))));
+  }
+}
+
+export function applyHostReply(evt = {}) {
+  if (!evt || !evt.text) return;
+  if (evt.targetClientId && evt.targetClientId !== getClientId()) return;
+  setHostAskPending(false, evt.text);
+}
+
 async function resumeAsLeader() {
   if (!audio) return;
   audio.muted = false;
@@ -1435,7 +1717,8 @@ async function resumeAsLeader() {
   if (playLoadIndex === idx + state.offset) return;
 
   const currentSrc = audio.getAttribute?.('src') || '';
-  if (currentSrc && t?.audioUrl && currentSrc === t.audioUrl) {
+  const targetSrc = needsRemoteCompactAudio(t) ? t?._remoteAudioUrl : t?.audioUrl;
+  if (currentSrc && targetSrc && currentSrc === targetSrc) {
     setStudioTrack(t);
     if (npBox) npBox.classList.remove('hidden');
     window.dispatchEvent(new CustomEvent('claudio:trackchange', { detail: t }));
@@ -1459,9 +1742,18 @@ async function resumeAsLeader() {
 }
 
 export function applyLeader(leader) {
+  if (state.standalone) {
+    state.isFollower = false;
+    updatePlayHereButton();
+    return;
+  }
   const prevFollower = Boolean(state.isFollower);
   const nextLeader = leader && leader.clientId
-    ? { clientId: String(leader.clientId), kind: leader.kind === 'electron' ? 'electron' : 'pwa' }
+    ? {
+      clientId: String(leader.clientId),
+      kind: leader.kind === 'electron' ? 'electron' : 'pwa',
+      claimed: Boolean(leader.claimed),
+    }
     : null;
   state.leader = nextLeader;
   const myId = getClientId();
@@ -1469,10 +1761,12 @@ export function applyLeader(leader) {
   state.isFollower = nextFollower;
 
   if (nextFollower) {
+    setPlayHerePending(false);
     activeSession = null;
     silenceFollowerAudio();
     dismissBootOverlay();
     syncFollowerStage({ forceTrackEvent: !prevFollower });
+    updatePlayHereButton();
     return;
   }
 
@@ -1481,9 +1775,12 @@ export function applyLeader(leader) {
     renderedFollowerKey = '';
     resumeAsLeader();
   }
+  setPlayHerePending(false);
+  updatePlayHereButton();
 }
 
 export function applyRemoteProgress(evt = {}) {
+  if (state.standalone) return;
   if (!evt || isOwnEcho(evt.origin, getClientId())) return;
   if (typeof evt.currentTime === 'number' && Number.isFinite(evt.currentTime)) {
     serverProgress = Math.max(0, evt.currentTime);
@@ -1520,7 +1817,8 @@ export function initPlayer() {
   document.addEventListener('keydown', markActivated, { capture: true, once: true });
 
   audio.addEventListener('ended', async () => {
-    if (state.isFollower) return;
+    if (primingGesture || state.isFollower) return;
+    if (audio.getAttribute('src') === SILENT_UNLOCK_WAV) return;
     settleActiveSession('completed');
     if (state.index < state.queue.length - 1) {
       playIndex(state.index + 1);
@@ -1535,7 +1833,8 @@ export function initPlayer() {
 
   // 歌曲加载失败（URL 过期、代理出错等）→ 跳到下一首，避免静默卡死
   audio.addEventListener('error', () => {
-    if (state.isFollower) return;
+    if (primingGesture || state.isFollower) return;
+    if (audio.getAttribute('src') === SILENT_UNLOCK_WAV) return;
     if (state.index < state.queue.length - 1) {
       playIndex(state.index + 1);
     } else {
@@ -1545,6 +1844,7 @@ export function initPlayer() {
 
   // 只对真实歌曲才清除 alert，避免 TTS 播放时把"酷狗搜索失败"之类的错误提示抹掉
   audio.addEventListener('play',  () => {
+    if (primingGesture) return;
     if (state.isFollower) {
       silenceFollowerAudio();
       return;
@@ -1560,7 +1860,8 @@ export function initPlayer() {
     }
   });
   audio.addEventListener('pause', () => {
-    if (state.isFollower) return;
+    if (primingGesture || state.isFollower) return;
+    if (audio.getAttribute('src') === SILENT_UNLOCK_WAV) return;
     updatePlayButtons(false);
     // 换 src 会先冒出一次 pause。这次正在 playIndex 里，真正的暂停由 play 事件或显式 sync 报。
     if (suppressPauseSync) return;
@@ -1617,10 +1918,32 @@ export function initPlayer() {
     });
   }
 
+  playHereBtn = $('#play-here-btn');
+  if (playHereBtn) {
+    playHereBtn.addEventListener('click', () => {
+      // 点击本身就是移动端 user gesture：手势帧内先把音频元素预热解锁，
+      // 再发认领请求；真正出声等 leader 广播。
+      markActivated();
+      if (iAmClaimedLeader()) {
+        // 归还播放权：回到默认选举（桌面在则桌面接）。
+        requestPlaybackHere(false);
+        updatePlayHereButton();
+        return;
+      }
+      setPlayHerePending(true);
+      requestPlaybackHere(true);
+      updatePlayHereButton();
+      // 手势帧内预热音源并解锁元素；若浏览器仍拒播，遮罩当第二步兜底。
+      primePlaybackInGesture();
+    });
+    updatePlayHereButton();
+  }
+
   bindConsoleControls();
   bindFeedback();
   bindQualityPicker();
   bindIntentForm();
+  bindHostAskForm();
   bindScenePills();
   updatePlayButtons(false);
   paintHostChrome();
@@ -1670,6 +1993,8 @@ export async function syncFromServer(options = {}) {
 
 async function bootCurrent({ silent = false, keepOverlay = false } = {}) {
   if (location.protocol === 'file:') return;
+  // 手机独立播放模式下重连/切回前台时不重置本机队列与播放状态。
+  if (state.standalone && state.queue.length > 0) return;
 
   try {
     const r = await fetch('/api/now');
@@ -1711,15 +2036,17 @@ async function bootCurrent({ silent = false, keepOverlay = false } = {}) {
       npBox.classList.remove('hidden');
     }
     if (data.lastSay) {
-      appliedSay = data.lastSay;
-      setConsoleDialog(data.lastSay);
+      setHostLineText(data.lastSay);
     }
     if (state.isFollower) {
       syncFollowerStage();
       return;
     }
     renderQueuePanel();
-    await playIndex(state.index, { autoplay: plan.play, startAt: serverProgress });
+    await playIndex(state.index, {
+      autoplay: state.standalone ? false : plan.play,
+      startAt: state.standalone ? 0 : serverProgress,
+    });
   } catch (err) {
     if (!silent) showAlert(`无法连接服务：${err.message}`);
   }
